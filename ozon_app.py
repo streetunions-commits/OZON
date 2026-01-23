@@ -128,6 +128,7 @@ def init_database():
             name TEXT,
             fbo_stock INTEGER DEFAULT 0,
             orders_qty INTEGER DEFAULT 0,
+            avg_position REAL DEFAULT 0,
             snapshot_date DATE NOT NULL,
             snapshot_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             notes TEXT DEFAULT '',
@@ -152,6 +153,62 @@ def get_ozon_headers():
         "Api-Key": OZON_API_KEY,
         "Content-Type": "application/json"
     }
+
+
+def load_avg_positions():
+    """Загрузка средней позиции товаров из Ozon Analytics"""
+    print("\n📊 Загрузка средней позиции товаров...")
+    
+    avg_positions = {}  # sku -> avg_position
+    
+    try:
+        offset = 0
+        while True:
+            data = {
+                "limit": 1000,
+                "offset": offset
+            }
+            
+            r = requests.post(
+                f"{OZON_HOST}/v1/analytics/data",
+                json=data,
+                headers=get_ozon_headers(),
+                timeout=15
+            )
+            
+            if r.status_code != 200:
+                print(f"  ⚠️  Ошибка при запросе позиций: {r.status_code}")
+                break
+            
+            result = r.json()
+            data_list = result.get("result", [])
+            
+            if not data_list:
+                break
+            
+            for item in data_list:
+                sku = item.get("sku")
+                position = item.get("position") or item.get("avg_position")
+                
+                if sku and position:
+                    try:
+                        position = float(position)
+                        avg_positions[sku] = position
+                    except (TypeError, ValueError):
+                        pass
+            
+            offset += 1000
+        
+        print(f"  ✅ Загружено позиций для {len(avg_positions)} товаров")
+        if avg_positions:
+            examples = list(avg_positions.items())[:3]
+            print(f"     Примеры: {examples}")
+        
+        return avg_positions
+        
+    except Exception as e:
+        print(f"  ❌ Ошибка при загрузке позиций: {e}")
+        return {}
 
 
 def load_fbo_orders():
@@ -379,6 +436,9 @@ def sync_products():
         # ✅ Загружаем заказы
         orders_by_sku = load_fbo_orders()
         
+        # ✅ Загружаем средние позиции
+        avg_positions = load_avg_positions()
+        
         # Определяем дату снимка (YYYY-MM-DD)
         from datetime import date
         snapshot_date = date.today().isoformat()
@@ -386,6 +446,7 @@ def sync_products():
         # ✅ Пишем в обе таблицы
         for sku, data in products_data.items():
             orders_qty = orders_by_sku.get(sku, 0)
+            avg_pos = avg_positions.get(sku, 0)
             
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
@@ -406,17 +467,19 @@ def sync_products():
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, snapshot_date)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, avg_position, snapshot_date)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
-                    orders_qty=excluded.orders_qty
+                    orders_qty=excluded.orders_qty,
+                    avg_position=excluded.avg_position
             ''', (
                 sku,
                 data.get("name", ""),
                 data.get("fbo_stock", 0),
                 orders_qty,
+                avg_pos,
                 snapshot_date
             ))
         
@@ -590,6 +653,15 @@ HTML_TEMPLATE = '''
             color: #ff6b6b;
         }
 
+        .position {
+            font-weight: 600;
+            color: #ff6f00;
+            font-size: 14px;
+            background: #fff3e0;
+            padding: 3px 6px;
+            border-radius: 3px;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
@@ -669,16 +741,241 @@ HTML_TEMPLATE = '''
             font-size: 13px;
             font-family: inherit;
             transition: border-color 0.2s;
+            display: none;
+            min-height: 60px;
+            resize: vertical;
         }
 
-        .note-input:focus {
-            outline: none;
+        .note-input.editing {
+            display: block;
             border-color: #667eea;
             box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
         }
 
-        .note-input::placeholder {
+        .note-display {
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            min-height: 60px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            font-size: 13px;
+            line-height: 1.5;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .note-display:hover {
+            background: #e9ecef;
+        }
+
+        .note-content {
+            flex: 1;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .note-empty {
             color: #bbb;
+            font-style: italic;
+        }
+
+        .edit-icon {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            margin-left: 10px;
+            flex-shrink: 0;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .edit-icon:hover {
+            opacity: 1;
+        }
+
+        .note-cell {
+            max-width: 250px;
+            position: relative;
+        }
+
+        .note-display {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            min-height: 80px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            font-size: 13px;
+            line-height: 1.5;
+            cursor: pointer;
+            display: flex;
+            align-items: flex-start;
+            transition: background 0.2s;
+            border: 1px solid #e9ecef;
+        }
+
+        .note-display:hover {
+            background: #e9ecef;
+        }
+
+        .note-edit-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px 6px;
+            opacity: 0.6;
+            transition: opacity 0.2s;
+            border-radius: 3px;
+        }
+
+        .note-edit-btn:hover {
+            opacity: 1;
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .note-textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 10px 12px;
+            border: 2px solid #667eea;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .note-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .note-save-btn, .note-cancel-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .note-save-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .note-save-btn:hover {
+            background: #5568d3;
+        }
+
+        .note-cancel-btn {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .note-cancel-btn:hover {
+            background: #dde1e6;
+        }
+
+        .note-cell {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            max-width: 250px;
+        }
+
+        .note-display {
+            flex: 1;
+            padding: 10px 12px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            min-height: 60px;
+            max-height: 200px;
+            overflow-y: auto;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .note-display:hover {
+            background: #f0f1f3;
+        }
+
+        .note-textarea {
+            flex: 1;
+            padding: 10px 12px;
+            border: 2px solid #667eea;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+            line-height: 1.5;
+            min-height: 60px;
+            max-height: 200px;
+            resize: vertical;
+        }
+
+        .note-textarea:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+
+        .note-edit-btn {
+            padding: 6px 8px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #999;
+            transition: color 0.2s;
+            margin-top: 2px;
+        }
+
+        .note-edit-btn:hover {
+            color: #667eea;
+        }
+
+        .note-save-btn {
+            padding: 6px 8px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+            margin-top: 2px;
+        }
+
+        .note-save-btn:hover {
+            background: #5568d3;
+        }
+
+        .note-cancel-btn {
+            padding: 6px 8px;
+            background: #ddd;
+            color: #333;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .note-cancel-btn:hover {
+            background: #ccc;
         }
         }
 
@@ -961,6 +1258,7 @@ HTML_TEMPLATE = '''
             html += '<th>SKU</th>';
             html += '<th style="text-align: right;">📦 FBO остаток</th>';
             html += '<th style="text-align: right;">📦 Заказы</th>';
+            html += '<th style="text-align: right;">📍 Средняя позиция</th>';
             html += '</tr></thead><tbody>';
             
             data.history.forEach(item => {
@@ -976,21 +1274,31 @@ HTML_TEMPLATE = '''
                 const notes = item.notes || '';
                 
                 html += `<tr>`;
-                html += `<td style="max-width: 200px;">
-                    <input 
-                        type="text" 
-                        id="${uniqueId}"
-                        class="note-input"
-                        value="${notes.replace(/"/g, '&quot;')}"
-                        placeholder="Добавьте заметку..."
-                        onchange="saveNote(${data.product_sku}, '${item.snapshot_date}', this.value)"
-                    >
+                html += `<td style="max-width: 280px;">
+                    <div class="note-cell">
+                        <div id="${uniqueId}_display" class="note-display" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')">
+                            ${notes || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>'}
+                        </div>
+                        <button class="note-edit-btn" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')" title="Редактировать">✏️</button>
+                    </div>
+                    <div id="${uniqueId}_editor" style="display: none;">
+                        <textarea 
+                            id="${uniqueId}_textarea"
+                            class="note-textarea"
+                            placeholder="Напишите заметку..."
+                        >${notes}</textarea>
+                        <div style="margin-top: 6px; display: flex; gap: 4px;">
+                            <button class="note-save-btn" onclick="saveNote('${uniqueId}', ${data.product_sku}, '${item.snapshot_date}')">Сохранить</button>
+                            <button class="note-cancel-btn" onclick="cancelEditNote('${uniqueId}')">Отмена</button>
+                        </div>
+                    </div>
                 </td>`;
                 html += `<td><strong>${dateStr}</strong></td>`;
                 html += `<td>${item.name}</td>`;
                 html += `<td><span class="sku">${item.sku}</span></td>`;
                 html += `<td style="text-align: right;"><span class="${stockClass}">${item.fbo_stock}</span></td>`;
                 html += `<td style="text-align: right;"><span class="stock">${item.orders_qty || 0}</span></td>`;
+                html += `<td style="text-align: right;"><span class="position">${item.avg_position ? item.avg_position.toFixed(1) : '—'}</span></td>`;
                 html += `</tr>`;
             });
             
@@ -998,7 +1306,21 @@ HTML_TEMPLATE = '''
             historyContent.innerHTML = html;
         }
 
-        function saveNote(sku, date, text) {
+        function startEditNote(uniqueId, sku, date) {
+            document.getElementById(uniqueId + '_display').style.display = 'none';
+            document.getElementById(uniqueId + '_editor').style.display = 'block';
+            document.getElementById(uniqueId + '_textarea').focus();
+        }
+
+        function cancelEditNote(uniqueId) {
+            document.getElementById(uniqueId + '_display').style.display = 'flex';
+            document.getElementById(uniqueId + '_editor').style.display = 'none';
+        }
+
+        function saveNote(uniqueId, sku, date) {
+            const textarea = document.getElementById(uniqueId + '_textarea');
+            const text = textarea.value;
+            
             const payload = {
                 sku: sku,
                 date: date,
@@ -1015,12 +1337,23 @@ HTML_TEMPLATE = '''
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    // Обновляем отображение
+                    const displayEl = document.getElementById(uniqueId + '_display');
+                    displayEl.innerHTML = text || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>';
+                    
+                    // Скрываем редактор
+                    document.getElementById(uniqueId + '_editor').style.display = 'none';
+                    displayEl.style.display = 'flex';
+                    
                     console.log('✅ Заметка сохранена');
                 } else {
                     alert('❌ Ошибка при сохранении: ' + data.error);
                 }
             })
-            .catch(error => console.error('Ошибка:', error));
+            .catch(error => {
+                alert('❌ Ошибка: ' + error);
+                console.error('Ошибка:', error);
+            });
         }
     </script>
 </body>
@@ -1114,6 +1447,7 @@ def get_product_history(sku):
                 sku,
                 fbo_stock,
                 orders_qty,
+                avg_position,
                 snapshot_time,
                 notes
             FROM products_history 
@@ -1188,7 +1522,7 @@ def main():
         print("\n🌐 Откройте браузер: http://localhost:5000")
         print("\n⏹️  Для остановки: Ctrl+C\n")
         
-        app.run(host='127.0.0.1', port=5000, debug=False)
+        app.run(host='127.0.0.1', port=5000, debug=True)
     else:
         print("\n❌ Ошибка при синхронизации!")
         sys.exit(1)
