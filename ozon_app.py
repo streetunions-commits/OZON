@@ -2382,7 +2382,7 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
                 html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}</strong></td>`;
                 html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}</strong></td>`;
-                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? item.adv_spend.toFixed(2) + ' ₽' : '—'}</strong></td>`;
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? Math.round(item.adv_spend) + ' ₽' : '—'}</strong></td>`;
                 html += `</tr>`;
             });
             
