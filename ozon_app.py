@@ -401,9 +401,13 @@ def load_adv_spend_by_sku(date_from, date_to):
                 try:
                     stats_data = r.json()
                     rows = stats_data if isinstance(stats_data, list) else stats_data.get("data", [])
+
+                    # DEBUG: покажем первую кампанию с данными
+                    if campaign_id == campaigns[0].get("id") or (rows and len(rows) > 0):
+                        print(f"    🔍 DEBUG ответ API: {str(stats_data)[:300]}")
                 except:
                     # Если не JSON, пробуем как CSV
-                    print(f"    ℹ️  Ответ не JSON, формат может быть CSV")
+                    print(f"    ℹ️  Ответ не JSON, формат может быть CSV: {r.text[:200]}")
                     continue
                 
                 # ✅ Шаг 3: Суммируем расходы по SKU
