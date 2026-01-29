@@ -2577,13 +2577,18 @@ def main():
     init_database()
     
     if sync_products():
+        # ✅ Получаем хост и порт из .env или используем дефолтные
+        host = os.getenv('FLASK_HOST', '0.0.0.0')  # 0.0.0.0 = доступно из сети
+        port = int(os.getenv('FLASK_PORT', '5000'))
+
         print("\n" + "="*60)
         print("✅ ГОТОВО!")
         print("="*60)
-        print("\n🌐 Откройте браузер: http://localhost:5000")
+        print(f"\n🌐 Сервер запущен на: http://{host}:{port}")
+        print(f"📱 Доступ из сети: http://ВАШ-IP:{port}")
         print("\n⏹️  Для остановки: Ctrl+C\n")
-        
-        app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False)
+
+        app.run(host=host, port=port, debug=True, use_reloader=False)
     else:
         print("\n❌ Ошибка при синхронизации!")
         sys.exit(1)
