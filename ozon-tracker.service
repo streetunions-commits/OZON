@@ -1,0 +1,48 @@
+# ============================================================================
+# SYSTEMD СЕРВИС ДЛЯ OZON TRACKER
+# ============================================================================
+#
+# Назначение: Автозапуск приложения при загрузке сервера
+#
+# Инструкция по установке:
+# 1. Замени YOUR_USERNAME на имя пользователя на сервере
+# 2. Скопируй: sudo cp ozon-tracker.service /etc/systemd/system/
+# 3. Перезагрузи демон: sudo systemctl daemon-reload
+# 4. Включи автозапуск: sudo systemctl enable ozon-tracker
+# 5. Запусти сервис: sudo systemctl start ozon-tracker
+#
+# Полезные команды:
+# - Проверить статус: sudo systemctl status ozon-tracker
+# - Посмотреть логи: sudo journalctl -u ozon-tracker -f
+# - Перезапустить: sudo systemctl restart ozon-tracker
+# - Остановить: sudo systemctl stop ozon-tracker
+#
+# ============================================================================
+
+[Unit]
+Description=Ozon FBO Tracker - Flask Application
+After=network.target
+
+[Service]
+Type=notify
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/OZON
+Environment="PATH=/home/YOUR_USERNAME/OZON/venv/bin"
+ExecStart=/home/YOUR_USERNAME/OZON/venv/bin/gunicorn --config gunicorn_config.py ozon_app:app
+
+# Автоматический перезапуск при падении
+Restart=always
+RestartSec=10
+
+# Логи
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ozon-tracker
+
+# Безопасность
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
