@@ -376,15 +376,15 @@ def load_adv_spend_by_sku(date_from, date_to):
             
             print(f"  📥 Загрузка статистики для кампании: {campaign_name} (ID: {campaign_id})...")
             
-            # Получаем статистику по товарам в этой кампании
-            stats_url = "https://api-performance.ozon.ru/api/client/statistics/campaign/product/json"
-            
+            # Получаем статистику по товарам в этой кампании (CSV формат содержит SKU!)
+            stats_url = "https://api-performance.ozon.ru/api/client/statistics/campaign/product"
+
             payload = {
                 "dateFrom": date_from,
                 "dateTo": date_to,
                 "campaignIds": [campaign_id]
             }
-            
+
             try:
                 r = requests.get(
                     stats_url,
@@ -392,38 +392,37 @@ def load_adv_spend_by_sku(date_from, date_to):
                     headers=get_ozon_performance_headers(),
                     timeout=25
                 )
-                
+
                 if r.status_code != 200:
                     print(f"    ⚠️  Ошибка для кампании {campaign_id} (status={r.status_code})")
                     continue
-                
-                # Ответ может быть JSON или CSV - пробуем парсить JSON
-                try:
-                    stats_data = r.json()
-                    rows = stats_data if isinstance(stats_data, list) else stats_data.get("data", [])
 
-                    # DEBUG: покажем первую кампанию с данными
-                    if campaign_id == campaigns[0].get("id") or (rows and len(rows) > 0):
-                        print(f"    🔍 DEBUG ответ API: {str(stats_data)[:300]}")
-                except:
-                    # Если не JSON, пробуем как CSV
-                    print(f"    ℹ️  Ответ не JSON, формат может быть CSV: {r.text[:200]}")
+                # Парсим CSV формат (содержит SKU!)
+                try:
+                    import csv
+                    import io
+
+                    csv_content = r.text
+                    reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+
+                    rows_processed = 0
+                    for row in reader:
+                        try:
+                            sku_str = row.get('sku', '').strip()
+                            cost_str = row.get('Расход, Р, с НДС', '').strip().replace(',', '.')
+
+                            if sku_str and sku_str.lower() != 'bcero' and cost_str:
+                                sku = int(sku_str)
+                                cost = float(cost_str)
+                                spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
+                                rows_processed += 1
+                        except (ValueError, TypeError, KeyError):
+                            continue
+
+                    print(f"    ✅ Обработано {rows_processed} товаров")
+                except Exception as csv_error:
+                    print(f"    ⚠️  Ошибка парсинга CSV: {csv_error}")
                     continue
-                
-                # ✅ Шаг 3: Суммируем расходы по SKU
-                for row in rows:
-                    try:
-                        # Пытаемся получить SKU - может быть в разных местах
-                        sku = row.get("sku") or row.get("product_id") or row.get("offer_id")
-                        cost = float(row.get("cost", 0) or row.get("spend", 0) or 0)
-                        
-                        if sku:
-                            sku = int(sku)
-                            spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
-                    except (ValueError, TypeError):
-                        continue
-                
-                print(f"    ✅ Обработано {len(rows)} товаров")
                 
             except Exception as e:
                 print(f"    ❌ Ошибка при обработке кампании {campaign_id}: {e}")
