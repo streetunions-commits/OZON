@@ -377,18 +377,12 @@ def load_adv_spend_by_sku(date_from, date_to):
             print(f"  📥 Загрузка статистики для кампании: {campaign_name} (ID: {campaign_id})...")
             
             # Получаем статистику по товарам в этой кампании (CSV формат содержит SKU!)
-            stats_url = "https://api-performance.ozon.ru/api/client/statistics/campaign/product"
-
-            payload = {
-                "dateFrom": date_from,
-                "dateTo": date_to,
-                "campaignIds": [campaign_id]
-            }
+            # ВАЖНО: Запрашиваем ОДНУ кампанию за раз, чтобы получить product-level детализацию
+            stats_url = f"https://api-performance.ozon.ru/api/client/statistics/campaign/product?dateFrom={date_from}&dateTo={date_to}&campaignIds={campaign_id}"
 
             try:
                 r = requests.get(
                     stats_url,
-                    params=payload,
                     headers=get_ozon_performance_headers(),
                     timeout=25
                 )
