@@ -1974,7 +1974,10 @@ HTML_TEMPLATE = '''
                 <div>
                     <h1>Ежедневный отчет</h1>
                 </div>
-                <button class="refresh-btn" onclick="location.reload()">Обновить</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="refresh-btn" onclick="syncData()" id="sync-btn">🔄 Обновить данные</button>
+                    <button class="refresh-btn" onclick="location.reload()">Обновить страницу</button>
+                </div>
             </div>
         </div>
 
@@ -2019,6 +2022,64 @@ HTML_TEMPLATE = '''
         document.addEventListener('DOMContentLoaded', function() {
             loadProductsList();
         });
+
+        // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
+
+        async function syncData() {
+            const btn = document.getElementById('sync-btn');
+            const originalText = btn.innerHTML;
+
+            try {
+                // Показываем индикатор загрузки
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Обновление...';
+                btn.style.opacity = '0.7';
+
+                const response = await fetch('/api/sync', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.innerHTML = '✅ Готово!';
+                    btn.style.backgroundColor = '#4CAF50';
+
+                    // Перезагрузим страницу через 1 секунду
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+                } else {
+                    btn.innerHTML = '❌ Ошибка';
+                    btn.style.backgroundColor = '#f44336';
+                    alert('Ошибка: ' + data.message);
+
+                    // Вернем кнопку через 2 секунды
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.backgroundColor = '';
+                        btn.style.opacity = '1';
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            } catch (error) {
+                console.error('Ошибка при синхронизации:', error);
+                btn.innerHTML = '❌ Ошибка';
+                btn.style.backgroundColor = '#f44336';
+                alert('Ошибка подключения к серверу');
+
+                // Вернем кнопку через 2 секунды
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.backgroundColor = '';
+                    btn.style.opacity = '1';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        }
 
         // ✅ НОВЫЕ ФУНКЦИИ ДЛЯ ТАБОВ И ИСТОРИИ
 
@@ -2572,6 +2633,33 @@ def download_file(filename):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sync', methods=['POST'])
+def api_sync():
+    """Обновить данные из Ozon API"""
+    try:
+        print("\n🔄 Запуск синхронизации по запросу пользователя...")
+        success = sync_products()
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Данные успешно обновлены',
+                'date': get_snapshot_date()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Ошибка при обновлении данных'
+            }), 500
+
+    except Exception as e:
+        print(f"❌ Ошибка при синхронизации: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Ошибка: {str(e)}'
+        }), 500
 
 
 # ============================================================================
