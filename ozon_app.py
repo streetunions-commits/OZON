@@ -325,8 +325,15 @@ def get_ozon_performance_headers():
 
 def load_adv_spend_by_sku(date_from, date_to):
     """
-    Загрузка расходов на рекламу по SKU через асинхронный API отчетов.
-    Использует POST /api/client/statistic/products/generate для получения данных по товарам.
+    Загрузка расходов на рекламу по SKU через Performance API.
+
+    Новая логика (для SKU кампаний "Оплата за клик"):
+    1. Получаем список активных кампаний типа SKU
+    2. Для каждой кампании получаем расход через GET /api/client/statistics/expense
+    3. Получаем товары в кампании через GET /api/client/campaign/{id}/v2/products
+    4. Распределяем расход кампании между товарами
+
+    Возвращает: {sku: adv_spend} - словарь с расходами по каждому SKU
     """
     print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
 
@@ -335,7 +342,6 @@ def load_adv_spend_by_sku(date_from, date_to):
         return {}
 
     try:
-        import time
         import csv
         import io
 
@@ -344,146 +350,112 @@ def load_adv_spend_by_sku(date_from, date_to):
             print("  ⚠️  Не удалось получить access_token для Performance API")
             return {}
 
-        # Шаг 1: Генерируем отчет по товарам
-        print("  📝 Генерация отчета по товарам...")
+        # Шаг 1: Получаем список всех активных кампаний типа SKU
+        print("  📋 Получение списка активных кампаний...")
 
-        # Конвертируем даты в RFC3339 format (2026-01-29T00:00:00Z)
-        from_dt = f"{date_from}T00:00:00Z"
-        to_dt = f"{date_to}T23:59:59Z"
-
-        generate_url = "https://api-performance.ozon.ru/api/client/statistic/products/generate"
-        payload = {
-            "from": from_dt,
-            "to": to_dt
+        campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
+        params = {
+            "advObjectType": "SKU",  # Только кампании "Оплата за клик"
+            "state": "CAMPAIGN_STATE_RUNNING"  # Только активные
         }
 
-        r = requests.post(
-            generate_url,
-            headers=headers,
-            json=payload,
-            timeout=25
-        )
+        r = requests.get(campaigns_url, headers=headers, params=params, timeout=15)
 
         if r.status_code != 200:
-            print(f"  ⚠️  Ошибка генерации отчета (status={r.status_code}): {r.text[:200]}")
+            print(f"  ⚠️  Ошибка получения кампаний (status={r.status_code})")
             return {}
 
-        response_data = r.json()
-        report_uuid = response_data.get("UUID")
+        campaigns_data = r.json()
+        campaigns = campaigns_data.get("list", [])
 
-        if not report_uuid:
-            print(f"  ⚠️  Не получен UUID отчета")
+        if not campaigns:
+            print("  ⚠️  Нет активных рекламных кампаний типа SKU")
             return {}
 
-        print(f"  ✅ Отчет создан, UUID: {report_uuid}")
+        print(f"  ✅ Найдено активных кампаний: {len(campaigns)}")
 
-        # Шаг 2: Ждем готовности отчета
-        print("  ⏳ Ожидание готовности отчета...")
+        # Шаг 2: Получаем расходы по каждой кампании
+        spend_by_sku = {}
 
-        status_url = f"https://api-performance.ozon.ru/api/client/statistics/{report_uuid}"
-        max_attempts = 30  # Максимум 30 попыток (1 минута)
-        attempt = 0
-        report_link = None
+        for campaign in campaigns:
+            campaign_id = campaign.get("id")
+            campaign_title = campaign.get("title", "Без названия")
 
-        while attempt < max_attempts:
-            time.sleep(2)  # Ждем 2 секунды между проверками
-            attempt += 1
+            print(f"\n  📊 Кампания: {campaign_title} (ID: {campaign_id})")
 
-            r = requests.get(status_url, headers=headers, timeout=15)
+            # 2.1. Получаем расход по кампании
+            expense_url = "https://api-performance.ozon.ru/api/client/statistics/expense"
+            params = {
+                "campaignIds": campaign_id,
+                "dateFrom": date_from,
+                "dateTo": date_to
+            }
+
+            r = requests.get(expense_url, headers=headers, params=params, timeout=15)
 
             if r.status_code != 200:
-                print(f"  ⚠️  Ошибка проверки статуса (attempt {attempt})")
+                print(f"     ⚠️  Ошибка получения расходов (status={r.status_code})")
                 continue
 
-            status_data = r.json()
-            state = status_data.get("state", "NOT_STARTED")
+            # Парсим CSV с расходами
+            csv_content = r.text
+            csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
 
-            if state == "OK":
-                report_link = status_data.get("link")
-                print(f"  ✅ Отчет готов! (попытка {attempt})")
-                break
-            elif state == "ERROR":
-                error_msg = status_data.get("error", "Unknown error")
-                print(f"  ❌ Ошибка генерации отчета: {error_msg}")
-                return {}
-            else:
-                print(f"  ⏳ Статус: {state} (попытка {attempt}/{max_attempts})")
+            total_campaign_spend = 0.0
+            for row in csv_reader:
+                # Колонка "Расход" содержит расход за день
+                spend_str = row.get('Расход', '0').strip().replace(',', '.')
+                try:
+                    total_campaign_spend += float(spend_str)
+                except (ValueError, TypeError):
+                    pass
 
-        if not report_link:
-            print(f"  ⚠️  Отчет не готов за {max_attempts * 2} секунд")
-            return {}
-
-        # Шаг 3: Скачиваем CSV отчет
-        print("  📥 Скачивание CSV отчета...")
-
-        # link - относительный путь, добавляем host
-        full_url = f"https://api-performance.ozon.ru{report_link}"
-
-        r = requests.get(full_url, headers=headers, timeout=30)
-
-        if r.status_code != 200:
-            print(f"  ⚠️  Ошибка скачивания отчета (status={r.status_code})")
-            return {}
-
-        csv_content = r.text
-        print(f"  ✅ CSV скачан ({len(csv_content)} байт)")
-
-        # Шаг 4: Парсим CSV
-        print("  📊 Парсинг данных...")
-
-        # 🔍 DEBUG: Показываем содержимое CSV
-        csv_lines = csv_content.split('\n')
-        print(f"  🔍 CSV содержит {len(csv_lines)} строк")
-        for i, line in enumerate(csv_lines[:5]):  # Первые 5 строк
-            print(f"  🔍 Строка {i}: {line[:200]}")
-
-        # ⚠️ ВАЖНО: Первая строка CSV - это заголовок отчета, не колонки!
-        # Пропускаем её и берем данные начиная со второй строки
-        if len(csv_lines) > 1:
-            # Убираем первую строку (заголовок отчета)
-            csv_lines = csv_lines[1:]
-            csv_content_fixed = '\n'.join(csv_lines)
-        else:
-            csv_content_fixed = csv_content
-
-        spend_by_sku = {}
-        reader = csv.DictReader(io.StringIO(csv_content_fixed), delimiter=';')
-
-        rows_processed = 0
-        for row in reader:
-            # 🔍 DEBUG: Показываем колонки в первой строке
-            if rows_processed == 0:
-                print(f"  🔍 Доступные колонки: {list(row.keys())}")
-            try:
-                sku_str = row.get('SKU', '').strip()
-                # Ищем колонку с расходом (может называться по-разному)
-                cost_str = (
-                    row.get('Расход ("Оплата за клики"), ₽') or
-                    row.get('расход, ₽') or
-                    row.get('Расход, ₽') or
-                    row.get('расход, Р') or
-                    row.get('Расход, Р') or
-                    ''
-                ).strip().replace(',', '.')
-
-                if sku_str and cost_str:
-                    try:
-                        sku = int(sku_str)
-                        cost = float(cost_str)
-                        if cost > 0:
-                            spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
-                            rows_processed += 1
-                    except (ValueError, TypeError):
-                        continue
-            except Exception:
+            if total_campaign_spend == 0:
+                print(f"     ℹ️  Расход = 0₽ (кампания без трат)")
                 continue
+
+            print(f"     💰 Расход кампании: {total_campaign_spend:.2f}₽")
+
+            # 2.2. Получаем товары в кампании
+            products_url = f"https://api-performance.ozon.ru/api/client/campaign/{campaign_id}/v2/products"
+
+            r = requests.get(products_url, headers=headers, timeout=15)
+
+            if r.status_code != 200:
+                print(f"     ⚠️  Ошибка получения товаров (status={r.status_code})")
+                # Если не можем получить товары, пропускаем кампанию
+                continue
+
+            products_data = r.json()
+            products = products_data.get("products", [])
+
+            if not products:
+                print(f"     ⚠️  В кампании нет товаров")
+                continue
+
+            print(f"     📦 Товаров в кампании: {len(products)}")
+
+            # 2.3. Распределяем расход между товарами
+            # Если товар 1 - весь расход ему
+            # Если товаров много - делим поровну (можно улучшить пропорционально кликам)
+            spend_per_product = total_campaign_spend / len(products)
+
+            for product in products:
+                sku_str = product.get("sku", "")
+                try:
+                    sku = int(sku_str)
+                    spend_by_sku[sku] = spend_by_sku.get(sku, 0) + spend_per_product
+                except (ValueError, TypeError):
+                    continue
+
+            print(f"     ✅ Расход распределен: {spend_per_product:.2f}₽ на товар")
 
         if spend_by_sku:
-            print(f"  ✅ Расходы рекламы: {len(spend_by_sku)} товаров, {rows_processed} строк обработано")
+            print(f"\n  ✅ Итого расходов по {len(spend_by_sku)} товарам")
             examples = list(spend_by_sku.items())[:3]
-            print(f"     Примеры: {examples}")
+            print(f"     Примеры: {[(sku, f'{spend:.2f}₽') for sku, spend in examples]}")
         else:
-            print(f"  ⚠️  Нет данных по расходам рекламы")
+            print(f"\n  ⚠️  Нет данных по расходам рекламы")
 
         return spend_by_sku
 
