@@ -329,11 +329,16 @@ def load_adv_spend_by_sku(date_from, date_to):
 
     Новая логика (для SKU кампаний "Оплата за клик"):
     1. Получаем список активных кампаний типа SKU
-    2. Для каждой кампании получаем расход через GET /api/client/statistics/expense
-    3. Получаем товары в кампании через GET /api/client/campaign/{id}/v2/products
-    4. Распределяем расход кампании между товарами
+    2. Для каждой кампании получаем расход через GET /api/client/statistics/expense за период
+    3. Фильтруем данные - оставляем только расходы за конкретный день (date_to)
+    4. Получаем товары в кампании через GET /api/client/campaign/{id}/v2/products
+    5. Распределяем расход за этот день между товарами
 
-    Возвращает: {sku: adv_spend} - словарь с расходами по каждому SKU
+    Параметры:
+        date_from: начало периода (для запроса данных, учитывая возможные задержки API)
+        date_to: конкретный день, за который нужны расходы
+
+    Возвращает: {sku: adv_spend} - словарь с расходами за date_to по каждому SKU
     """
     print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
 
@@ -398,23 +403,34 @@ def load_adv_spend_by_sku(date_from, date_to):
                 continue
 
             # Парсим CSV с расходами
+            # ⚠️ ВАЖНО: Фильтруем только расходы за конкретный день (date_to), а не за весь период!
             csv_content = r.text
             csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
 
             total_campaign_spend = 0.0
+            days_found = []
+
             for row in csv_reader:
-                # Колонка "Расход" содержит расход за день
-                spend_str = row.get('Расход', '0').strip().replace(',', '.')
-                try:
-                    total_campaign_spend += float(spend_str)
-                except (ValueError, TypeError):
-                    pass
+                # Колонка "Дата" содержит дату в формате ГГГГ-ММ-ДД
+                row_date = row.get('Дата', '').strip()
+
+                # Учитываем только расходы за нужный день (date_to)
+                if row_date == date_to:
+                    spend_str = row.get('Расход', '0').strip().replace(',', '.')
+                    try:
+                        day_spend = float(spend_str)
+                        total_campaign_spend += day_spend
+                        days_found.append(f"{row_date}: {day_spend:.2f}₽")
+                    except (ValueError, TypeError):
+                        pass
 
             if total_campaign_spend == 0:
-                print(f"     ℹ️  Расход = 0₽ (кампания без трат)")
+                print(f"     ℹ️  Расход за {date_to} = 0₽")
                 continue
 
-            print(f"     💰 Расход кампании: {total_campaign_spend:.2f}₽")
+            print(f"     💰 Расход за {date_to}: {total_campaign_spend:.2f}₽")
+            if days_found:
+                print(f"        {', '.join(days_found)}")
 
             # 2.2. Получаем товары в кампании
             products_url = f"https://api-performance.ozon.ru/api/client/campaign/{campaign_id}/v2/products"
@@ -451,11 +467,11 @@ def load_adv_spend_by_sku(date_from, date_to):
             print(f"     ✅ Расход распределен: {spend_per_product:.2f}₽ на товар")
 
         if spend_by_sku:
-            print(f"\n  ✅ Итого расходов по {len(spend_by_sku)} товарам")
+            print(f"\n  ✅ Расходы за {date_to}: {len(spend_by_sku)} товаров")
             examples = list(spend_by_sku.items())[:3]
             print(f"     Примеры: {[(sku, f'{spend:.2f}₽') for sku, spend in examples]}")
         else:
-            print(f"\n  ⚠️  Нет данных по расходам рекламы")
+            print(f"\n  ⚠️  Нет расходов за {date_to}")
 
         return spend_by_sku
 
