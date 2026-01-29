@@ -23,8 +23,8 @@ log_error() {
 
 log_info "Запуск автоматической синхронизации..."
 
-# Вызываем эндпоинт синхронизации
-response=$(curl -s -w "\n%{http_code}" http://127.0.0.1:8000/sync 2>&1)
+# Вызываем эндпоинт синхронизации (POST /api/sync)
+response=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:8000/api/sync 2>&1)
 
 # Разделяем тело ответа и HTTP код
 http_code=$(echo "$response" | tail -n1)
