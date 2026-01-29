@@ -27,9 +27,9 @@ After=network.target
 Type=exec
 User=YOUR_USERNAME
 Group=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/OZON
-Environment="PATH=/home/YOUR_USERNAME/OZON/venv/bin"
-ExecStart=/home/YOUR_USERNAME/OZON/venv/bin/gunicorn --config gunicorn_config.py ozon_app:app
+WorkingDirectory=OZON_APP_DIR
+Environment="PATH=OZON_APP_DIR/venv/bin"
+ExecStart=OZON_APP_DIR/venv/bin/gunicorn --config gunicorn_config.py ozon_app:app
 
 # Автоматический перезапуск при падении
 Restart=always
