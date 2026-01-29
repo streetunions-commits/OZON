@@ -1974,10 +1974,7 @@ HTML_TEMPLATE = '''
                 <div>
                     <h1>Ежедневный отчет</h1>
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <button class="refresh-btn" onclick="syncData()" id="sync-btn">🔄 Обновить данные</button>
-                    <button class="refresh-btn" onclick="location.reload()">Обновить страницу</button>
-                </div>
+                <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
             </div>
         </div>
 
