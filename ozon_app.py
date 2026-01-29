@@ -403,11 +403,24 @@ def load_adv_spend_by_sku(date_from, date_to):
                     import io
 
                     csv_content = r.text
+
+                    # 🔍 ДЕБАГ: показываем первые строки CSV
+                    csv_lines = csv_content.split('\n')
+                    print(f"    🔍 CSV содержит {len(csv_lines)} строк")
+                    if len(csv_lines) > 0:
+                        print(f"    🔍 Заголовки: {csv_lines[0][:200]}")
+                    if len(csv_lines) > 1:
+                        print(f"    🔍 Первая строка данных: {csv_lines[1][:200]}")
+
                     reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
 
                     rows_processed = 0
                     for row in reader:
                         try:
+                            # 🔍 ДЕБАГ: показываем доступные ключи в первой строке
+                            if rows_processed == 0:
+                                print(f"    🔍 Доступные колонки: {list(row.keys())[:10]}")
+
                             sku_str = row.get('sku', '').strip()
                             cost_str = row.get('Расход, Р, с НДС', '').strip().replace(',', '.')
 
@@ -416,7 +429,9 @@ def load_adv_spend_by_sku(date_from, date_to):
                                 cost = float(cost_str)
                                 spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
                                 rows_processed += 1
-                        except (ValueError, TypeError, KeyError):
+                        except (ValueError, TypeError, KeyError) as parse_error:
+                            if rows_processed == 0:  # Показываем ошибку только для первой строки
+                                print(f"    🔍 Ошибка парсинга строки: {parse_error}")
                             continue
 
                     print(f"    ✅ Обработано {rows_processed} товаров")
