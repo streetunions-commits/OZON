@@ -289,16 +289,21 @@ def load_adv_spend_by_sku(date_from, date_to):
         
         # ✅ Шаг 1: Получаем список всех кампаний
         print("  📝 Получение списка кампаний...")
-        
+
         campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
+        headers = get_ozon_performance_headers()
+        print(f"  🔍 Headers: Client-Id={headers.get('Client-Id')}, Auth={'Bearer ***' if headers.get('Authorization') else 'None'}")
+
         r = requests.get(
             campaigns_url,
-            headers=get_ozon_performance_headers(),
+            headers=headers,
             timeout=25
         )
         
         if r.status_code != 200:
             print(f"  ⚠️  Ошибка при получении кампаний (status={r.status_code})")
+            print(f"  🔍 URL: {campaigns_url}")
+            print(f"  🔍 Response: {r.text[:500]}")
             return {}
         
         campaigns_data = r.json()
