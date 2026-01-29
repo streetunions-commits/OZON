@@ -2326,14 +2326,14 @@ HTML_TEMPLATE = '''
                 html += `<td><span class="sku">${item.sku}</span></td>`;
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
                 html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}</span></td>`;
-                html += `<td><span class="position">${item.avg_position ? item.avg_position.toFixed(1) : '—'}</span></td>`;
+                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}</span></td>`;
                 html += `<td><strong>${formatNumber(item.hits_view_search || 0)}</strong></td>`;
                 html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}</strong></td>`;
-                html += `<td><strong>${item.search_ctr ? item.search_ctr.toFixed(2) : '—'}${item.search_ctr ? '%' : ''}</strong></td>`;
+                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}</strong></td>`;
                 html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
-                html += `<td><strong>${item.cr1 ? item.cr1.toFixed(2) : '—'}${item.cr1 ? '%' : ''}</strong></td>`;
-                html += `<td><strong>${item.cr2 ? item.cr2.toFixed(2) : '—'}${item.cr2 ? '%' : ''}</strong></td>`;
-                html += `<td><strong>${item.adv_spend ? item.adv_spend.toFixed(2) : '—'}${item.adv_spend ? '₽' : ''}</strong></td>`;
+                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}</strong></td>`;
+                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}</strong></td>`;
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? item.adv_spend.toFixed(2) + ' ₽' : '—'}</strong></td>`;
                 html += `</tr>`;
             });
             
