@@ -324,128 +324,144 @@ def get_ozon_performance_headers():
 
 
 def load_adv_spend_by_sku(date_from, date_to):
-    """Загрузка расходов на рекламу по SKU за период"""
+    """
+    Загрузка расходов на рекламу по SKU через асинхронный API отчетов.
+    Использует POST /api/client/statistic/products/generate для получения данных по товарам.
+    """
     print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
 
     if not OZON_PERFORMANCE_API_KEY or not OZON_PERFORMANCE_CLIENT_ID:
         print("  ⚠️  Performance API ключи не установлены - пропускаю рекламные расходы")
         return {}
-    
+
     try:
-        spend_by_sku = {}
-        
-        # ✅ Шаг 1: Получаем список всех кампаний
-        print("  📝 Получение списка кампаний...")
+        import time
+        import csv
+        import io
 
-        campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
         headers = get_ozon_performance_headers()
-
         if not headers:
             print("  ⚠️  Не удалось получить access_token для Performance API")
             return {}
 
-        print(f"  🔍 Headers: Auth={'Bearer ***' if headers.get('Authorization') else 'None'}")
+        # Шаг 1: Генерируем отчет по товарам
+        print("  📝 Генерация отчета по товарам...")
 
-        r = requests.get(
-            campaigns_url,
+        # Конвертируем даты в RFC3339 format (2026-01-29T00:00:00Z)
+        from_dt = f"{date_from}T00:00:00Z"
+        to_dt = f"{date_to}T23:59:59Z"
+
+        generate_url = "https://api-performance.ozon.ru/api/client/statistic/products/generate"
+        payload = {
+            "from": from_dt,
+            "to": to_dt
+        }
+
+        r = requests.post(
+            generate_url,
             headers=headers,
+            json=payload,
             timeout=25
         )
-        
+
         if r.status_code != 200:
-            print(f"  ⚠️  Ошибка при получении кампаний (status={r.status_code})")
-            print(f"  🔍 URL: {campaigns_url}")
-            print(f"  🔍 Response: {r.text[:500]}")
+            print(f"  ⚠️  Ошибка генерации отчета (status={r.status_code}): {r.text[:200]}")
             return {}
-        
-        campaigns_data = r.json()
-        campaigns = campaigns_data.get("list", [])
-        print(f"  ✅ Получено {len(campaigns)} кампаний")
-        
-        if not campaigns:
-            print("  ⚠️  Нет активных кампаний")
-            return {}
-        
-        # ✅ Шаг 2: Для каждой кампании получаем статистику по товарам
-        for campaign in campaigns:
-            campaign_id = campaign.get("id")
-            campaign_name = campaign.get("title", "Unknown")
-            
-            if not campaign_id:
-                continue
-            
-            print(f"  📥 Загрузка статистики для кампании: {campaign_name} (ID: {campaign_id})...")
-            
-            # Получаем статистику по товарам в этой кампании (CSV формат содержит SKU!)
-            # ВАЖНО: Запрашиваем ОДНУ кампанию за раз, чтобы получить product-level детализацию
-            stats_url = f"https://api-performance.ozon.ru/api/client/statistics/campaign/product?dateFrom={date_from}&dateTo={date_to}&campaignIds={campaign_id}"
 
+        response_data = r.json()
+        report_uuid = response_data.get("UUID")
+
+        if not report_uuid:
+            print(f"  ⚠️  Не получен UUID отчета")
+            return {}
+
+        print(f"  ✅ Отчет создан, UUID: {report_uuid}")
+
+        # Шаг 2: Ждем готовности отчета
+        print("  ⏳ Ожидание готовности отчета...")
+
+        status_url = f"https://api-performance.ozon.ru/api/client/statistics/{report_uuid}"
+        max_attempts = 30  # Максимум 30 попыток (1 минута)
+        attempt = 0
+        report_link = None
+
+        while attempt < max_attempts:
+            time.sleep(2)  # Ждем 2 секунды между проверками
+            attempt += 1
+
+            r = requests.get(status_url, headers=headers, timeout=15)
+
+            if r.status_code != 200:
+                print(f"  ⚠️  Ошибка проверки статуса (attempt {attempt})")
+                continue
+
+            status_data = r.json()
+            state = status_data.get("state", "NOT_STARTED")
+
+            if state == "OK":
+                report_link = status_data.get("link")
+                print(f"  ✅ Отчет готов! (попытка {attempt})")
+                break
+            elif state == "ERROR":
+                error_msg = status_data.get("error", "Unknown error")
+                print(f"  ❌ Ошибка генерации отчета: {error_msg}")
+                return {}
+            else:
+                print(f"  ⏳ Статус: {state} (попытка {attempt}/{max_attempts})")
+
+        if not report_link:
+            print(f"  ⚠️  Отчет не готов за {max_attempts * 2} секунд")
+            return {}
+
+        # Шаг 3: Скачиваем CSV отчет
+        print("  📥 Скачивание CSV отчета...")
+
+        # link - относительный путь, добавляем host
+        full_url = f"https://api-performance.ozon.ru{report_link}"
+
+        r = requests.get(full_url, headers=headers, timeout=30)
+
+        if r.status_code != 200:
+            print(f"  ⚠️  Ошибка скачивания отчета (status={r.status_code})")
+            return {}
+
+        csv_content = r.text
+        print(f"  ✅ CSV скачан ({len(csv_content)} байт)")
+
+        # Шаг 4: Парсим CSV
+        print("  📊 Парсинг данных...")
+
+        spend_by_sku = {}
+        reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+
+        rows_processed = 0
+        for row in reader:
             try:
-                r = requests.get(
-                    stats_url,
-                    headers=get_ozon_performance_headers(),
-                    timeout=25
-                )
+                sku_str = row.get('SKU', '').strip()
+                # Ищем колонку с расходом (может называться по-разному)
+                cost_str = (row.get('расход, ₽') or row.get('Расход, ₽') or row.get('расход, Р') or row.get('Расход, Р') or '').strip().replace(',', '.')
 
-                if r.status_code != 200:
-                    print(f"    ⚠️  Ошибка для кампании {campaign_id} (status={r.status_code})")
-                    continue
-
-                # Парсим CSV формат (содержит SKU!)
-                try:
-                    import csv
-                    import io
-
-                    csv_content = r.text
-
-                    # 🔍 ДЕБАГ: показываем первые строки CSV
-                    csv_lines = csv_content.split('\n')
-                    print(f"    🔍 CSV содержит {len(csv_lines)} строк")
-                    if len(csv_lines) > 0:
-                        print(f"    🔍 Заголовки: {csv_lines[0][:200]}")
-                    if len(csv_lines) > 1:
-                        print(f"    🔍 Первая строка данных: {csv_lines[1][:200]}")
-
-                    reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
-
-                    rows_processed = 0
-                    for row in reader:
-                        try:
-                            # 🔍 ДЕБАГ: показываем доступные ключи в первой строке
-                            if rows_processed == 0:
-                                print(f"    🔍 Доступные колонки: {list(row.keys())[:10]}")
-
-                            sku_str = row.get('sku', '').strip()
-                            cost_str = row.get('Расход, Р, с НДС', '').strip().replace(',', '.')
-
-                            if sku_str and sku_str.lower() != 'bcero' and cost_str:
-                                sku = int(sku_str)
-                                cost = float(cost_str)
-                                spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
-                                rows_processed += 1
-                        except (ValueError, TypeError, KeyError) as parse_error:
-                            if rows_processed == 0:  # Показываем ошибку только для первой строки
-                                print(f"    🔍 Ошибка парсинга строки: {parse_error}")
-                            continue
-
-                    print(f"    ✅ Обработано {rows_processed} товаров")
-                except Exception as csv_error:
-                    print(f"    ⚠️  Ошибка парсинга CSV: {csv_error}")
-                    continue
-                
-            except Exception as e:
-                print(f"    ❌ Ошибка при обработке кампании {campaign_id}: {e}")
+                if sku_str and cost_str:
+                    try:
+                        sku = int(sku_str)
+                        cost = float(cost_str)
+                        if cost > 0:
+                            spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
+                            rows_processed += 1
+                    except (ValueError, TypeError):
+                        continue
+            except Exception:
                 continue
-        
+
         if spend_by_sku:
-            print(f"  ✅ Расходы рекламы: {len(spend_by_sku)} товаров")
+            print(f"  ✅ Расходы рекламы: {len(spend_by_sku)} товаров, {rows_processed} строк обработано")
             examples = list(spend_by_sku.items())[:3]
             print(f"     Примеры: {examples}")
         else:
             print(f"  ⚠️  Нет данных по расходам рекламы")
-        
+
         return spend_by_sku
-        
+
     except Exception as e:
         print(f"  ❌ Ошибка при загрузке расходов рекламы: {e}")
         import traceback
