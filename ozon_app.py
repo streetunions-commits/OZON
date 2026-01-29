@@ -431,11 +431,20 @@ def load_adv_spend_by_sku(date_from, date_to):
         # Шаг 4: Парсим CSV
         print("  📊 Парсинг данных...")
 
+        # 🔍 DEBUG: Показываем содержимое CSV
+        csv_lines = csv_content.split('\n')
+        print(f"  🔍 CSV содержит {len(csv_lines)} строк")
+        for i, line in enumerate(csv_lines[:5]):  # Первые 5 строк
+            print(f"  🔍 Строка {i}: {line[:200]}")
+
         spend_by_sku = {}
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
 
         rows_processed = 0
         for row in reader:
+            # 🔍 DEBUG: Показываем колонки в первой строке
+            if rows_processed == 0:
+                print(f"  🔍 Доступные колонки: {list(row.keys())}")
             try:
                 sku_str = row.get('SKU', '').strip()
                 # Ищем колонку с расходом (может называться по-разному)
