@@ -1,7 +1,41 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git add:*)"
+      "Bash(*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(cd:*)",
+      "Bash(python:*)",
+      "Bash(ssh root@89.111.174.54 'cd /root/OZON && bash deploy.sh --update')",
+      "Bash(ssh -o StrictHostKeyChecking=no root@89.111.174.54 'cd /root/OZON && bash deploy.sh --update')",
+      "Bash(ssh root@89.167.25.21 \"cd /root/OZON && git pull origin main\")",
+      "Bash(ssh root@89.167.25.21 \"sudo pkill -9 gunicorn && sudo systemctl start ozon-tracker\")",
+      "Bash(ssh root@89.167.25.21 \"sudo systemctl status ozon-tracker --no-pager\")",
+      "Bash(ssh root@89.167.25.21 \"tail -100 /var/log/ozon-tracker/error.log | grep -A 5 -B 5 ''Загружаем расходы''\")",
+      "Bash(ssh root@89.167.25.21 \"tail -200 /var/log/ozon-tracker/error.log\")",
+      "Bash(ssh root@89.167.25.21 \"journalctl -u ozon-tracker -n 100 --no-pager | grep -E ''\\(Загружаем расходы|CSV содержит|Доступные колонки|Расходы рекламы|Нет данных\\)''\")",
+      "Bash(ssh root@89.167.25.21 \"journalctl -u ozon-tracker -n 200 --no-pager | grep -A 10 ''CSV содержит''\")",
+      "Bash(scp:*)",
+      "Bash(ssh root@89.167.25.21 \"cd /root/OZON && /root/OZON/venv/bin/python3 check_campaigns.py\")",
+      "Bash(ssh root@89.167.25.21 \"cd /root/OZON && ls -la | grep env\")",
+      "Bash(ssh root@89.167.25.21 \"cd /root/OZON && source .env && /root/OZON/venv/bin/python3 -c \"\"\nimport requests\nimport os\n\nCLIENT_ID = os.environ.get\\(''OZON_PERFORMANCE_CLIENT_ID''\\)\nCLIENT_SECRET = os.environ.get\\(''OZON_PERFORMANCE_API_KEY''\\)\n\nprint\\(f''CLIENT_ID: {CLIENT_ID[:20] if CLIENT_ID else None}...''\\)\nprint\\(f''CLIENT_SECRET: {CLIENT_SECRET[:20] if CLIENT_SECRET else None}...''\\)\n\n# Получаем токен\ntoken_url = ''https://api-performance.ozon.ru/api/client/token''\ntoken_payload = {\n    ''client_id'': CLIENT_ID,\n    ''client_secret'': CLIENT_SECRET,\n    ''grant_type'': ''client_credentials''\n}\n\nr = requests.post\\(token_url, json=token_payload, timeout=15\\)\nif r.status_code != 200:\n    print\\(f''Ошибка токена: {r.status_code} - {r.text}''\\)\n    exit\\(1\\)\n\naccess_token = r.json\\(\\).get\\(''access_token''\\)\nprint\\(f''✅ Токен получен''\\)\n\n# Получаем кампании\nheaders = {''Authorization'': f''Bearer {access_token}''}\nr = requests.get\\(''https://api-performance.ozon.ru/api/client/campaign'', headers=headers, timeout=15\\)\n\nif r.status_code != 200:\n    print\\(f''Ошибка кампаний: {r.status_code} - {r.text}''\\)\n    exit\\(1\\)\n\ndata = r.json\\(\\)\ncampaigns = data.get\\(''list'', []\\)\nprint\\(f''\\\\n✅ Найдено кампаний: {len\\(campaigns\\)}\\\\n''\\)\n\nfor camp in campaigns:\n    print\\(f\"\"Кампания: {camp.get\\(''title'', ''Без названия''\\)}\"\"\\)\n    print\\(f\"\"  ID: {camp.get\\(''id''\\)}\"\"\\)\n    print\\(f\"\"  Тип: {camp.get\\(''advObjectType''\\)}\"\"\\)\n    print\\(f\"\"  Статус: {camp.get\\(''state''\\)}\"\"\\)\n    print\\(\\)\n\"\"\")",
+      "Bash(ssh root@89.167.25.21 \"cat > /root/OZON/check_camps.py << ''EOFPYTHON''\nimport requests\nimport os\n\n# Загружаем .env\nwith open\\(''/root/OZON/.env''\\) as f:\n    for line in f:\n        line = line.strip\\(\\)\n        if line and not line.startswith\\(''#''\\) and ''='' in line:\n            key, value = line.split\\(''='', 1\\)\n            os.environ[key] = value\n\nCLIENT_ID = os.environ.get\\(''OZON_PERFORMANCE_CLIENT_ID''\\)\nCLIENT_SECRET = os.environ.get\\(''OZON_PERFORMANCE_API_KEY''\\)\n\nprint\\(f''CLIENT_ID: {CLIENT_ID[:20] if CLIENT_ID else None}...''\\)\n\n# Получаем токен\ntoken_url = ''https://api-performance.ozon.ru/api/client/token''\ntoken_payload = {\n    ''client_id'': CLIENT_ID,\n    ''client_secret'': CLIENT_SECRET,\n    ''grant_type'': ''client_credentials''\n}\n\nr = requests.post\\(token_url, json=token_payload, timeout=15\\)\nif r.status_code != 200:\n    print\\(f''Ошибка токена: {r.status_code} - {r.text}''\\)\n    exit\\(1\\)\n\naccess_token = r.json\\(\\).get\\(''access_token''\\)\nprint\\(f''Токен получен''\\)\n\n# Получаем кампании\nheaders = {''Authorization'': f''Bearer {access_token}''}\nr = requests.get\\(''https://api-performance.ozon.ru/api/client/campaign'', headers=headers, timeout=15\\)\n\nif r.status_code != 200:\n    print\\(f''Ошибка: {r.status_code} - {r.text}''\\)\n    exit\\(1\\)\n\ndata = r.json\\(\\)\ncampaigns = data.get\\(''list'', []\\)\nprint\\(f''Найдено кампаний: {len\\(campaigns\\)}\\\\n''\\)\n\nfor camp in campaigns:\n    print\\(f\"\"Название: {camp.get\\(''title'', ''Без названия''\\)}\"\"\\)\n    print\\(f\"\"ID: {camp.get\\(''id''\\)}\"\"\\)\n    print\\(f\"\"Тип: {camp.get\\(''advObjectType''\\)}\"\"\\)\n    print\\(f\"\"Статус: {camp.get\\(''state''\\)}\"\"\\)\n    print\\(\\)\nEOFPYTHON\n\")",
+      "Bash(ssh root@89.167.25.21 \"/root/OZON/venv/bin/python3 /root/OZON/check_camps.py\")",
+      "Bash(ssh root@89.167.25.21 \"cat > /root/OZON/test_expense.py << ''EOFPY''\nimport requests, os, json\nfrom datetime import datetime, timedelta\n\n# Загружаем .env\nwith open\\(''/root/OZON/.env''\\) as f:\n    for line in f:\n        line = line.strip\\(\\)\n        if line and not line.startswith\\(''#''\\) and ''='' in line:\n            key, value = line.split\\(''='', 1\\)\n            os.environ[key] = value\n\nCLIENT_ID = os.environ.get\\(''OZON_PERFORMANCE_CLIENT_ID''\\)\nCLIENT_SECRET = os.environ.get\\(''OZON_PERFORMANCE_API_KEY''\\)\n\n# Получаем токен\nr = requests.post\\(''https://api-performance.ozon.ru/api/client/token'',\n                  json={''client_id'': CLIENT_ID, ''client_secret'': CLIENT_SECRET, ''grant_type'': ''client_credentials''},\n                  timeout=15\\)\naccess_token = r.json\\(\\).get\\(''access_token''\\)\nheaders = {''Authorization'': f''Bearer {access_token}''}\n\n# Тестируем активную кампанию \"\"тест\"\" \\(ID: 22146448\\)\ncampaign_id = ''22146448''\ndate_to = datetime.now\\(\\).date\\(\\).isoformat\\(\\)\ndate_from = \\(datetime.now\\(\\) - timedelta\\(days=7\\)\\).date\\(\\).isoformat\\(\\)\n\nprint\\(f''Тест кампании {campaign_id} \\({date_from} - {date_to}\\)\\\\n''\\)\n\n# 1. Статистика по кампании \\(общая\\)\nprint\\(''1. GET /api/client/statistics/expense''\\)\nurl = f''https://api-performance.ozon.ru/api/client/statistics/expense?campaignIds={campaign_id}&dateFrom={date_from}&dateTo={date_to}''\nr = requests.get\\(url, headers=headers, timeout=15\\)\nprint\\(f''Status: {r.status_code}''\\)\nif r.status_code == 200:\n    print\\(f''Content \\({len\\(r.text\\)} bytes\\):''\\)\n    print\\(r.text[:500]\\)\nprint\\(\\)\n\n# 2. Статистика по товарам в кампании\nprint\\(''2. GET /api/client/statistics/campaign/product''\\)\nurl = f''https://api-performance.ozon.ru/api/client/statistics/campaign/product?campaignIds={campaign_id}&dateFrom={date_from}&dateTo={date_to}''\nr = requests.get\\(url, headers=headers, timeout=15\\)\nprint\\(f''Status: {r.status_code}''\\)\nif r.status_code == 200:\n    print\\(f''Content \\({len\\(r.text\\)} bytes\\):''\\)\n    print\\(r.text[:500]\\)\nEOFPY\n\")",
+      "Bash(/root/OZON/venv/bin/python3:*)",
+      "Bash(ssh:*)",
+      "Bash(python3:*)",
+      "Bash(git config:*)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"c:\\\\Users\\\\stree\\\\Documents\\\\GIT_OZON\\\\setup-ssh-agent.ps1\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"fix-ssh.ps1\")",
+      "Bash(powershell.exe -Command \"Start-Service ssh-agent -ErrorAction SilentlyContinue; ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''SSH agent started and key added''\")",
+      "Bash(ssh-keygen:*)",
+      "Bash(powershell.exe -Command \"Get-Service ssh-agent | Select-Object Status, StartType\")",
+      "Bash(powershell.exe -Command \"ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''''; Write-Host ''Checking SSH connection...''; ssh -T git@github.com 2>&1\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\stree\\Documents\\GIT_OZON\\.claude"
     ]
   }
 }
