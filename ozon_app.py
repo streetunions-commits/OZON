@@ -409,10 +409,15 @@ def load_adv_spend_by_sku(date_from, date_to):
 
             total_campaign_spend = 0.0
             days_found = []
+            all_dates_in_csv = []  # DEBUG: собираем все даты из CSV
 
             for row in csv_reader:
                 # Колонка "Дата" содержит дату в формате ГГГГ-ММ-ДД
                 row_date = row.get('Дата', '').strip()
+
+                # DEBUG: собираем все даты
+                if row_date:
+                    all_dates_in_csv.append(row_date)
 
                 # Учитываем только расходы за нужный день (date_to)
                 if row_date == date_to:
@@ -423,6 +428,11 @@ def load_adv_spend_by_sku(date_from, date_to):
                         days_found.append(f"{row_date}: {day_spend:.2f}₽")
                     except (ValueError, TypeError):
                         pass
+
+            # DEBUG: показываем какие даты нашли в CSV
+            if all_dates_in_csv:
+                print(f"     🔍 DEBUG: Даты в CSV: {set(all_dates_in_csv)}")
+                print(f"     🔍 DEBUG: Ищем дату: {date_to}")
 
             if total_campaign_spend == 0:
                 print(f"     ℹ️  Расход за {date_to} = 0₽")
