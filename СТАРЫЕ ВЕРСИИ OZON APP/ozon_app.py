@@ -100,10 +100,6 @@ load_env_variables()
 OZON_CLIENT_ID = os.environ.get("OZON_CLIENT_ID")
 OZON_API_KEY = os.environ.get("OZON_API_KEY")
 
-# ✅ Ключи для Ozon Performance API (реклама)
-OZON_PERFORMANCE_CLIENT_ID = os.environ.get("OZON_PERFORMANCE_CLIENT_ID")
-OZON_PERFORMANCE_API_KEY = os.environ.get("OZON_PERFORMANCE_API_KEY")
-
 # ✅ Проверяем что ключи установлены
 if not OZON_CLIENT_ID or not OZON_API_KEY:
     import os.path
@@ -118,9 +114,6 @@ if not OZON_CLIENT_ID or not OZON_API_KEY:
     print("   Содержимое .env:")
     print("   OZON_CLIENT_ID=138926")
     print("   OZON_API_KEY=***REDACTED***")
-    print("\n📢 Дополнительно для Performance API (реклама):")
-    print("   OZON_PERFORMANCE_CLIENT_ID=твой_performance_client_id")
-    print("   OZON_PERFORMANCE_API_KEY=твой_performance_api_key")
     sys.exit(1)
 
 OZON_HOST = "https://api-seller.ozon.ru"
@@ -188,200 +181,17 @@ def init_database():
                      "ALTER TABLE products_history ADD COLUMN impressions INTEGER DEFAULT 0"):
         print("✅ Столбец impressions добавлен в products_history")
     
-    # ✅ Добавляем столбец ctr если его нет (миграция)
-    if ensure_column(cursor, "products_history", "ctr",
-                     "ALTER TABLE products_history ADD COLUMN ctr REAL DEFAULT 0"):
-        print("✅ Столбец ctr добавлен в products_history")
-    
-    # ✅ Добавляем столбцы для показов и конверсии
-    if ensure_column(cursor, "products_history", "hits_view_search",
-                     "ALTER TABLE products_history ADD COLUMN hits_view_search INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_view_search добавлен в products_history")
-    
-    if ensure_column(cursor, "products_history", "hits_view_search_pdp",
-                     "ALTER TABLE products_history ADD COLUMN hits_view_search_pdp INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_view_search_pdp добавлен в products_history")
-    
-    if ensure_column(cursor, "products_history", "search_ctr",
-                     "ALTER TABLE products_history ADD COLUMN search_ctr REAL DEFAULT 0"):
-        print("✅ Столбец search_ctr добавлен в products_history")
-    
-    # ✅ Добавляем колонки в products таблицу
-    if ensure_column(cursor, "products", "hits_view_search",
-                     "ALTER TABLE products ADD COLUMN hits_view_search INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_view_search добавлен в products")
-    
-    if ensure_column(cursor, "products", "hits_view_search_pdp",
-                     "ALTER TABLE products ADD COLUMN hits_view_search_pdp INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_view_search_pdp добавлен в products")
-    
-    if ensure_column(cursor, "products", "search_ctr",
-                     "ALTER TABLE products ADD COLUMN search_ctr REAL DEFAULT 0"):
-        print("✅ Столбец search_ctr добавлен в products")
-    
-    # ✅ Добавляем колонки для "В корзину" и CR1
-    if ensure_column(cursor, "products_history", "hits_add_to_cart",
-                     "ALTER TABLE products_history ADD COLUMN hits_add_to_cart INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_add_to_cart добавлен в products_history")
-    
-    if ensure_column(cursor, "products_history", "cr1",
-                     "ALTER TABLE products_history ADD COLUMN cr1 REAL DEFAULT 0"):
-        print("✅ Столбец cr1 добавлен в products_history")
-    
-    if ensure_column(cursor, "products", "hits_add_to_cart",
-                     "ALTER TABLE products ADD COLUMN hits_add_to_cart INTEGER DEFAULT 0"):
-        print("✅ Столбец hits_add_to_cart добавлен в products")
-    
-    if ensure_column(cursor, "products", "cr1",
-                     "ALTER TABLE products ADD COLUMN cr1 REAL DEFAULT 0"):
-        print("✅ Столбец cr1 добавлен в products")
-    
-    # ✅ Добавляем колонку для CR2
-    if ensure_column(cursor, "products_history", "cr2",
-                     "ALTER TABLE products_history ADD COLUMN cr2 REAL DEFAULT 0"):
-        print("✅ Столбец cr2 добавлен в products_history")
-    
-    if ensure_column(cursor, "products", "cr2",
-                     "ALTER TABLE products ADD COLUMN cr2 REAL DEFAULT 0"):
-        print("✅ Столбец cr2 добавлен в products")
-    
-    # ✅ Добавляем колонку для расходов на рекламу
-    if ensure_column(cursor, "products_history", "adv_spend",
-                     "ALTER TABLE products_history ADD COLUMN adv_spend REAL DEFAULT 0"):
-        print("✅ Столбец adv_spend добавлен в products_history")
-    
-    if ensure_column(cursor, "products", "adv_spend",
-                     "ALTER TABLE products ADD COLUMN adv_spend REAL DEFAULT 0"):
-        print("✅ Столбец adv_spend добавлен в products")
-    
     conn.commit()
     conn.close()
 
 
 def get_ozon_headers():
-    """Заголовки для запросов к Ozon Seller API"""
+    """Заголовки для запросов к Ozon API"""
     return {
         "Client-Id": OZON_CLIENT_ID,
         "Api-Key": OZON_API_KEY,
         "Content-Type": "application/json"
     }
-
-
-def get_ozon_performance_headers():
-    """Заголовки для запросов к Ozon Performance API (реклама)"""
-    return {
-        "Authorization": f"Bearer {OZON_PERFORMANCE_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-
-def load_adv_spend_by_sku(date_from, date_to):
-    """Загрузка расходов на рекламу по SKU за период"""
-    print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
-    
-    if not OZON_PERFORMANCE_API_KEY:
-        print("  ⚠️  Performance API ключ не установлен - пропускаю рекламные расходы")
-        return {}
-    
-    try:
-        spend_by_sku = {}
-        
-        # ✅ Шаг 1: Получаем список всех кампаний
-        print("  📝 Получение списка кампаний...")
-        
-        campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
-        r = requests.get(
-            campaigns_url,
-            headers=get_ozon_performance_headers(),
-            timeout=25
-        )
-        
-        if r.status_code != 200:
-            print(f"  ⚠️  Ошибка при получении кампаний (status={r.status_code})")
-            return {}
-        
-        campaigns_data = r.json()
-        campaigns = campaigns_data.get("list", [])
-        print(f"  ✅ Получено {len(campaigns)} кампаний")
-        
-        if not campaigns:
-            print("  ⚠️  Нет активных кампаний")
-            return {}
-        
-        # ✅ Шаг 2: Для каждой кампании получаем статистику по товарам
-        for campaign in campaigns:
-            campaign_id = campaign.get("id")
-            campaign_name = campaign.get("title", "Unknown")
-            
-            if not campaign_id:
-                continue
-            
-            print(f"  📥 Загрузка статистики для кампании: {campaign_name} (ID: {campaign_id})...")
-            
-            # Получаем статистику по товарам в этой кампании
-            stats_url = "https://api-performance.ozon.ru/api/client/statistics/campaign/product/json"
-            
-            payload = {
-                "dateFrom": date_from,
-                "dateTo": date_to,
-                "campaignIds": [campaign_id]
-            }
-            
-            try:
-                r = requests.get(
-                    stats_url,
-                    params=payload,
-                    headers=get_ozon_performance_headers(),
-                    timeout=25
-                )
-                
-                if r.status_code != 200:
-                    print(f"    ⚠️  Ошибка для кампании {campaign_id} (status={r.status_code})")
-                    continue
-                
-                # Ответ может быть JSON или CSV - пробуем парсить JSON
-                try:
-                    stats_data = r.json()
-                    rows = stats_data if isinstance(stats_data, list) else stats_data.get("data", [])
-                except:
-                    # Если не JSON, пробуем как CSV
-                    print(f"    ℹ️  Ответ не JSON, формат может быть CSV")
-                    continue
-                
-                # ✅ Шаг 3: Суммируем расходы по SKU
-                for row in rows:
-                    try:
-                        # Пытаемся получить SKU - может быть в разных местах
-                        sku = row.get("sku") or row.get("product_id") or row.get("offer_id")
-                        cost = float(row.get("cost", 0) or row.get("spend", 0) or 0)
-                        
-                        if sku:
-                            sku = int(sku)
-                            spend_by_sku[sku] = spend_by_sku.get(sku, 0) + cost
-                    except (ValueError, TypeError):
-                        continue
-                
-                print(f"    ✅ Обработано {len(rows)} товаров")
-                
-            except Exception as e:
-                print(f"    ❌ Ошибка при обработке кампании {campaign_id}: {e}")
-                continue
-        
-        if spend_by_sku:
-            print(f"  ✅ Расходы рекламы: {len(spend_by_sku)} товаров")
-            examples = list(spend_by_sku.items())[:3]
-            print(f"     Примеры: {examples}")
-        else:
-            print(f"  ⚠️  Нет данных по расходам рекламы")
-        
-        return spend_by_sku
-        
-    except Exception as e:
-        print(f"  ❌ Ошибка при загрузке расходов рекламы: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
-
 
 
 def load_avg_positions():
@@ -479,377 +289,7 @@ def load_avg_positions():
         return {}
 
 
-def load_conversion():
-    """Загрузка конверсии (CTR) - запрашиваем обе метрики и считаем CTR вручную"""
-    print("\n📊 Загрузка конверсии CTR (поиск→карточка)...")
-    
-    try:
-        snapshot_date = get_snapshot_date()
-        d0 = datetime.fromisoformat(snapshot_date).date()
-        d1 = d0 + timedelta(days=1)
-        
-        # Запрашиваем ОБЕ метрики одновременно
-        data = {
-            "date_from": d0.isoformat(),
-            "date_to": d1.isoformat(),
-            "metrics": ["hits_view_search", "hits_view_search_pdp"],  # Показы и переходы в карточку
-            "dimension": ["sku"],
-            "limit": 1000,
-            "offset": 0
-        }
-        
-        print(f"  📅 Период: {d0.isoformat()} → {d1.isoformat()}")
-        
-        r = requests.post(
-            f"{OZON_HOST}/v1/analytics/data",
-            json=data,
-            headers=get_ozon_headers(),
-            timeout=15
-        )
-        
-        print(f"  📥 /v1/analytics/data CTR status={r.status_code}")
-        
-        if r.status_code != 200:
-            j = r.json()
-            msg = j.get("message") or j.get("error") or str(j)
-            print(f"  ⚠️ Ошибка: {msg}")
-            return {}
-        
-        j = r.json()
-        result = j.get("result") or {}
-        rows = result.get("data") or []
-        
-        # DEBUG
-        totals = result.get("totals")
-        print(f"  🔎 totals={totals} (2 метрики), data_len={len(rows)}")
-        if rows:
-            print(f"  🔍 DEBUG: metrics в первой строке = {rows[0].get('metrics', [])}")
-        
-        if not rows:
-            print(f"  ⚠️ Нет данных о конверсии")
-            return {}
-        
-        ctr_by_sku = {}
-        
-        for row in rows:
-            dims = row.get("dimensions") or []
-            mets = row.get("metrics") or []
-            
-            # Нужны ОБА значения: hits_view_search и hits_view_search_pdp
-            if len(mets) < 2:
-                continue
-            
-            # Ищем SKU (число)
-            sku = None
-            for d in (dims or []):
-                _id = (d or {}).get("id")
-                if _id is None:
-                    continue
-                try:
-                    sku = int(_id)
-                    break
-                except (TypeError, ValueError):
-                    continue
-            
-            if sku is None:
-                continue
-            
-            try:
-                views = float(mets[0] or 0)        # hits_view_search (показы в поиске)
-                clicks = float(mets[1] or 0)       # hits_view_search_pdp (переходы в карточку)
-                
-                # CTR = (Переходы / Показы) * 100
-                if views > 0:
-                    ctr = round((clicks / views) * 100, 2)
-                else:
-                    ctr = 0.0
-                
-                ctr_by_sku[sku] = ctr
-            except (TypeError, ValueError):
-                continue
-        
-        if ctr_by_sku:
-            print(f"  ✅ Загружено CTR: {len(ctr_by_sku)} sku")
-            examples = list(ctr_by_sku.items())[:3]
-            print(f"     Примеры: {examples}")
-        else:
-            print(f"  ⚠️ CTR не найден в ответе")
-        
-        return ctr_by_sku
-        
-    except Exception as e:
-        print(f"  ❌ Ошибка при загрузке CTR: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
-
-
-def load_hits_view_search():
-    """Загрузка показов в поиске и каталоге"""
-    print("\n📊 Загрузка показов (поиск+категория)...")
-    
-    try:
-        snapshot_date = get_snapshot_date()
-        d0 = datetime.fromisoformat(snapshot_date).date()
-        d1 = d0 + timedelta(days=1)
-        
-        impressions_by_sku = {}
-        offset = 0
-        total_loaded = 0
-
-        while True:
-            payload = {
-                "date_from": d0.isoformat(),
-                "date_to": d1.isoformat(),
-                "metrics": ["hits_view_search"],
-                "dimension": ["sku"],
-                "limit": 1000,
-                "offset": offset
-            }
-
-            r = requests.post(
-                f"{OZON_HOST}/v1/analytics/data",
-                json=payload,
-                headers=get_ozon_headers(),
-                timeout=25
-            )
-
-            print(f"  📥 /v1/analytics/data {d0.isoformat()}→{d1.isoformat()} offset={offset} status={r.status_code}")
-
-            if r.status_code != 200:
-                j = r.json()
-                if j.get("message"):
-                    print(f"  📋 {j.get('message')}")
-                return {}
-
-            j = r.json()
-            result = j.get("result") or {}
-            rows = result.get("data") or []
-            
-            if offset == 0:
-                totals = result.get("totals")
-                print(f"  🔎 totals={totals}, data_len={len(rows)}")
-
-            if not rows:
-                break
-
-            for row in rows:
-                dims = row.get("dimensions") or []
-                mets = row.get("metrics") or []
-                if not mets:
-                    continue
-
-                sku = None
-                for d in (dims or []):
-                    _id = (d or {}).get("id")
-                    if _id is None:
-                        continue
-                    try:
-                        sku = int(_id)
-                        break
-                    except (TypeError, ValueError):
-                        continue
-
-                if sku is None:
-                    continue
-
-                try:
-                    impressions_by_sku[sku] = impressions_by_sku.get(sku, 0) + int(mets[0] or 0)
-                except (TypeError, ValueError):
-                    pass
-
-            total_loaded += len(rows)
-            offset += 1000
-
-        print(f"  ✓ Загружено {total_loaded} строк")
-        if impressions_by_sku:
-            print(f"  ✅ Показы: {len(impressions_by_sku)} sku")
-        return impressions_by_sku
-        
-    except Exception as e:
-        print(f"  ❌ Ошибка при загрузке показов: {e}")
-        return {}
-
-
-def load_hits_view_search_pdp():
-    """Загрузка переходов в карточку (посещения PDP)"""
-    print("\n📊 Загрузка посещений карточки товара (PDP)...")
-    
-    try:
-        snapshot_date = get_snapshot_date()
-        d0 = datetime.fromisoformat(snapshot_date).date()
-        d1 = d0 + timedelta(days=1)
-        
-        pdp_by_sku = {}
-        offset = 0
-
-        # ✅ Правильная метрика для посещений карточки
-        payload = {
-            "date_from": d0.isoformat(),
-            "date_to": d1.isoformat(),
-            "metrics": ["session_view_pdp"],  # ✅ session_view_pdp - посещения карточки
-            "dimension": ["sku"],
-            "limit": 1000,
-            "offset": offset
-        }
-        
-        print(f"  📝 Метрика: {payload.get('metrics')}")
-
-        while True:
-            payload["offset"] = offset  # Обновляем offset в payload перед каждым запросом
-            r = requests.post(
-                f"{OZON_HOST}/v1/analytics/data",
-                json=payload,
-                headers=get_ozon_headers(),
-                timeout=25
-            )
-
-            print(f"  📥 /v1/analytics/data session_view_pdp offset={offset} status={r.status_code}")
-
-            if r.status_code != 200:
-                j = r.json()
-                if j.get("message"):
-                    print(f"  ⚠️ {j.get('message')}")
-                # Если ошибка - возвращаем что успели загрузить
-                if pdp_by_sku:
-                    break
-                return {}
-
-            j = r.json()
-            result = j.get("result") or {}
-            rows = result.get("data") or []
-
-            # ✅ Правильное условие остановки
-            if not rows:
-                print(f"  ✓ Конец данных при offset={offset}")
-                break
-            
-            if len(rows) < 1000:
-                print(f"  ✓ Последняя страница ({len(rows)} строк)")
-
-
-            for row in rows:
-                dims = row.get("dimensions") or []
-                mets = row.get("metrics") or []
-                if not mets:
-                    continue
-
-                sku = None
-                for d in (dims or []):
-                    _id = (d or {}).get("id")
-                    try:
-                        sku = int(_id)
-                        break
-                    except (TypeError, ValueError):
-                        continue
-
-                if sku is None:
-                    continue
-
-                try:
-                    pdp_by_sku[sku] = pdp_by_sku.get(sku, 0) + int(mets[0] or 0)
-                except (TypeError, ValueError):
-                    pass
-
-            offset += 1000
-
-        if pdp_by_sku:
-            print(f"  ✅ Переходы в карточку: {len(pdp_by_sku)} sku")
-        else:
-            print(f"  ⚠️ Нет данных по переходам в карточку")
-        return pdp_by_sku
-        
-    except Exception as e:
-        print(f"  ❌ Ошибка при загрузке PDP: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
-
-
-def load_hits_add_to_cart():
-    """Загрузка добавлений в корзину (hits_tocart_pdp)"""
-    print("\n📊 Загрузка добавлений в корзину (hits_tocart_pdp)...")
-    
-    try:
-        snapshot_date = get_snapshot_date()
-        d0 = datetime.fromisoformat(snapshot_date).date()
-        d1 = d0 + timedelta(days=1)
-        
-        # 🧪 ТЕСТОВЫЙ ЗАПРОС - без циклов, просто проверяем метрику
-        payload = {
-            "date_from": d0.isoformat(),
-            "date_to": d1.isoformat(),
-            "metrics": ["hits_tocart_pdp"],  # ✅ Новая метрика
-            "dimension": ["sku"],
-            "limit": 1000,
-            "offset": 0
-        }
-
-        print(f"  🧾 TEST payload: {json.dumps(payload, ensure_ascii=False)}")
-        print(f"  🧾 metrics: {payload['metrics']}")
-
-        r = requests.post(
-            f"{OZON_HOST}/v1/analytics/data",
-            json=payload,
-            headers=get_ozon_headers(),
-            timeout=25
-        )
-
-        print(f"  📥 /v1/analytics/data hits_tocart_pdp status={r.status_code}")
-
-        if r.status_code != 200:
-            j = r.json()
-            print(f"  ❌ API Error: {json.dumps(j, ensure_ascii=False)[:800]}")
-            return {}
-
-        j = r.json()
-        result = j.get("result") or {}
-        rows = result.get("data") or []
-        
-        print(f"  📊 Получено {len(rows)} строк")
-        if rows:
-            print(f"  🔍 Первая строка: {json.dumps(rows[0], ensure_ascii=False)[:300]}")
-            mets = rows[0].get("metrics", [])
-            print(f"  🔍 metrics в первой строке: {mets}, type: {type(mets)}")
-        
-        cart_by_sku = {}
-        
-        for row in rows:
-            dims = row.get("dimensions") or []
-            mets = row.get("metrics") or []
-            if not mets:
-                continue
-
-            sku = None
-            for d in (dims or []):
-                _id = (d or {}).get("id")
-                try:
-                    sku = int(_id)
-                    break
-                except (TypeError, ValueError):
-                    continue
-
-            if sku is None:
-                continue
-
-            try:
-                cart_by_sku[sku] = cart_by_sku.get(sku, 0) + int(mets[0] or 0)
-            except (TypeError, ValueError):
-                pass
-
-        if cart_by_sku:
-            print(f"  ✅ Добавлений в корзину: {len(cart_by_sku)} sku")
-            examples = list(cart_by_sku.items())[:3]
-            print(f"     Примеры: {examples}")
-        else:
-            print(f"  ⚠️ Нет данных по добавлениям в корзину")
-        return cart_by_sku
-        
-    except Exception as e:
-        print(f"  ❌ Ошибка при загрузке hits_tocart_pdp: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
+def load_impressions():
     """Показы из /v1/analytics/data - требует Premium Plus подписку"""
     print("\n📊 Загрузка показов (поиск+категория)...")
     
@@ -1243,88 +683,46 @@ def sync_products():
         avg_positions = load_avg_positions()
         
         # ✅ Загружаем показы в поиске и каталоге
-        hits_view_search_data = load_hits_view_search()
+        impressions_data = load_impressions()
         
-        # ✅ Загружаем переходы в карточку
-        hits_view_search_pdp_data = load_hits_view_search_pdp()
-        
-        # ✅ Загружаем добавления в корзину
-        hits_tocart_pdp_data = load_hits_add_to_cart()
-        
-        # ✅ Определяем дату снимка по Белграду (YYYY-MM-DD) - ПЕРЕД использованием!
+        # ✅ Определяем дату снимка по Белграду (YYYY-MM-DD)
         snapshot_date = get_snapshot_date()
         snapshot_time = get_snapshot_time()
-        
-        # ✅ Загружаем расходы на рекламу за период
-        adv_spend_data = load_adv_spend_by_sku(snapshot_date, snapshot_date)
         
         # ✅ Пишем в обе таблицы
         for sku, data in products_data.items():
             orders_qty = orders_by_sku.get(sku, 0)
             avg_pos = avg_positions.get(sku, 0)
             
-            # Показы и метрики
-            views = int(hits_view_search_data.get(sku, 0) or 0)
-            pdp = int(hits_view_search_pdp_data.get(sku, 0) or 0)
-            cart = int(hits_tocart_pdp_data.get(sku, 0) or 0)
-            adv_spend = float(adv_spend_data.get(sku, 0) or 0)
-            
-            # CTR = (посещения карточки / показы) * 100
-            search_ctr = round((pdp / views * 100), 2) if views > 0 else 0.0
-            
-            # CR1 = (в корзину / посещения карточки) * 100
-            cr1 = round((cart / pdp * 100), 2) if pdp > 0 else 0.0
-            
-            # CR2 = (заказы / в корзину) * 100
-            cr2 = round((orders_qty / cart * 100), 2) if cart > 0 else 0.0
-            
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, fbo_stock, orders_qty, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, fbo_stock, orders_qty, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
-                    hits_view_search=excluded.hits_view_search,
-                    hits_view_search_pdp=excluded.hits_view_search_pdp,
-                    search_ctr=excluded.search_ctr,
-                    hits_add_to_cart=excluded.hits_add_to_cart,
-                    cr1=excluded.cr1,
-                    cr2=excluded.cr2,
-                    adv_spend=excluded.adv_spend,
                     updated_at=excluded.updated_at
             ''', (
                 sku,
                 data.get("name", ""),
                 data.get("fbo_stock", 0),
                 orders_qty,
-                views,
-                pdp,
-                search_ctr,
-                cart,
-                cr1,
-                cr2,
-                adv_spend,
                 get_snapshot_time()
             ))
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
+            impressions = impressions_data.get(sku, 0)
+            
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, avg_position, impressions, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
                     avg_position=excluded.avg_position,
-                    hits_view_search=excluded.hits_view_search,
-                    hits_view_search_pdp=excluded.hits_view_search_pdp,
-                    search_ctr=excluded.search_ctr,
-                    hits_add_to_cart=excluded.hits_add_to_cart,
-                    cr1=excluded.cr1,
-                    cr2=excluded.cr2,
-                    adv_spend=excluded.adv_spend,
+                    impressions=excluded.impressions,
                     snapshot_time=excluded.snapshot_time
             ''', (
                 sku,
@@ -1332,13 +730,7 @@ def sync_products():
                 data.get("fbo_stock", 0),
                 orders_qty,
                 avg_pos,
-                views,
-                pdp,
-                search_ctr,
-                cart,
-                cr1,
-                cr2,
-                adv_spend,
+                impressions,
                 snapshot_date,
                 snapshot_time
             ))
@@ -1394,36 +786,29 @@ HTML_TEMPLATE = '''
             background: #ffffff;
             min-height: 100vh;
             padding: 20px;
-            margin: 0;
         }
 
         .container {
-            width: 100%;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
         .header {
             background: white;
-            padding: 10px;
+            padding: 30px;
             border-radius: 12px;
             margin-bottom: 30px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            margin-left: -20px;
-            margin-right: -20px;
-            padding-left: 50px;
-            padding-right: 50px;
         }
 
         .header h1 {
             color: #333;
-            margin: 0;
-            font-size: 24px;
+            margin-bottom: 10px;
         }
 
         .header p {
             color: #666;
             font-size: 14px;
-            margin: 0;
         }
 
         .table-container {
@@ -1431,8 +816,6 @@ HTML_TEMPLATE = '''
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             overflow: hidden;
-            margin-left: -20px;
-            margin-right: -20px;
         }
 
         .table-header {
@@ -1755,6 +1138,8 @@ HTML_TEMPLATE = '''
             word-wrap: break-word;
             white-space: pre-wrap;
             min-height: 60px;
+            max-height: 200px;
+            overflow-y: auto;
             cursor: pointer;
             transition: background-color 0.2s;
         }
@@ -1772,11 +1157,11 @@ HTML_TEMPLATE = '''
             font-family: inherit;
             line-height: 1.5;
             min-height: 60px;
-            resize: none;
+            max-height: 200px;
+            resize: vertical;
             word-wrap: break-word;
             overflow-wrap: break-word;
             white-space: pre-wrap;
-            overflow: hidden;
         }
 
         .note-textarea:focus {
@@ -1831,18 +1216,17 @@ HTML_TEMPLATE = '''
         }
 
         .refresh-btn {
-            background: rgba(102, 126, 234, 0.2);
-            color: #667eea;
+            background: #667eea;
+            color: white;
             border: none;
-            padding: 8px 16px;
+            padding: 10px 20px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
-            font-weight: 500;
         }
 
         .refresh-btn:hover {
-            background: rgba(102, 126, 234, 0.3);
+            background: #5568d3;
         }
 
         @media (max-width: 768px) {
@@ -1863,108 +1247,6 @@ HTML_TEMPLATE = '''
                 padding: 10px 15px;
             }
         }
-
-        /* Стили для таблицы со скроллом */
-        #history-content {
-            position: relative;
-        }
-
-        .table-wrapper {
-            overflow-x: auto;
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        .table-controls {
-            margin-bottom: 12px;
-            padding: 16px 0;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .toggle-col-btn {
-            padding: 6px 12px;
-            font-size: 12px;
-            background: #f0f2f5;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .toggle-col-btn:hover {
-            background: #e4e6eb;
-        }
-
-        .toggle-col-btn.hidden {
-            opacity: 0.6;
-            background: #fff3cd;
-        }
-
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            min-width: 1200px;
-            user-select: none;
-        }
-
-        th {
-            position: sticky;
-            top: 0;
-            background: #f8f9fa;
-            border-bottom: 2px solid #ddd;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            min-width: 30px;
-            max-width: 300px;
-            text-align: center;
-            padding: 10px 8px;
-        }
-
-        th.resizable {
-            position: relative;
-            cursor: col-resize;
-        }
-
-        .resize-handle {
-            position: absolute;
-            right: 0;
-            top: 0;
-            width: 4px;
-            height: 100%;
-            background: transparent;
-            cursor: col-resize;
-            user-select: none;
-        }
-
-        .resize-handle:hover {
-            background: #667eea;
-        }
-
-        td {
-            border-bottom: 1px solid #eee;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            min-width: 30px;
-            max-width: 300px;
-            text-align: center;
-            padding: 10px 8px;
-        }
-
-        td.col-hidden {
-            display: none;
-        }
-
-        th.col-hidden {
-            display: none;
-        }
     </style>
 </head>
 <body>
@@ -1974,7 +1256,7 @@ HTML_TEMPLATE = '''
                 <div>
                     <h1>Ежедневный отчет</h1>
                 </div>
-                <button class="refresh-btn" onclick="location.reload()">Обновить</button>
+                <button class="refresh-btn" onclick="location.reload()">🔄 Обновить</button>
             </div>
         </div>
 
@@ -2087,27 +1369,15 @@ HTML_TEMPLATE = '''
                 return;
             }
             
-            // ✅ Функция для форматирования чисел с пробелами (3 245 вместо 3245)
-            function formatNumber(num) {
-                if (num === null || num === undefined || num === 0) return '0';
-                return String(Math.round(num)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-            }
-            
             let html = '<table><thead><tr>';
             html += '<th>Заметки</th>';
             html += '<th>Дата</th>';
             html += '<th>Название</th>';
             html += '<th>SKU</th>';
-            html += '<th>FBO остаток</th>';
-            html += '<th>Заказы</th>';
-            html += '<th>Ср. позиция</th>';
-            html += '<th>Показы (поиск+кат.)</th>';
-            html += '<th>Посещения</th>';
-            html += '<th>CTR (%)</th>';
-            html += '<th>Корзина</th>';
-            html += '<th>CR1 (%)</th>';
-            html += '<th>CR2 (%)</th>';
-            html += '<th>Расходы</th>';
+            html += '<th style="text-align: right;">FBO остаток</th>';
+            html += '<th style="text-align: right;">Заказы</th>';
+            html += '<th style="text-align: right;">Средняя позиция</th>';
+            html += '<th style="text-align: right;">Показы</th>';
             html += '</tr></thead><tbody>';
             
             data.history.forEach(item => {
@@ -2144,48 +1414,15 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${dateStr}</strong></td>`;
                 html += `<td>${item.name}</td>`;
                 html += `<td><span class="sku">${item.sku}</span></td>`;
-                html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
-                html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}</span></td>`;
-                html += `<td><span class="position">${item.avg_position ? item.avg_position.toFixed(1) : '—'}</span></td>`;
-                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}</strong></td>`;
-                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}</strong></td>`;
-                html += `<td><strong>${item.search_ctr ? item.search_ctr.toFixed(2) : '—'}${item.search_ctr ? '%' : ''}</strong></td>`;
-                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
-                html += `<td><strong>${item.cr1 ? item.cr1.toFixed(2) : '—'}${item.cr1 ? '%' : ''}</strong></td>`;
-                html += `<td><strong>${item.cr2 ? item.cr2.toFixed(2) : '—'}${item.cr2 ? '%' : ''}</strong></td>`;
-                html += `<td><strong>${item.adv_spend ? item.adv_spend.toFixed(2) : '—'}${item.adv_spend ? '₽' : ''}</strong></td>`;
+                html += `<td style="text-align: right;"><span class="${stockClass}">${item.fbo_stock}</span></td>`;
+                html += `<td style="text-align: right;"><span class="stock">${item.orders_qty || 0}</span></td>`;
+                html += `<td style="text-align: right;"><span class="position">${item.avg_position ? item.avg_position.toFixed(1) : '—'}</span></td>`;
+                html += `<td style="text-align: right;"><strong>${item.impressions || 0}</strong></td>`;
                 html += `</tr>`;
             });
             
             html += '</tbody></table>';
-            
-            // Обворачиваю таблицу в контейнер для скролла
-            const fullHtml = `
-                <div class="table-controls">
-                    <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
-                    <button class="toggle-col-btn" onclick="toggleColumn(1)">Дата</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(2)">Название</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(3)">SKU</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(4)">FBO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(5)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Расходы</button>
-                </div>
-                <div class="table-wrapper">
-                    ${html}
-                </div>
-            `;
-            
-            historyContent.innerHTML = fullHtml;
-            
-            // Инициализирую изменение ширины столбцов
-            initColumnResize();
+            historyContent.innerHTML = html;
         }
 
         function startEditNote(uniqueId, sku, date) {
@@ -2235,79 +1472,6 @@ HTML_TEMPLATE = '''
             .catch(error => {
                 alert('❌ Ошибка: ' + error);
                 console.error('Ошибка:', error);
-            });
-        }
-
-        // ✅ Функция для скрывания/показа столбцов
-        function toggleColumn(colIndex) {
-            const table = document.querySelector('table');
-            if (!table) return;
-            
-            const rows = table.querySelectorAll('tr');
-            rows.forEach(row => {
-                const cells = row.querySelectorAll('th, td');
-                if (cells[colIndex]) {
-                    cells[colIndex].classList.toggle('col-hidden');
-                }
-            });
-            
-            // Обновляю кнопку
-            const buttons = document.querySelectorAll('.toggle-col-btn');
-            if (buttons[colIndex - 1]) {
-                buttons[colIndex - 1].classList.toggle('hidden');
-            }
-        }
-
-        // ✅ Функция для изменения ширины столбца
-        function initColumnResize() {
-            const table = document.querySelector('table');
-            if (!table) return;
-            
-            const headers = table.querySelectorAll('th');
-            
-            headers.forEach((header, index) => {
-                // Добавляю handle для изменения ширины
-                const handle = document.createElement('div');
-                handle.className = 'resize-handle';
-                header.appendChild(handle);
-                header.classList.add('resizable');
-                
-                // По умолчанию берем автоматическую ширину (не фиксируем)
-                // Минимум 50px (CSS min-width)
-                header.style.width = 'auto';
-                
-                // Инициализирую перетаскивание
-                let isResizing = false;
-                let startX = 0;
-                let startWidth = 0;
-                
-                handle.addEventListener('mousedown', (e) => {
-                    isResizing = true;
-                    startX = e.clientX;
-                    startWidth = header.offsetWidth;
-                    e.preventDefault();
-                });
-                
-                document.addEventListener('mousemove', (e) => {
-                    if (!isResizing) return;
-                    
-                    const delta = e.clientX - startX;
-                    const newWidth = Math.max(30, startWidth + delta);  // ✅ Минимум 30px вместо 50px
-                    
-                    header.style.width = newWidth + 'px';
-                    header.style.minWidth = newWidth + 'px';
-                    
-                    // Обновляю все td в этом столбце
-                    const cells = table.querySelectorAll(`tbody tr td:nth-child(${index + 1})`);
-                    cells.forEach(cell => {
-                        cell.style.width = newWidth + 'px';
-                        cell.style.minWidth = newWidth + 'px';
-                    });
-                });
-                
-                document.addEventListener('mouseup', () => {
-                    isResizing = false;
-                });
             });
         }
     </script>
@@ -2398,33 +1562,6 @@ def get_dates():
         return jsonify({'success': False, 'error': str(e), 'dates': []})
 
 
-@app.route('/api/products/current')
-def get_products_current():
-    """Получить текущие товары с показами и CTR"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                sku, name, fbo_stock, orders_qty, 
-                hits_view_search, hits_view_search_pdp, search_ctr, updated_at
-            FROM products
-            ORDER BY sku DESC
-        ''')
-        
-        products = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'products': products
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e), 'products': []})
-
-
 @app.route('/api/products/list')
 def get_products_list():
     """Получить список уникальных товаров для выпадающего списка"""
@@ -2477,13 +1614,7 @@ def get_product_history(sku):
                 fbo_stock,
                 orders_qty,
                 avg_position,
-                hits_view_search,
-                hits_view_search_pdp,
-                search_ctr,
-                hits_add_to_cart,
-                cr1,
-                cr2,
-                adv_spend,
+                impressions,
                 snapshot_time,
                 notes
             FROM products_history 
