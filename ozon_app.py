@@ -330,15 +330,15 @@ def load_adv_spend_by_sku(date_from, date_to):
     Новая логика (для SKU кампаний "Оплата за клик"):
     1. Получаем список активных кампаний типа SKU
     2. Для каждой кампании получаем расход через GET /api/client/statistics/expense за период
-    3. Фильтруем данные - оставляем только расходы за конкретный день (date_to)
+    3. Собираем данные за ВСЕ доступные даты в CSV (автоматическое обновление истории!)
     4. Получаем товары в кампании через GET /api/client/campaign/{id}/v2/products
-    5. Распределяем расход за этот день между товарами
+    5. Распределяем расход каждого дня между товарами
 
     Параметры:
-        date_from: начало периода (для запроса данных, учитывая возможные задержки API)
-        date_to: конкретный день, за который нужны расходы
+        date_from: начало периода запроса
+        date_to: конец периода запроса
 
-    Возвращает: {sku: adv_spend} - словарь с расходами за date_to по каждому SKU
+    Возвращает: {date: {sku: adv_spend}} - словарь с расходами по датам и SKU
     """
     print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
 
@@ -380,7 +380,7 @@ def load_adv_spend_by_sku(date_from, date_to):
         print(f"  ✅ Найдено активных кампаний: {len(campaigns)}")
 
         # Шаг 2: Получаем расходы по каждой кампании
-        spend_by_sku = {}
+        spend_by_date = {}  # {date: {sku: spend}}
 
         for campaign in campaigns:
             campaign_id = campaign.get("id")
@@ -403,44 +403,35 @@ def load_adv_spend_by_sku(date_from, date_to):
                 continue
 
             # Парсим CSV с расходами
-            # ⚠️ ВАЖНО: Фильтруем только расходы за конкретный день (date_to), а не за весь период!
+            # 🔄 НОВАЯ ЛОГИКА: Собираем расходы за ВСЕ даты из CSV, не фильтруем по date_to
             csv_content = r.text
             csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
 
-            total_campaign_spend = 0.0
-            days_found = []
-            all_dates_in_csv = []  # DEBUG: собираем все даты из CSV
+            # Словарь для аккумуляции расходов кампании по датам
+            campaign_spend_by_date = {}  # {date: total_spend}
 
             for row in csv_reader:
                 # Колонка "Дата" содержит дату в формате ГГГГ-ММ-ДД
                 row_date = row.get('Дата', '').strip()
 
-                # DEBUG: собираем все даты
-                if row_date:
-                    all_dates_in_csv.append(row_date)
+                if not row_date:
+                    continue
 
-                # Учитываем только расходы за нужный день (date_to)
-                if row_date == date_to:
-                    spend_str = row.get('Расход', '0').strip().replace(',', '.')
-                    try:
-                        day_spend = float(spend_str)
-                        total_campaign_spend += day_spend
-                        days_found.append(f"{row_date}: {day_spend:.2f}₽")
-                    except (ValueError, TypeError):
-                        pass
+                # Парсим расход за эту дату
+                spend_str = row.get('Расход', '0').strip().replace(',', '.')
+                try:
+                    day_spend = float(spend_str)
+                    campaign_spend_by_date[row_date] = campaign_spend_by_date.get(row_date, 0.0) + day_spend
+                except (ValueError, TypeError):
+                    pass
 
-            # DEBUG: показываем какие даты нашли в CSV
-            if all_dates_in_csv:
-                print(f"     🔍 DEBUG: Даты в CSV: {set(all_dates_in_csv)}")
-                print(f"     🔍 DEBUG: Ищем дату: {date_to}")
-
-            if total_campaign_spend == 0:
-                print(f"     ℹ️  Расход за {date_to} = 0₽")
+            if not campaign_spend_by_date:
+                print(f"     ℹ️  Нет данных о расходах в CSV")
                 continue
 
-            print(f"     💰 Расход за {date_to}: {total_campaign_spend:.2f}₽")
-            if days_found:
-                print(f"        {', '.join(days_found)}")
+            print(f"     💰 Найдено дат с расходами: {len(campaign_spend_by_date)}")
+            for date, spend in sorted(campaign_spend_by_date.items()):
+                print(f"        {date}: {spend:.2f}₽")
 
             # 2.2. Получаем товары в кампании
             products_url = f"https://api-performance.ozon.ru/api/client/campaign/{campaign_id}/v2/products"
@@ -461,29 +452,41 @@ def load_adv_spend_by_sku(date_from, date_to):
 
             print(f"     📦 Товаров в кампании: {len(products)}")
 
-            # 2.3. Распределяем расход между товарами
+            # 2.3. Распределяем расход между товарами для КАЖДОЙ даты
             # Если товар 1 - весь расход ему
             # Если товаров много - делим поровну (можно улучшить пропорционально кликам)
-            spend_per_product = total_campaign_spend / len(products)
 
-            for product in products:
-                sku_str = product.get("sku", "")
-                try:
-                    sku = int(sku_str)
-                    spend_by_sku[sku] = spend_by_sku.get(sku, 0) + spend_per_product
-                except (ValueError, TypeError):
-                    continue
+            for date, total_spend in campaign_spend_by_date.items():
+                spend_per_product = total_spend / len(products)
 
-            print(f"     ✅ Расход распределен: {spend_per_product:.2f}₽ на товар")
+                # Инициализируем словарь для этой даты, если его ещё нет
+                if date not in spend_by_date:
+                    spend_by_date[date] = {}
 
-        if spend_by_sku:
-            print(f"\n  ✅ Расходы за {date_to}: {len(spend_by_sku)} товаров")
-            examples = list(spend_by_sku.items())[:3]
-            print(f"     Примеры: {[(sku, f'{spend:.2f}₽') for sku, spend in examples]}")
+                for product in products:
+                    sku_str = product.get("sku", "")
+                    try:
+                        sku = int(sku_str)
+                        spend_by_date[date][sku] = spend_by_date[date].get(sku, 0) + spend_per_product
+                    except (ValueError, TypeError):
+                        continue
+
+            print(f"     ✅ Расход распределен по {len(campaign_spend_by_date)} датам")
+
+        if spend_by_date:
+            total_dates = len(spend_by_date)
+            total_skus = sum(len(skus) for skus in spend_by_date.values())
+            print(f"\n  ✅ Загружено расходов: {total_dates} дат, {total_skus} товаров (уникальных SKU)")
+
+            # Примеры данных
+            for date in sorted(spend_by_date.keys())[:3]:
+                skus = spend_by_date[date]
+                examples = list(skus.items())[:2]
+                print(f"     {date}: {len(skus)} товаров, примеры: {[(sku, f'{spend:.2f}₽') for sku, spend in examples]}")
         else:
-            print(f"\n  ⚠️  Нет расходов за {date_to}")
+            print(f"\n  ⚠️  Нет данных о расходах")
 
-        return spend_by_sku
+        return spend_by_date
 
     except Exception as e:
         print(f"  ❌ Ошибка при загрузке расходов рекламы: {e}")
@@ -1368,7 +1371,26 @@ def sync_products():
         date_to = snapshot_date
         date_from = (datetime.fromisoformat(snapshot_date) - timedelta(days=7)).date().isoformat()
         adv_spend_data = load_adv_spend_by_sku(date_from, date_to)
-        
+
+        # ✅ АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ: Обновляем расходы на рекламу для всех исторических дат
+        # Формат adv_spend_data: {date: {sku: spend}}
+        if adv_spend_data:
+            print(f"\n📊 Обновление исторических расходов на рекламу...")
+            updated_count = 0
+            for date, skus_spend in adv_spend_data.items():
+                for sku, spend in skus_spend.items():
+                    # Обновляем ТОЛЬКО колонку adv_spend в products_history
+                    cursor.execute('''
+                        UPDATE products_history
+                        SET adv_spend = ?
+                        WHERE sku = ? AND snapshot_date = ?
+                    ''', (spend, sku, date))
+                    if cursor.rowcount > 0:
+                        updated_count += 1
+
+            conn.commit()
+            print(f"  ✅ Обновлено записей: {updated_count}")
+
         # ✅ Пишем в обе таблицы
         for sku, data in products_data.items():
             orders_qty = orders_by_sku.get(sku, 0)
@@ -1378,7 +1400,7 @@ def sync_products():
             views = int(hits_view_search_data.get(sku, 0) or 0)
             pdp = int(hits_view_search_pdp_data.get(sku, 0) or 0)
             cart = int(hits_tocart_pdp_data.get(sku, 0) or 0)
-            adv_spend = float(adv_spend_data.get(sku, 0) or 0)
+            adv_spend = float(adv_spend_data.get(snapshot_date, {}).get(sku, 0) or 0)
             
             # CTR = (посещения карточки / показы) * 100
             search_ctr = round((pdp / views * 100), 2) if views > 0 else 0.0
