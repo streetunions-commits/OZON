@@ -119,25 +119,30 @@ setup_service() {
 setup_nginx() {
     log_info "🌐 Настройка Nginx..."
 
-    log_warn "⚠️  Не забудь заменить YOUR_DOMAIN.com на свой домен в nginx.conf!"
-    log_warn "⚠️  И заменить YOUR_USERNAME на $USER"
+    # Получить IP адрес сервера
+    SERVER_IP=$(hostname -I | awk '{print $1}')
 
-    read -p "Продолжить настройку Nginx? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        sudo cp "$APP_DIR/nginx.conf" /etc/nginx/sites-available/$SERVICE_NAME
-        sudo ln -sf /etc/nginx/sites-available/$SERVICE_NAME /etc/nginx/sites-enabled/
+    log_info "IP адрес сервера: $SERVER_IP"
+    log_info "Приложение будет доступно по адресу: http://$SERVER_IP"
 
-        # Проверка конфигурации
-        if sudo nginx -t; then
-            sudo systemctl restart nginx
-            log_info "✅ Nginx настроен и перезапущен"
-        else
-            log_error "❌ Ошибка в конфигурации Nginx! Исправь nginx.conf"
-            return 1
-        fi
+    # Замена переменных в nginx.conf и установка
+    sed -e "s|OZON_APP_DIR|$APP_DIR|g" \
+        -e "s|SERVER_IP|$SERVER_IP|g" \
+        "$APP_DIR/nginx.conf" | sudo tee /etc/nginx/sites-available/$SERVICE_NAME > /dev/null
+
+    sudo ln -sf /etc/nginx/sites-available/$SERVICE_NAME /etc/nginx/sites-enabled/
+
+    # Удалить дефолтный конфиг nginx (чтобы не конфликтовал)
+    sudo rm -f /etc/nginx/sites-enabled/default
+
+    # Проверка конфигурации
+    if sudo nginx -t; then
+        sudo systemctl restart nginx
+        log_info "✅ Nginx настроен и перезапущен"
+        log_info "🌐 Приложение доступно: http://$SERVER_IP"
     else
-        log_warn "Nginx не настроен. Настрой вручную позже."
+        log_error "❌ Ошибка в конфигурации Nginx!"
+        return 1
     fi
 }
 
