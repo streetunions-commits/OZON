@@ -24,7 +24,7 @@ Description=Ozon FBO Tracker - Flask Application
 After=network.target
 
 [Service]
-Type=notify
+Type=exec
 User=YOUR_USERNAME
 Group=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/OZON
