@@ -271,6 +271,7 @@ def get_ozon_performance_headers():
     """Заголовки для запросов к Ozon Performance API (реклама)"""
     return {
         "Authorization": f"Bearer {OZON_PERFORMANCE_API_KEY}",
+        "Client-Id": OZON_PERFORMANCE_CLIENT_ID,
         "Content-Type": "application/json"
     }
 
