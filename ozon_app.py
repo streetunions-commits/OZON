@@ -437,8 +437,17 @@ def load_adv_spend_by_sku(date_from, date_to):
         for i, line in enumerate(csv_lines[:5]):  # Первые 5 строк
             print(f"  🔍 Строка {i}: {line[:200]}")
 
+        # ⚠️ ВАЖНО: Первая строка CSV - это заголовок отчета, не колонки!
+        # Пропускаем её и берем данные начиная со второй строки
+        if len(csv_lines) > 1:
+            # Убираем первую строку (заголовок отчета)
+            csv_lines = csv_lines[1:]
+            csv_content_fixed = '\n'.join(csv_lines)
+        else:
+            csv_content_fixed = csv_content
+
         spend_by_sku = {}
-        reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+        reader = csv.DictReader(io.StringIO(csv_content_fixed), delimiter=';')
 
         rows_processed = 0
         for row in reader:
@@ -448,7 +457,14 @@ def load_adv_spend_by_sku(date_from, date_to):
             try:
                 sku_str = row.get('SKU', '').strip()
                 # Ищем колонку с расходом (может называться по-разному)
-                cost_str = (row.get('расход, ₽') or row.get('Расход, ₽') or row.get('расход, Р') or row.get('Расход, Р') or '').strip().replace(',', '.')
+                cost_str = (
+                    row.get('Расход ("Оплата за клики"), ₽') or
+                    row.get('расход, ₽') or
+                    row.get('Расход, ₽') or
+                    row.get('расход, Р') or
+                    row.get('Расход, Р') or
+                    ''
+                ).strip().replace(',', '.')
 
                 if sku_str and cost_str:
                     try:
@@ -1349,9 +1365,11 @@ def sync_products():
         # ✅ Определяем дату снимка по Белграду (YYYY-MM-DD) - ПЕРЕД использованием!
         snapshot_date = get_snapshot_date()
         snapshot_time = get_snapshot_time()
-        
-        # ✅ Загружаем расходы на рекламу за период
-        adv_spend_data = load_adv_spend_by_sku(snapshot_date, snapshot_date)
+
+        # ✅ Загружаем расходы на рекламу за последние 7 дней (данные могут появляться с задержкой)
+        date_to = snapshot_date
+        date_from = (datetime.fromisoformat(snapshot_date) - timedelta(days=7)).date().isoformat()
+        adv_spend_data = load_adv_spend_by_sku(date_from, date_to)
         
         # ✅ Пишем в обе таблицы
         for sku, data in products_data.items():
