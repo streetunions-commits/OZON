@@ -1981,6 +1981,7 @@ HTML_TEMPLATE = '''
         <div class="table-container">
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
+                <button class="tab-button" onclick="switchTab(event, 'wb')">WB</button>
             </div>
 
             <!-- ТАБ: История товара -->
@@ -1999,6 +2000,14 @@ HTML_TEMPLATE = '''
                 </div>
                 <div id="history-content">
                     <div class="loading">Выберите товар из списка</div>
+                </div>
+            </div>
+
+            <!-- ТАБ: Wildberries -->
+            <div id="wb" class="tab-content">
+                <div style="padding: 40px; text-align: center; color: #666;">
+                    <h2>Wildberries</h2>
+                    <p>Раздел в разработке</p>
                 </div>
             </div>
         </div>
