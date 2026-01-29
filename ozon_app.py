@@ -267,11 +267,58 @@ def get_ozon_headers():
     }
 
 
+# Кэш для Performance API токена
+_performance_token_cache = {
+    "access_token": None,
+    "expires_at": 0
+}
+
+def get_performance_access_token():
+    """Получить access_token для Ozon Performance API (с кэшированием)"""
+    import time
+
+    # Проверяем кэш (оставляем 60 сек запаса до истечения)
+    if _performance_token_cache["access_token"] and time.time() < (_performance_token_cache["expires_at"] - 60):
+        return _performance_token_cache["access_token"]
+
+    # Получаем новый токен
+    try:
+        token_url = "https://api-performance.ozon.ru/api/client/token"
+        payload = {
+            "client_id": OZON_PERFORMANCE_CLIENT_ID,
+            "client_secret": OZON_PERFORMANCE_API_KEY,
+            "grant_type": "client_credentials"
+        }
+
+        response = requests.post(token_url, json=payload, timeout=15)
+
+        if response.status_code != 200:
+            print(f"  ⚠️  Ошибка получения токена (status={response.status_code}): {response.text[:200]}")
+            return None
+
+        data = response.json()
+        access_token = data.get("access_token")
+        expires_in = data.get("expires_in", 1800)  # default 30 минут
+
+        # Сохраняем в кэш
+        _performance_token_cache["access_token"] = access_token
+        _performance_token_cache["expires_at"] = time.time() + expires_in
+
+        print(f"  ✅ Получен новый access_token (действует {expires_in} сек)")
+        return access_token
+
+    except Exception as e:
+        print(f"  ❌ Ошибка при получении access_token: {e}")
+        return None
+
 def get_ozon_performance_headers():
     """Заголовки для запросов к Ozon Performance API (реклама)"""
+    access_token = get_performance_access_token()
+    if not access_token:
+        return None
+
     return {
-        "Authorization": f"Bearer {OZON_PERFORMANCE_API_KEY}",
-        "Client-Id": OZON_PERFORMANCE_CLIENT_ID,
+        "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
 
@@ -279,9 +326,9 @@ def get_ozon_performance_headers():
 def load_adv_spend_by_sku(date_from, date_to):
     """Загрузка расходов на рекламу по SKU за период"""
     print(f"\n📊 Загрузка расходов на рекламу ({date_from} - {date_to})...")
-    
-    if not OZON_PERFORMANCE_API_KEY:
-        print("  ⚠️  Performance API ключ не установлен - пропускаю рекламные расходы")
+
+    if not OZON_PERFORMANCE_API_KEY or not OZON_PERFORMANCE_CLIENT_ID:
+        print("  ⚠️  Performance API ключи не установлены - пропускаю рекламные расходы")
         return {}
     
     try:
@@ -292,7 +339,12 @@ def load_adv_spend_by_sku(date_from, date_to):
 
         campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
         headers = get_ozon_performance_headers()
-        print(f"  🔍 Headers: Client-Id={headers.get('Client-Id')}, Auth={'Bearer ***' if headers.get('Authorization') else 'None'}")
+
+        if not headers:
+            print("  ⚠️  Не удалось получить access_token для Performance API")
+            return {}
+
+        print(f"  🔍 Headers: Auth={'Bearer ***' if headers.get('Authorization') else 'None'}")
 
         r = requests.get(
             campaigns_url,
