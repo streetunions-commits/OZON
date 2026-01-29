@@ -34,10 +34,10 @@ log_error() {
 }
 
 # Проверка, что скрипт запущен не от root
-if [ "$EUID" -eq 0 ]; then
-    log_error "Не запускай этот скрипт от root! Используй обычного пользователя."
-    exit 1
-fi
+# if [ "$EUID" -eq 0 ]; then
+#    log_error "Не запускай этот скрипт от root! Используй обычного пользователя."
+#    exit 1
+# fi
 
 # Переменные (измени под себя)
 APP_DIR="$HOME/OZON"
@@ -100,8 +100,10 @@ setup_logs() {
 setup_service() {
     log_info "⚙️  Настройка systemd сервиса..."
 
-    # Замена YOUR_USERNAME на текущего пользователя
-    sed "s/YOUR_USERNAME/$USER/g" "$APP_DIR/ozon-tracker.service" | sudo tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null
+    # Замена YOUR_USERNAME на текущего пользователя и OZON_APP_DIR на реальный путь
+    sed -e "s/YOUR_USERNAME/$USER/g" \
+        -e "s|OZON_APP_DIR|$APP_DIR|g" \
+        "$APP_DIR/ozon-tracker.service" | sudo tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null
 
     sudo systemctl daemon-reload
     sudo systemctl enable $SERVICE_NAME
