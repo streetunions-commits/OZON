@@ -3047,6 +3047,7 @@ HTML_TEMPLATE = '''
             html += '<th>Заказы</th>';
             html += '<th>Заказы план</th>';
             html += '<th>Цена в ЛК</th>';
+            html += '<th>Соинвест</th>';
             html += '<th>Цена на сайте</th>';
             html += '<th>Ср. позиция</th>';
             html += '<th>Показы (поиск+кат.)</th>';
@@ -3097,7 +3098,7 @@ HTML_TEMPLATE = '''
                 </td>`;
                 html += `<td><strong>${dateStr}</strong></td>`;
                 html += `<td>${item.name}</td>`;
-                html += `<td><span class="sku">${item.sku}</span></td>`;
+                html += `<td><span class="sku" onclick="copySKU(this, '${item.sku}')" style="cursor: pointer;" title="Нажмите чтобы скопировать">${item.sku}</span></td>`;
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
 
                 // Заказы (с стрелкой)
@@ -3142,6 +3143,15 @@ HTML_TEMPLATE = '''
 
                 // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
+
+                // Соинвест (процент скидки от Цены в ЛК до Цены на сайте)
+                let coinvest = '—';
+                if (item.price !== null && item.price !== undefined && item.price > 0 &&
+                    item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
+                    const discount = ((item.price - item.marketing_price) / item.price) * 100;
+                    coinvest = discount.toFixed(1) + '%';
+                }
+                html += `<td><strong>${coinvest}</strong></td>`;
 
                 // Цена на сайте (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
@@ -3201,18 +3211,19 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(5)">Заказы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(6)">Заказы план</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(7)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(18)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(19)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
