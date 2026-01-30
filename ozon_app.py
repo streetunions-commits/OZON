@@ -2631,16 +2631,38 @@ HTML_TEMPLATE = '''
 
         function renderHistory(data) {
             const historyContent = document.getElementById('history-content');
-            
+
             if (!data.history || data.history.length === 0) {
                 historyContent.innerHTML = '<div class="empty-state">История не найдена</div>';
                 return;
             }
-            
+
             // ✅ Функция для форматирования чисел с пробелами (3 245 вместо 3245)
             function formatNumber(num) {
                 if (num === null || num === undefined || num === 0) return '0';
                 return String(Math.round(num)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+            }
+
+            // ✅ Функция для сравнения значений и добавления стрелок
+            function getTrendArrow(current, previous, reverseDirection = false) {
+                // Если нет предыдущего значения или оба null/undefined - без стрелки
+                if (previous === null || previous === undefined ||
+                    current === null || current === undefined) {
+                    return '';
+                }
+
+                const diff = current - previous;
+
+                if (diff === 0) return ''; // Без изменений
+
+                // Для средней позиции: меньше = лучше, поэтому инвертируем логику
+                const isGood = reverseDirection ? (diff < 0) : (diff > 0);
+
+                if (isGood) {
+                    return ' <span style="color: #22c55e; font-size: 14px;">▲</span>';
+                } else {
+                    return ' <span style="color: #ef4444; font-size: 14px;">▼</span>';
+                }
             }
             
             let html = '<table><thead><tr>';
@@ -2659,15 +2681,18 @@ HTML_TEMPLATE = '''
             html += '<th>CR2 (%)</th>';
             html += '<th>Расходы</th>';
             html += '</tr></thead><tbody>';
-            
-            data.history.forEach(item => {
+
+            data.history.forEach((item, index) => {
+                // Получаем данные за предыдущий день для сравнения
+                const prevItem = data.history[index + 1] || null;
+
                 const date = new Date(item.snapshot_date);
                 // Формат: 01.01.26
                 const day = String(date.getDate()).padStart(2, '0');
                 const month = String(date.getMonth() + 1).padStart(2, '0');
                 const year = String(date.getFullYear()).slice(-2);
                 const dateStr = `${day}.${month}.${year}`;
-                
+
                 const stockClass = item.fbo_stock < 5 ? 'stock low' : 'stock';
                 const uniqueId = `note_${data.product_sku}_${item.snapshot_date}`;
                 const notes = item.notes || '';
@@ -2695,15 +2720,34 @@ HTML_TEMPLATE = '''
                 html += `<td>${item.name}</td>`;
                 html += `<td><span class="sku">${item.sku}</span></td>`;
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
-                html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}</span></td>`;
-                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}</span></td>`;
-                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}</strong></td>`;
-                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}</strong></td>`;
-                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}</strong></td>`;
-                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
-                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}</strong></td>`;
-                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}</strong></td>`;
-                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? Math.round(item.adv_spend) + ' ₽' : '—'}</strong></td>`;
+
+                // Заказы (с стрелкой)
+                html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}${getTrendArrow(item.orders_qty, prevItem?.orders_qty)}</span></td>`;
+
+                // Ср. позиция (с стрелкой, инвертированная логика: меньше = лучше)
+                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span></td>`;
+
+                // Показы (поиск+кат.) - с стрелкой
+                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}${getTrendArrow(item.hits_view_search, prevItem?.hits_view_search)}</strong></td>`;
+
+                // Посещения - с стрелкой
+                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}${getTrendArrow(item.hits_view_search_pdp, prevItem?.hits_view_search_pdp)}</strong></td>`;
+
+                // CTR (%) - с стрелкой
+                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}${(item.search_ctr !== null && item.search_ctr !== undefined) ? getTrendArrow(item.search_ctr, prevItem?.search_ctr) : ''}</strong></td>`;
+
+                // Корзина - с стрелкой
+                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}${getTrendArrow(item.hits_add_to_cart, prevItem?.hits_add_to_cart)}</strong></td>`;
+
+                // CR1 (%) - с стрелкой
+                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}${(item.cr1 !== null && item.cr1 !== undefined) ? getTrendArrow(item.cr1, prevItem?.cr1) : ''}</strong></td>`;
+
+                // CR2 (%) - с стрелкой
+                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}${(item.cr2 !== null && item.cr2 !== undefined) ? getTrendArrow(item.cr2, prevItem?.cr2) : ''}</strong></td>`;
+
+                // Расходы - с стрелкой
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? Math.round(item.adv_spend) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
+
                 html += `</tr>`;
             });
             
