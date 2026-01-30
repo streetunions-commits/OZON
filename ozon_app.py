@@ -1823,7 +1823,8 @@ def load_product_prices(products_data=None):
                     print(f"     old_price: {item.get('old_price')}")
                     print(f"     min_price: {item.get('min_price')}")
                     print(f"     marketing_price: {item.get('marketing_price')}")
-                    print(f"     commissions: {item.get('commissions')}")
+                    print(f"     promotions: {item.get('promotions')}")
+                    print(f"     price_indexes: {item.get('price_indexes')}")
 
                 # Цены из API
                 # old_price - старая цена (базовая цена до скидки/акции)
