@@ -3068,8 +3068,12 @@ HTML_TEMPLATE = '''
 
                 // Заказы план (редактируемое поле)
                 const ordersPlanValue = item.orders_plan !== null ? item.orders_plan : (prevItem?.orders_plan || '');
-                const isToday = dateStr === new Date().toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: '2-digit'}).replace(/\./g, '.');
-                const isPast = new Date(item.snapshot_date) < new Date(new Date().setHours(0,0,0,0));
+                // Сравниваем даты напрямую (без времени)
+                const itemDate = new Date(item.snapshot_date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                itemDate.setHours(0, 0, 0, 0);
+                const isPast = itemDate < today;
                 const planInputId = `orders_plan_${data.product_sku}_${item.snapshot_date}`;
 
                 html += `<td style="background-color: #f5f5f5;">
