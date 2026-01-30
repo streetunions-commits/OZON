@@ -1798,7 +1798,7 @@ def load_product_prices(products_data=None):
 
             # Используем /v1/product/prices/details для получения актуальных цен с акциями
             data = {
-                "sku": batch_skus
+                "Skus": batch_skus
             }
 
             response = requests.post(
