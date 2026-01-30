@@ -416,8 +416,9 @@ def load_adv_spend_by_sku(date_from, date_to):
         for campaign in campaigns:
             campaign_id = campaign.get("id")
             campaign_title = campaign.get("title", "Без названия")
+            campaign_type = campaign.get("advObjectType", "Unknown")
 
-            print(f"\n  📊 Кампания: {campaign_title} (ID: {campaign_id})")
+            print(f"\n  📊 Кампания: {campaign_title} (ID: {campaign_id}, Тип: {campaign_type})")
 
             # 2.1. Получаем расход по кампании
             # ✅ СИНХРОННЫЙ API: GET /api/client/statistics/expense
@@ -468,17 +469,42 @@ def load_adv_spend_by_sku(date_from, date_to):
                 print(f"        {date}: {spend:.2f}₽")
 
             # 2.2. Получаем товары в кампании
-            products_url = f"https://api-performance.ozon.ru/api/client/campaign/{campaign_id}/v2/products"
+            # ⚠️ ВАЖНО: Разные эндпоинты для разных типов кампаний!
+            # - SKU, BANNER: GET /api/client/campaign/{id}/v2/products
+            # - SEARCH_PROMO: POST /api/client/campaign/search_promo/v2/products
 
-            r = requests.get(products_url, headers=headers, timeout=15)
+            products = []
 
-            if r.status_code != 200:
-                print(f"     ⚠️  Ошибка получения товаров (status={r.status_code})")
-                # Если не можем получить товары, пропускаем кампанию
-                continue
+            if campaign_type == "SEARCH_PROMO":
+                # Для "Оплата за заказ" используем специальный эндпоинт
+                products_url = "https://api-performance.ozon.ru/api/client/campaign/search_promo/v2/products"
 
-            products_data = r.json()
-            products = products_data.get("products", [])
+                r = requests.post(
+                    products_url,
+                    headers=headers,
+                    json={"page": 1, "pageSize": 1000},  # Получаем до 1000 товаров
+                    timeout=15
+                )
+
+                if r.status_code != 200:
+                    print(f"     ⚠️  Ошибка получения товаров SEARCH_PROMO (status={r.status_code})")
+                    continue
+
+                products_data = r.json()
+                products = products_data.get("products", [])
+
+            else:
+                # Для SKU и BANNER используем стандартный эндпоинт
+                products_url = f"https://api-performance.ozon.ru/api/client/campaign/{campaign_id}/v2/products"
+
+                r = requests.get(products_url, headers=headers, timeout=15)
+
+                if r.status_code != 200:
+                    print(f"     ⚠️  Ошибка получения товаров (status={r.status_code})")
+                    continue
+
+                products_data = r.json()
+                products = products_data.get("products", [])
 
             if not products:
                 print(f"     ⚠️  В кампании нет товаров")
