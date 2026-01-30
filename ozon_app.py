@@ -1807,27 +1807,31 @@ def load_product_prices(products_data=None):
                 # DEBUG: выводим все поля для первого товара
                 if sku == 1235819146:
                     print(f"\n  🔍 DEBUG для SKU {sku}:")
-                    print(f"     Все ключи: {item.keys()}")
-                    import json
-                    print(f"     Полный объект: {json.dumps(item, indent=2, ensure_ascii=False)[:1000]}")
+                    print(f"     price: {item.get('price')}")
+                    print(f"     old_price: {item.get('old_price')}")
+                    print(f"     min_price: {item.get('min_price')}")
+                    print(f"     marketing_price: {item.get('marketing_price')}")
+                    print(f"     commissions: {item.get('commissions')}")
 
                 # Цены из API
-                # price - базовая цена (до скидки) - это цена в ЛК
-                # marketing_price - цена с учётом маркетинга - это цена на сайте
+                # old_price - старая цена (базовая цена до скидки/акции)
+                # price - текущая цена (с учетом акций) - это "Ваша цена" в ЛК
+                old_price = item.get("old_price", 0)
                 price = item.get("price", 0)
-                marketing_price = item.get("marketing_price", 0)
 
                 # Конвертируем в float
                 try:
-                    price_value = float(price) if price else 0
-                    marketing_price_value = float(marketing_price) if marketing_price else 0
+                    # Цена в ЛК (текущая цена с учетом акций)
+                    current_price = float(price) if price else 0
+                    # Старая цена (до скидки)
+                    base_price = float(old_price) if old_price else 0
                 except (ValueError, TypeError):
-                    price_value = 0
-                    marketing_price_value = 0
+                    current_price = 0
+                    base_price = 0
 
                 prices_by_sku[sku] = {
-                    "price": price_value,
-                    "marketing_price": marketing_price_value
+                    "price": current_price,  # Цена в ЛК (с учетом акций)
+                    "marketing_price": base_price  # Пока используем old_price, потом разберемся
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
