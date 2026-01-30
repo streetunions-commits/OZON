@@ -3076,7 +3076,20 @@ HTML_TEMPLATE = '''
                 const isPast = itemDate < today;
                 const planInputId = `orders_plan_${data.product_sku}_${item.snapshot_date}`;
 
-                html += `<td style="background-color: #f5f5f5;">
+                // Определяем цвет ячейки на основе сравнения плана и факта
+                let cellBgColor = '#f5f5f5'; // По умолчанию бледно-серый
+                const actualOrders = item.orders_qty || 0;
+                const planOrders = parseInt(ordersPlanValue) || 0;
+
+                if (ordersPlanValue !== '' && planOrders > 0) {
+                    if (planOrders > actualOrders) {
+                        cellBgColor = '#ffe5e5'; // Бледно-красный (план не выполнен)
+                    } else if (planOrders < actualOrders) {
+                        cellBgColor = '#e5ffe5'; // Бледно-зеленый (план перевыполнен)
+                    }
+                }
+
+                html += `<td style="background-color: ${cellBgColor};">
                     <input
                         type="text"
                         id="${planInputId}"
