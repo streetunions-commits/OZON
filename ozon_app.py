@@ -3315,6 +3315,28 @@ HTML_TEMPLATE = '''
             });
         }
 
+        // ✅ Функция для копирования SKU в буфер обмена
+        function copySKU(element, sku) {
+            // Копируем SKU в буфер обмена
+            navigator.clipboard.writeText(sku).then(() => {
+                // Визуальная обратная связь - меняем цвет на секунду
+                const originalColor = element.style.color;
+                element.style.color = '#10b981'; // Зеленый
+                element.style.fontWeight = 'bold';
+
+                // Возвращаем обратно через секунду
+                setTimeout(() => {
+                    element.style.color = originalColor;
+                    element.style.fontWeight = '';
+                }, 1000);
+
+                console.log('✅ SKU скопирован:', sku);
+            }).catch(err => {
+                console.error('❌ Ошибка при копировании:', err);
+                alert('Ошибка при копировании SKU');
+            });
+        }
+
         // ✅ Функция для скрывания/показа столбцов
         function toggleColumn(colIndex) {
             const table = document.querySelector('table');
