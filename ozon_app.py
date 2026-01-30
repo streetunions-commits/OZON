@@ -1650,6 +1650,11 @@ def load_product_prices(products_data=None):
                 continue
 
             result = response.json()
+            print(f"  🔍 DEBUG API response keys: {result.keys()}")
+            print(f"  🔍 DEBUG result type: {type(result.get('result'))}")
+            if result.get("result"):
+                print(f"  🔍 DEBUG result keys: {result.get('result').keys() if isinstance(result.get('result'), dict) else 'not a dict'}")
+                print(f"  🔍 DEBUG first 200 chars: {str(result)[:200]}")
             items = result.get("result", {}).get("items", [])
 
             for item in items:
