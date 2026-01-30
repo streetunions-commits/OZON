@@ -2415,7 +2415,8 @@ HTML_TEMPLATE = '''
             cursor: pointer;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
+            text-align: left;
         }
 
         .note-display:hover {
@@ -2448,12 +2449,13 @@ HTML_TEMPLATE = '''
         }
 
         .note-cell {
-            width: 330px;
-            min-width: 330px;
-            max-width: 330px;
+            width: 200px;
+            min-width: 200px;
+            max-width: 200px;
             position: relative;
             word-wrap: break-word;
             overflow-wrap: break-word;
+            text-align: left;
         }
 
         .note-display {
@@ -2472,6 +2474,7 @@ HTML_TEMPLATE = '''
             align-items: flex-start;
             transition: background 0.2s;
             border: 1px solid #e9ecef;
+            text-align: left;
         }
 
         .note-display:hover {
@@ -2547,11 +2550,12 @@ HTML_TEMPLATE = '''
             display: flex;
             gap: 8px;
             align-items: flex-start;
-            width: 330px;
-            min-width: 330px;
-            max-width: 330px;
+            width: 200px;
+            min-width: 200px;
+            max-width: 200px;
             word-wrap: break-word;
             overflow-wrap: break-word;
+            text-align: left;
         }
 
         .note-display {
@@ -2569,6 +2573,7 @@ HTML_TEMPLATE = '''
             min-height: 60px;
             cursor: pointer;
             transition: background-color 0.2s;
+            text-align: left;
         }
 
         .note-display:hover {
@@ -3033,7 +3038,7 @@ HTML_TEMPLATE = '''
                 const notes = item.notes || '';
                 
                 html += `<tr>`;
-                html += `<td style="width: 370px; min-width: 370px; max-width: 370px; word-wrap: break-word; overflow-wrap: break-word;">
+                html += `<td style="width: 220px; min-width: 220px; max-width: 220px; word-wrap: break-word; overflow-wrap: break-word; text-align: left;">
                     <div class="note-cell">
                         <div id="${uniqueId}_display" class="note-display" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')">
                             ${notes || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>'}
