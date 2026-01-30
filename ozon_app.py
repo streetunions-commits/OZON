@@ -2205,13 +2205,11 @@ def sync_products():
             price = price_data.get("price", 0)
             marketing_price = price_data.get("marketing_price", 0)
 
-            # Рейтинг и отзывы - парсим с карточки товара
+            # Рейтинг и отзывы - пока оставляем пустыми
+            # (парсинг не работает с сервера из-за блокировки Ozon)
+            # Используйте API endpoint /api/update-rating для ручного обновления
             rating = None
             review_count = None
-            card_data = parse_product_card(sku)
-            if card_data:
-                rating = card_data.get("rating")
-                review_count = card_data.get("review_count")
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
@@ -3869,6 +3867,40 @@ def save_orders_plan():
         conn.close()
 
         return jsonify({'success': True, 'message': 'План заказов сохранен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/update-rating/<int:sku>', methods=['POST'])
+def update_rating(sku):
+    """Обновить рейтинг и количество отзывов для товара"""
+    try:
+        data = request.json
+        rating = data.get('rating')
+        review_count = data.get('review_count')
+
+        if rating is None or review_count is None:
+            return jsonify({'success': False, 'error': 'Отсутствуют rating или review_count'})
+
+        snapshot_date = get_snapshot_date()
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Обновляем в истории для сегодняшнего дня
+        cursor.execute('''
+            UPDATE products_history
+            SET rating = ?, review_count = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (float(rating), int(review_count), sku, snapshot_date))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': f'Рейтинг обновлен: {rating} ({review_count} отзывов)'
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
