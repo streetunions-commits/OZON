@@ -459,22 +459,23 @@ def load_search_promo_products_async(date_from, date_to, headers):
     print(f"     ✅ Отчёт получен ({len(csv_content)} байт)")
 
     # Шаг 4: Парсим CSV отчёта по заказам
-    # Формат: Дата;ID заказа;Номер заказа;SKU;...;Расход, ₽
+    # Формат CSV:
+    #   Строка 0: Заголовок отчёта (пропускаем)
+    #   Строка 1: Дата;ID заказа;Номер заказа;SKU;...;Расход, ₽
+    #   Строка 2+: Данные заказов
     spend_by_date_sku = {}  # {date: {sku: spend}}
 
-    # 🐛 DEBUG: Выводим первые строки CSV для отладки
-    csv_lines = csv_content.split('\n')
-    print(f"     🐛 DEBUG: CSV содержит {len(csv_lines)} строк")
-    print(f"     🐛 Первые 3 строки CSV:")
-    for i, line in enumerate(csv_lines[:3]):
-        print(f"        Строка {i}: {line[:200]}")  # Первые 200 символов
-
     try:
-        csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+        # ⚠️ ВАЖНО: Пропускаем первую строку (заголовок отчёта)
+        csv_lines = csv_content.split('\n')
+        if len(csv_lines) < 2:
+            print(f"     ℹ️  CSV пустой или слишком короткий")
+            return {}
 
-        # 🐛 DEBUG: Выводим названия колонок
-        fieldnames = csv_reader.fieldnames
-        print(f"     🐛 Колонки в CSV: {fieldnames}")
+        # Удаляем первую строку и собираем обратно
+        csv_without_header = '\n'.join(csv_lines[1:])
+
+        csv_reader = csv.DictReader(io.StringIO(csv_without_header), delimiter=';')
 
         for row in csv_reader:
             # Дата заказа (формат: ДД.ММ.ГГГГ)
