@@ -56,6 +56,20 @@ When working with Ozon APIs:
   - `.claude/ozon-api-docs/ozon-seller-api.*` - Seller API (товары, остатки, заказы)
   - `.claude/ozon-api-docs/ozon-performance-api.*` - Performance API (реклама, статистика)
 
+**5. Always check logs after deployment**
+
+After deploying changes to the server:
+- **ALWAYS check logs** to verify changes work correctly
+- Use `sudo journalctl -u ozon-tracker --since '1 minute ago'` to check recent logs
+- Verify that new features load data correctly
+- Check for errors or warnings in the logs
+- If something doesn't work as expected, add debug logging and redeploy
+- Example workflow:
+  1. Deploy code to server
+  2. Run sync: `curl -X POST http://127.0.0.1:8000/api/sync`
+  3. Check logs: `sudo journalctl -u ozon-tracker --since '1 minute ago'`
+  4. Verify success or debug issues
+
 ## Self-annealing loop
 
 Errors are learning opportunities. When something breaks:
