@@ -1638,7 +1638,7 @@ def load_product_prices(products_data=None):
             }
 
             response = requests.post(
-                f"{OZON_HOST}/v4/product/info",
+                f"{OZON_HOST}/v3/product/info/list",
                 json=data,
                 headers=get_ozon_headers(),
                 timeout=30
