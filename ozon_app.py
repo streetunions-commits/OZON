@@ -1815,8 +1815,8 @@ def load_product_prices(products_data=None):
                 continue
 
             result = response.json()
-            # API /v3/product/info/list возвращает items в result.items
-            items = result.get("result", {}).get("items", [])
+            # API /v3/product/info/list возвращает items напрямую (не в result)
+            items = result.get("items", [])
 
             # DEBUG: выводим структуру ответа
             if i == 0:
