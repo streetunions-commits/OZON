@@ -374,13 +374,15 @@ def load_adv_spend_by_sku(date_from, date_to):
             print("  ⚠️  Не удалось получить access_token для Performance API")
             return {}
 
-        # Шаг 1: Получаем список ВСЕХ активных кампаний (SKU, SEARCH_PROMO, BANNER)
-        print("  📋 Получение списка активных кампаний всех типов...")
+        # Шаг 1: Получаем список ВСЕХ кампаний (SKU, SEARCH_PROMO, BANNER)
+        # ⚠️ ВАЖНО: Загружаем ВСЕ кампании, не только активные!
+        # Причина: Если кампания была активна вчера, но сегодня остановлена,
+        # у неё всё равно есть расходы за вчера, которые нужно загрузить.
+        print("  📋 Получение списка всех кампаний (включая остановленные)...")
 
         campaigns_url = "https://api-performance.ozon.ru/api/client/campaign"
-        params = {
-            "state": "CAMPAIGN_STATE_RUNNING"  # Только активные (все типы)
-        }
+        # НЕ фильтруем по state - загружаем ВСЕ кампании
+        params = {}
 
         r = requests.get(campaigns_url, headers=headers, params=params, timeout=15)
 
@@ -392,16 +394,19 @@ def load_adv_spend_by_sku(date_from, date_to):
         campaigns = campaigns_data.get("list", [])
 
         if not campaigns:
-            print("  ⚠️  Нет активных рекламных кампаний")
+            print("  ⚠️  Нет рекламных кампаний в аккаунте")
             return {}
 
-        # Группируем кампании по типам для статистики
+        # Группируем кампании по типам и статусам для статистики
         by_type = {}
+        by_state = {}
         for camp in campaigns:
             camp_type = camp.get("advObjectType", "Unknown")
+            camp_state = camp.get("state", "Unknown")
             by_type[camp_type] = by_type.get(camp_type, 0) + 1
+            by_state[camp_state] = by_state.get(camp_state, 0) + 1
 
-        print(f"  ✅ Найдено активных кампаний: {len(campaigns)}")
+        print(f"  ✅ Найдено кампаний: {len(campaigns)}")
         for camp_type, count in by_type.items():
             type_name = {
                 "SKU": "Оплата за клик",
@@ -410,6 +415,18 @@ def load_adv_spend_by_sku(date_from, date_to):
             }.get(camp_type, camp_type)
             print(f"     • {type_name}: {count}")
 
+        # Показываем статусы
+        if len(by_state) > 1 or "CAMPAIGN_STATE_RUNNING" not in by_state:
+            print(f"  📊 Статусы кампаний:")
+            for state, count in by_state.items():
+                state_name = {
+                    "CAMPAIGN_STATE_RUNNING": "Активные",
+                    "CAMPAIGN_STATE_PAUSED": "На паузе",
+                    "CAMPAIGN_STATE_STOPPED": "Остановлены",
+                    "CAMPAIGN_STATE_FINISHED": "Завершены"
+                }.get(state, state)
+                print(f"     • {state_name}: {count}")
+
         # Шаг 2: Получаем расходы по каждой кампании
         spend_by_date = {}  # {date: {sku: spend}}
 
@@ -417,8 +434,17 @@ def load_adv_spend_by_sku(date_from, date_to):
             campaign_id = campaign.get("id")
             campaign_title = campaign.get("title", "Без названия")
             campaign_type = campaign.get("advObjectType", "Unknown")
+            campaign_state = campaign.get("state", "Unknown")
 
-            print(f"\n  📊 Кампания: {campaign_title} (ID: {campaign_id}, Тип: {campaign_type})")
+            # Эмодзи для статуса
+            state_emoji = {
+                "CAMPAIGN_STATE_RUNNING": "🟢",
+                "CAMPAIGN_STATE_PAUSED": "⏸️",
+                "CAMPAIGN_STATE_STOPPED": "🔴",
+                "CAMPAIGN_STATE_FINISHED": "✅"
+            }.get(campaign_state, "⚪")
+
+            print(f"\n  📊 {state_emoji} Кампания: {campaign_title} (ID: {campaign_id}, Тип: {campaign_type})")
 
             # 2.1. Получаем расход по кампании
             # ✅ СИНХРОННЫЙ API: GET /api/client/statistics/expense
