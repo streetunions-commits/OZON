@@ -3141,10 +3141,10 @@ HTML_TEMPLATE = '''
                 </td>`;
 
                 // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
-                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? Math.round(item.price) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
+                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
 
                 // Цена на сайте (с стрелкой, инвертированная логика: меньше = лучше)
-                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? Math.round(item.marketing_price) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
+                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
 
                 // Ср. позиция (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span></td>`;
@@ -3168,7 +3168,7 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}${(item.cr2 !== null && item.cr2 !== undefined) ? getTrendArrow(item.cr2, prevItem?.cr2) : ''}</strong></td>`;
 
                 // Расходы - с стрелкой
-                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? Math.round(item.adv_spend) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
 
                 // CPO (Cost Per Order) - расходы/заказы с стрелкой (меньше = лучше)
                 const cpo = (item.adv_spend !== null && item.adv_spend !== undefined && item.orders_qty > 0)
