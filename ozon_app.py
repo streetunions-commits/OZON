@@ -3097,7 +3097,7 @@ HTML_TEMPLATE = '''
                     </div>
                 </td>`;
                 html += `<td><strong>${dateStr}</strong></td>`;
-                html += `<td>${item.name}</td>`;
+                html += `<td><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.name}</span></td>`;
                 html += `<td><span class="sku" onclick="copySKU(this, '${item.sku}')" style="cursor: pointer;" title="Нажмите чтобы скопировать">${item.sku}</span></td>`;
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
 
@@ -3380,6 +3380,14 @@ HTML_TEMPLATE = '''
                     alert('Ошибка при копировании SKU: ' + err);
                 }
             }
+        }
+
+        // ✅ Функция для открытия товара на Ozon
+        function openProductOnOzon(sku) {
+            // Открываем поиск по SKU на Ozon в новой вкладке
+            const url = `https://www.ozon.ru/search/?text=${sku}`;
+            window.open(url, '_blank');
+            console.log('🔗 Открываю товар на Ozon, SKU:', sku);
         }
 
         // ✅ Функция для скрывания/показа столбцов
