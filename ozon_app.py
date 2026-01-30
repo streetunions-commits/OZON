@@ -1818,24 +1818,10 @@ def load_product_prices(products_data=None):
             # API /v3/product/info/list возвращает items напрямую (не в result)
             items = result.get("items", [])
 
-            # DEBUG: выводим структуру ответа
-            if i == 0:
-                print(f"  🔍 DEBUG структура ответа /v3/product/info/list:")
-                print(f"     Ключи верхнего уровня: {result.keys()}")
-                print(f"     Ключи result: {result.get('result', {}).keys() if result.get('result') else 'result отсутствует'}")
-                if items and len(items) > 0:
-                    print(f"     Ключи первого item: {items[0].keys()}")
-
             for item in items:
                 sku = item.get("sku")
                 if not sku:
                     continue
-
-                # DEBUG: выводим все поля для первого товара
-                if sku == 1235819146:
-                    print(f"\n  🔍 DEBUG для SKU {sku}:")
-                    import json
-                    print(f"     Весь item: {json.dumps(item, indent=2, ensure_ascii=False)}")
 
                 # Извлекаем цены из API
                 price = item.get("price", 0)  # Базовая цена в ЛК
