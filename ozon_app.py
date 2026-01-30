@@ -1796,13 +1796,14 @@ def load_product_prices(products_data=None):
         for i in range(0, len(all_skus), batch_size):
             batch_skus = all_skus[i:i + batch_size]
 
-            # Используем /v1/product/prices/details для получения актуальных цен с акциями
+            # Используем /v3/product/info/list - стандартный endpoint
+            # Примечание: /v1/product/prices/details требует Premium Pro подписку
             data = {
-                "Skus": batch_skus
+                "sku": batch_skus
             }
 
             response = requests.post(
-                f"{OZON_HOST}/v1/product/prices/details",
+                f"{OZON_HOST}/v3/product/info/list",
                 json=data,
                 headers=get_ozon_headers(),
                 timeout=30
@@ -1814,12 +1815,12 @@ def load_product_prices(products_data=None):
                 continue
 
             result = response.json()
-            # API /v1/product/prices/details возвращает items в result
+            # API /v3/product/info/list возвращает items в result.items
             items = result.get("result", {}).get("items", [])
 
             # DEBUG: выводим структуру ответа
             if i == 0:
-                print(f"  🔍 DEBUG структура ответа /v1/product/prices/details:")
+                print(f"  🔍 DEBUG структура ответа /v3/product/info/list:")
                 print(f"     Ключи верхнего уровня: {result.keys()}")
                 print(f"     Ключи result: {result.get('result', {}).keys() if result.get('result') else 'result отсутствует'}")
                 if items and len(items) > 0:
