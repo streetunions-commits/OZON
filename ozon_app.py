@@ -1591,11 +1591,14 @@ def load_fbo_orders():
     return orders_by_sku
 
 
-def load_product_prices():
+def load_product_prices(products_data=None):
     """
     Загрузка цен товаров через Seller API.
 
     API: POST /v4/product/info
+
+    Параметры:
+        products_data - словарь {sku: {...}} с данными товаров (опционально, если не передан - загружает из БД)
 
     Возвращает: {sku: {"price": цена_в_лк, "marketing_price": цена_на_сайте}}
 
@@ -1607,12 +1610,17 @@ def load_product_prices():
     prices_by_sku = {}  # {sku: {"price": X, "marketing_price": Y}}
 
     try:
-        # Получаем список всех SKU из текущих остатков
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT DISTINCT sku FROM products WHERE sku IS NOT NULL')
-        all_skus = [row[0] for row in cursor.fetchall()]
-        conn.close()
+        # Получаем список всех SKU
+        if products_data:
+            # Используем переданный словарь товаров
+            all_skus = list(products_data.keys())
+        else:
+            # Получаем из базы данных (для случая когда функция вызывается отдельно)
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT sku FROM products WHERE sku IS NOT NULL')
+            all_skus = [row[0] for row in cursor.fetchall()]
+            conn.close()
 
         if not all_skus:
             print("  ⚠️  Нет товаров для загрузки цен")
@@ -1808,7 +1816,7 @@ def sync_products():
         orders_by_sku = load_fbo_orders()
 
         # ✅ Загружаем цены товаров
-        prices_by_sku = load_product_prices()
+        prices_by_sku = load_product_prices(products_data)
 
         # ✅ Загружаем средние позиции
         avg_positions = load_avg_positions()
