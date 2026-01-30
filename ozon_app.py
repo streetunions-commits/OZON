@@ -263,6 +263,11 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN price REAL DEFAULT 0"):
         print("✅ Столбец price добавлен в products")
 
+    # ✅ Добавляем колонку для плановых заказов (orders_plan)
+    if ensure_column(cursor, "products_history", "orders_plan",
+                     "ALTER TABLE products_history ADD COLUMN orders_plan INTEGER DEFAULT NULL"):
+        print("✅ Столбец orders_plan добавлен в products_history")
+
     if ensure_column(cursor, "products_history", "marketing_price",
                      "ALTER TABLE products_history ADD COLUMN marketing_price REAL DEFAULT 0"):
         print("✅ Столбец marketing_price добавлен в products_history")
@@ -1791,19 +1796,13 @@ def load_product_prices(products_data=None):
         for i in range(0, len(all_skus), batch_size):
             batch_skus = all_skus[i:i + batch_size]
 
-            # Пробуем /v4/product/info/prices для получения актуальных цен
+            # Используем /v1/product/prices/details для получения актуальных цен с акциями
             data = {
-                "filter": {
-                    "offer_id": [],
-                    "product_id": [],
-                    "visibility": "ALL"
-                },
-                "last_id": "",
-                "limit": 1000
+                "sku": batch_skus
             }
 
             response = requests.post(
-                f"{OZON_HOST}/v4/product/info/prices",
+                f"{OZON_HOST}/v1/product/prices/details",
                 json=data,
                 headers=get_ozon_headers(),
                 timeout=30
@@ -1815,12 +1814,13 @@ def load_product_prices(products_data=None):
                 continue
 
             result = response.json()
-            # API /v4/product/info/prices возвращает items в result
+            # API /v1/product/prices/details возвращает items в result
             items = result.get("result", {}).get("items", [])
 
             # DEBUG: выводим структуру ответа
             if i == 0:
-                print(f"  🔍 DEBUG структура ответа /v4/product/info/prices:")
+                print(f"  🔍 DEBUG структура ответа /v1/product/prices/details:")
+                print(f"     Ключи верхнего уровня: {result.keys()}")
                 print(f"     Ключи result: {result.get('result', {}).keys() if result.get('result') else 'result отсутствует'}")
                 if items and len(items) > 0:
                     print(f"     Ключи первого item: {items[0].keys()}")
@@ -2998,6 +2998,7 @@ HTML_TEMPLATE = '''
             html += '<th>SKU</th>';
             html += '<th>FBO остаток</th>';
             html += '<th>Заказы</th>';
+            html += '<th>Заказы план</th>';
             html += '<th>Цена в ЛК</th>';
             html += '<th>Цена на сайте</th>';
             html += '<th>Ср. позиция</th>';
@@ -3054,6 +3055,24 @@ HTML_TEMPLATE = '''
 
                 // Заказы (с стрелкой)
                 html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}${getTrendArrow(item.orders_qty, prevItem?.orders_qty)}</span></td>`;
+
+                // Заказы план (редактируемое поле)
+                const ordersPlanValue = item.orders_plan !== null ? item.orders_plan : (prevItem?.orders_plan || '');
+                const isToday = dateStr === new Date().toLocaleDateString('ru-RU', {day: '2d', month: '2d', year: '2d'}).replace(/\./g, '.');
+                const isPast = new Date(item.snapshot_date) < new Date(new Date().setHours(0,0,0,0));
+                const planInputId = `orders_plan_${data.product_sku}_${item.snapshot_date}`;
+
+                html += `<td style="background-color: #f5f5f5;">
+                    <input
+                        type="text"
+                        id="${planInputId}"
+                        value="${ordersPlanValue}"
+                        style="width: 60px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
+                        ${isPast ? 'readonly' : ''}
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                        onblur="saveOrdersPlan('${data.product_sku}', '${item.snapshot_date}', this.value)"
+                    />
+                </td>`;
 
                 // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? Math.round(item.price) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
@@ -3114,17 +3133,18 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(3)">SKU</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(4)">FBO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(5)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Заказы план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -3151,13 +3171,13 @@ HTML_TEMPLATE = '''
         function saveNote(uniqueId, sku, date) {
             const textarea = document.getElementById(uniqueId + '_textarea');
             const text = textarea.value;
-            
+
             const payload = {
                 sku: sku,
                 date: date,
                 notes: text
             };
-            
+
             fetch('/api/history/save-note', {
                 method: 'POST',
                 headers: {
@@ -3171,12 +3191,41 @@ HTML_TEMPLATE = '''
                     // Обновляем отображение
                     const displayEl = document.getElementById(uniqueId + '_display');
                     displayEl.innerHTML = text || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>';
-                    
+
                     // Скрываем редактор
                     document.getElementById(uniqueId + '_editor').style.display = 'none';
                     displayEl.style.display = 'flex';
-                    
+
                     console.log('✅ Заметка сохранена');
+                } else {
+                    alert('❌ Ошибка при сохранении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Ошибка: ' + error);
+                console.error('Ошибка:', error);
+            });
+        }
+
+        // ✅ Функция для сохранения плановых заказов
+        function saveOrdersPlan(sku, date, value) {
+            const payload = {
+                sku: parseInt(sku),
+                date: date,
+                orders_plan: value
+            };
+
+            fetch('/api/history/save-orders-plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ План заказов сохранен');
                 } else {
                     alert('❌ Ошибка при сохранении: ' + data.error);
                 }
@@ -3472,23 +3521,66 @@ def save_note():
         sku = data.get('sku')
         snapshot_date = data.get('date')
         notes = data.get('notes', '')
-        
+
         if not sku or not snapshot_date:
             return jsonify({'success': False, 'error': 'Отсутствуют sku или date'})
-        
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
+
         cursor.execute('''
             UPDATE products_history
             SET notes = ?
             WHERE sku = ? AND snapshot_date = ?
         ''', (notes, sku, snapshot_date))
-        
+
         conn.commit()
         conn.close()
-        
+
         return jsonify({'success': True, 'message': 'Заметка сохранена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/history/save-orders-plan', methods=['POST'])
+def save_orders_plan():
+    """Сохранить плановое количество заказов для товара и даты"""
+    try:
+        data = request.json
+        sku = data.get('sku')
+        snapshot_date = data.get('date')
+        orders_plan = data.get('orders_plan')
+
+        if not sku or not snapshot_date:
+            return jsonify({'success': False, 'error': 'Отсутствуют sku или date'})
+
+        # Проверяем, что редактируем только сегодняшние или будущие данные
+        from datetime import datetime
+        today = datetime.now().date()
+        target_date = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
+
+        if target_date < today:
+            return jsonify({'success': False, 'error': 'Нельзя редактировать прошлые данные'})
+
+        # Преобразуем пустую строку в NULL
+        if orders_plan == '':
+            orders_plan = None
+        else:
+            orders_plan = int(orders_plan)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE products_history
+            SET orders_plan = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (orders_plan, sku, snapshot_date))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'План заказов сохранен'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
