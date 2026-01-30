@@ -3056,7 +3056,9 @@ HTML_TEMPLATE = '''
                 html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}${getTrendArrow(item.orders_qty, prevItem?.orders_qty)}</span></td>`;
 
                 // Заказы план (редактируемое поле)
-                const ordersPlanValue = item.orders_plan !== null ? item.orders_plan : (prevItem?.orders_plan || '');
+                const ordersPlanValue = (item.orders_plan !== null && item.orders_plan !== undefined)
+                    ? item.orders_plan
+                    : ((prevItem?.orders_plan !== null && prevItem?.orders_plan !== undefined) ? prevItem.orders_plan : '');
                 // Сравниваем даты напрямую (без времени)
                 const itemDate = new Date(item.snapshot_date);
                 const today = new Date();
