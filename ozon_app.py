@@ -3329,24 +3329,57 @@ HTML_TEMPLATE = '''
 
         // ✅ Функция для копирования SKU в буфер обмена
         function copySKU(element, sku) {
-            // Копируем SKU в буфер обмена
-            navigator.clipboard.writeText(sku).then(() => {
-                // Визуальная обратная связь - меняем цвет на секунду
+            // Функция для визуальной обратной связи
+            const showSuccess = () => {
                 const originalColor = element.style.color;
                 element.style.color = '#10b981'; // Зеленый
                 element.style.fontWeight = 'bold';
 
-                // Возвращаем обратно через секунду
                 setTimeout(() => {
                     element.style.color = originalColor;
                     element.style.fontWeight = '';
                 }, 1000);
+            };
 
-                console.log('✅ SKU скопирован:', sku);
-            }).catch(err => {
-                console.error('❌ Ошибка при копировании:', err);
-                alert('Ошибка при копировании SKU');
-            });
+            // Пробуем современный API (работает на HTTPS)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(sku).then(() => {
+                    showSuccess();
+                    console.log('✅ SKU скопирован (clipboard API):', sku);
+                }).catch(err => {
+                    console.warn('Clipboard API не сработал, пробуем fallback:', err);
+                    fallbackCopy(sku);
+                });
+            } else {
+                // Fallback для HTTP или старых браузеров
+                fallbackCopy(sku);
+            }
+
+            // Альтернативный метод копирования (работает на HTTP)
+            function fallbackCopy(text) {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textarea);
+
+                    if (successful) {
+                        showSuccess();
+                        console.log('✅ SKU скопирован (fallback):', text);
+                    } else {
+                        alert('Не удалось скопировать SKU');
+                    }
+                } catch (err) {
+                    document.body.removeChild(textarea);
+                    console.error('❌ Ошибка при копировании:', err);
+                    alert('Ошибка при копировании SKU: ' + err);
+                }
+            }
         }
 
         // ✅ Функция для скрывания/показа столбцов
