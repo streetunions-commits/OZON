@@ -3085,10 +3085,10 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong></td>`;
 
                 // В ПУТИ - товары из заявок со статусом "в пути"
-                html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}${getTrendArrow(item.in_transit, prevItem?.in_transit)}</span></td>`;
+                html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}</span></td>`;
 
                 // В ЗАЯВКАХ - товары из черновиков/новых заявок
-                html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}${getTrendArrow(item.in_draft, prevItem?.in_draft)}</span></td>`;
+                html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
 
                 html += `</tr>`;
             });
