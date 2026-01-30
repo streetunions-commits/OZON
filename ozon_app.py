@@ -3146,12 +3146,24 @@ HTML_TEMPLATE = '''
 
                 // Соинвест (процент скидки от Цены в ЛК до Цены на сайте)
                 let coinvest = '—';
+                let coinvestValue = null;
+                let prevCoinvestValue = null;
+
+                // Вычисляем соинвест для текущего дня
                 if (item.price !== null && item.price !== undefined && item.price > 0 &&
                     item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
-                    const discount = ((item.price - item.marketing_price) / item.price) * 100;
-                    coinvest = discount.toFixed(1) + '%';
+                    coinvestValue = ((item.price - item.marketing_price) / item.price) * 100;
+                    coinvest = coinvestValue.toFixed(1) + '%';
                 }
-                html += `<td><strong>${coinvest}</strong></td>`;
+
+                // Вычисляем соинвест для предыдущего дня (для стрелки)
+                if (prevItem && prevItem.price !== null && prevItem.price !== undefined && prevItem.price > 0 &&
+                    prevItem.marketing_price !== null && prevItem.marketing_price !== undefined && prevItem.marketing_price > 0) {
+                    prevCoinvestValue = ((prevItem.price - prevItem.marketing_price) / prevItem.price) * 100;
+                }
+
+                // Добавляем ячейку со стрелкой
+                html += `<td><strong>${coinvest}${coinvestValue !== null && prevCoinvestValue !== null ? getTrendArrow(coinvestValue, prevCoinvestValue) : ''}</strong></td>`;
 
                 // Цена на сайте (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
