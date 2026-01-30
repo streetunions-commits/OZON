@@ -1574,6 +1574,95 @@ def load_fbo_orders():
     return orders_by_sku
 
 
+def load_product_prices():
+    """
+    Загрузка цен товаров через Seller API.
+
+    API: POST /v4/product/info
+
+    Возвращает: {sku: {"price": цена_в_лк, "marketing_price": цена_на_сайте}}
+
+    price - цена которую ставите в личном кабинете (до скидки)
+    marketing_price - цена которую видит клиент на сайте (с учётом скидки)
+    """
+    print("\n💰 Загрузка цен товаров...")
+
+    prices_by_sku = {}  # {sku: {"price": X, "marketing_price": Y}}
+
+    try:
+        # Получаем список всех SKU из текущих остатков
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT DISTINCT sku FROM products WHERE sku IS NOT NULL')
+        all_skus = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        if not all_skus:
+            print("  ⚠️  Нет товаров для загрузки цен")
+            return prices_by_sku
+
+        print(f"  📊 Загрузка цен для {len(all_skus)} товаров...")
+
+        # API ограничение: до 1000 товаров за запрос
+        batch_size = 1000
+        for i in range(0, len(all_skus), batch_size):
+            batch_skus = all_skus[i:i + batch_size]
+
+            data = {
+                "sku": batch_skus
+            }
+
+            response = requests.post(
+                f"{OZON_HOST}/v4/product/info",
+                json=data,
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                print(f"  ⚠️  Ошибка API (batch {i // batch_size + 1}): {response.status_code}")
+                print(f"     {response.text[:200]}")
+                continue
+
+            result = response.json()
+            items = result.get("result", {}).get("items", [])
+
+            for item in items:
+                sku = item.get("sku")
+                if not sku:
+                    continue
+
+                # Цены из API
+                # price - базовая цена (до скидки) - это цена в ЛК
+                # marketing_price - цена с учётом маркетинга - это цена на сайте
+                price = item.get("price", 0)
+                marketing_price = item.get("marketing_price", 0)
+
+                # Конвертируем в float
+                try:
+                    price_value = float(price) if price else 0
+                    marketing_price_value = float(marketing_price) if marketing_price else 0
+                except (ValueError, TypeError):
+                    price_value = 0
+                    marketing_price_value = 0
+
+                prices_by_sku[sku] = {
+                    "price": price_value,
+                    "marketing_price": marketing_price_value
+                }
+
+            print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
+
+        print(f"  ✅ Загружено цен для {len(prices_by_sku)} товаров")
+
+    except Exception as e:
+        print(f"  ❌ Ошибка при загрузке цен: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return prices_by_sku
+
+
 def sync_products():
     """
     ============================================================================
@@ -1700,7 +1789,10 @@ def sync_products():
 
         # ✅ Загружаем заказы
         orders_by_sku = load_fbo_orders()
-        
+
+        # ✅ Загружаем цены товаров
+        prices_by_sku = load_product_prices()
+
         # ✅ Загружаем средние позиции
         avg_positions = load_avg_positions()
         
@@ -1760,15 +1852,22 @@ def sync_products():
             
             # CR2 = (заказы / в корзину) * 100
             cr2 = round((orders_qty / cart * 100), 2) if cart > 0 else 0.0
-            
+
+            # Цены товара
+            price_data = prices_by_sku.get(sku, {})
+            price = price_data.get("price", 0)
+            marketing_price = price_data.get("marketing_price", 0)
+
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, fbo_stock, orders_qty, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
+                    price=excluded.price,
+                    marketing_price=excluded.marketing_price,
                     hits_view_search=excluded.hits_view_search,
                     hits_view_search_pdp=excluded.hits_view_search_pdp,
                     search_ctr=excluded.search_ctr,
@@ -1782,6 +1881,8 @@ def sync_products():
                 data.get("name", ""),
                 data.get("fbo_stock", 0),
                 orders_qty,
+                price,
+                marketing_price,
                 views,
                 pdp,
                 search_ctr,
@@ -2680,6 +2781,7 @@ HTML_TEMPLATE = '''
             html += '<th>CR1 (%)</th>';
             html += '<th>CR2 (%)</th>';
             html += '<th>Расходы</th>';
+            html += '<th>CPO</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -2748,6 +2850,15 @@ HTML_TEMPLATE = '''
                 // Расходы - с стрелкой
                 html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? Math.round(item.adv_spend) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
 
+                // CPO (Cost Per Order) - расходы/заказы с стрелкой (меньше = лучше)
+                const cpo = (item.adv_spend !== null && item.adv_spend !== undefined && item.orders_qty > 0)
+                    ? Math.round(item.adv_spend / item.orders_qty)
+                    : null;
+                const prevCpo = (prevItem?.adv_spend !== null && prevItem?.adv_spend !== undefined && prevItem?.orders_qty > 0)
+                    ? Math.round(prevItem.adv_spend / prevItem.orders_qty)
+                    : null;
+                html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong></td>`;
+
                 html += `</tr>`;
             });
             
@@ -2770,6 +2881,7 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(11)">CR1</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(12)">CR2</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(13)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">CPO</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
