@@ -1803,6 +1803,13 @@ def load_product_prices(products_data=None):
                 if not sku:
                     continue
 
+                # DEBUG: выводим все поля для первого товара
+                if sku == 1235819146:
+                    print(f"\n  🔍 DEBUG для SKU {sku}:")
+                    print(f"     Все ключи: {item.keys()}")
+                    import json
+                    print(f"     Полный объект: {json.dumps(item, indent=2, ensure_ascii=False)[:1000]}")
+
                 # Цены из API
                 # price - базовая цена (до скидки) - это цена в ЛК
                 # marketing_price - цена с учётом маркетинга - это цена на сайте
