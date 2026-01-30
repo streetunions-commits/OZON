@@ -15,7 +15,7 @@
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'ozon_tracker.db')
+DB_PATH = os.path.join(os.path.dirname(__file__), 'ozon_data.db')
 
 def ensure_column(cursor, table_name, column_name, alter_statement):
     """Проверяет наличие столбца и добавляет его если нет"""
