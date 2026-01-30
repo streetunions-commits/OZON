@@ -323,6 +323,192 @@ def get_ozon_performance_headers():
     }
 
 
+def get_async_report(uuid, headers, max_attempts=30, sleep_seconds=2):
+    """
+    Получение асинхронного отчёта Performance API по UUID.
+
+    Процесс:
+    1. Проверяем статус формирования отчёта (polling)
+    2. Ждём пока state != OK
+    3. Скачиваем готовый отчёт
+
+    Параметры:
+        uuid: UUID запроса от асинхронного эндпоинта
+        headers: HTTP заголовки с авторизацией
+        max_attempts: максимум попыток проверки статуса
+        sleep_seconds: секунд между попытками
+
+    Возвращает: CSV содержимое отчёта или None в случае ошибки
+    """
+    import time
+
+    # Шаг 1: Проверяем статус формирования отчёта (polling)
+    for attempt in range(max_attempts):
+        status_r = requests.get(
+            f"https://api-performance.ozon.ru/api/client/statistics/{uuid}",
+            headers=headers,
+            timeout=15
+        )
+
+        if status_r.status_code != 200:
+            print(f"     ⚠️  Ошибка проверки статуса UUID (status={status_r.status_code})")
+            return None
+
+        status_data = status_r.json()
+        state = status_data.get("state")
+
+        if state == "OK":
+            # Отчёт готов!
+            break
+        elif state == "ERROR":
+            error_msg = status_data.get("error", "Неизвестная ошибка")
+            print(f"     ❌ Ошибка формирования отчёта: {error_msg}")
+            return None
+        elif state in ["NOT_STARTED", "IN_PROGRESS"]:
+            # Ждём и повторяем
+            if attempt < max_attempts - 1:  # Не спим на последней попытке
+                time.sleep(sleep_seconds)
+        else:
+            print(f"     ⚠️  Неизвестный статус: {state}")
+            return None
+
+    if state != "OK":
+        print(f"     ⏱️  Превышено время ожидания (state={state})")
+        return None
+
+    # Шаг 2: Скачиваем готовый отчёт
+    report_r = requests.get(
+        f"https://api-performance.ozon.ru/api/client/statistics/report?UUID={uuid}",
+        headers=headers,
+        timeout=30
+    )
+
+    if report_r.status_code != 200:
+        print(f"     ⚠️  Ошибка скачивания отчёта (status={report_r.status_code})")
+        return None
+
+    return report_r.text
+
+
+def load_search_promo_products_async(date_from, date_to, headers):
+    """
+    Загрузка товаров с расходами для кампаний SEARCH_PROMO через асинхронный API.
+
+    Используется когда стандартный эндпоинт не возвращает товары
+    (например, для неактивных кампаний или кампаний типа "все товары").
+
+    API: POST /api/client/statistic/products/generate (асинхронный)
+
+    Параметры:
+        date_from: начало периода (ГГГГ-ММ-ДД)
+        date_to: конец периода (ГГГГ-ММ-ДД)
+        headers: HTTP заголовки с авторизацией
+
+    Возвращает: {date: {sku: spend}} - словарь с расходами по датам и SKU
+    """
+    import csv
+    import io
+    from datetime import datetime
+
+    print(f"     🔄 Используем асинхронный API для получения товаров с расходами...")
+
+    # Конвертируем даты в RFC 3339 формат для API
+    try:
+        dt_from = datetime.strptime(date_from, '%Y-%m-%d')
+        dt_to = datetime.strptime(date_to, '%Y-%m-%d')
+        rfc_from = dt_from.strftime('%Y-%m-%dT00:00:00Z')
+        rfc_to = dt_to.strftime('%Y-%m-%dT23:59:59Z')
+    except Exception as e:
+        print(f"     ⚠️  Ошибка конвертации дат: {e}")
+        return {}
+
+    # Шаг 1: Отправляем запрос на формирование отчёта
+    # ⚠️ ВАЖНО: В пути /statistic/ без "s" (опечатка в API!)
+    r = requests.post(
+        "https://api-performance.ozon.ru/api/client/statistic/products/generate",
+        headers=headers,
+        json={
+            "from": rfc_from,
+            "to": rfc_to
+        },
+        timeout=15
+    )
+
+    if r.status_code != 200:
+        print(f"     ⚠️  Ошибка запроса отчёта (status={r.status_code})")
+        return {}
+
+    response_data = r.json()
+    uuid = response_data.get("UUID")
+
+    if not uuid:
+        print(f"     ⚠️  UUID не получен в ответе")
+        return {}
+
+    print(f"     📋 UUID: {uuid}, ожидание формирования отчёта...")
+
+    # Шаг 2-3: Получаем готовый отчёт (polling + download)
+    csv_content = get_async_report(uuid, headers)
+
+    if not csv_content:
+        return {}
+
+    print(f"     ✅ Отчёт получен ({len(csv_content)} байт)")
+
+    # Шаг 4: Парсим CSV и извлекаем SKU с расходами
+    # Формат: Период отчёта;SKU;Артикул;Наименование;...;Расход, ₽;...
+    spend_by_date_sku = {}  # {date: {sku: spend}}
+
+    try:
+        csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+
+        for row in csv_reader:
+            # Извлекаем период отчёта (может быть диапазон дат)
+            period = row.get('Период отчёта', '').strip()
+
+            # SKU товара
+            sku_str = row.get('SKU', '').strip()
+            if not sku_str:
+                continue
+
+            try:
+                sku = int(sku_str)
+            except (ValueError, TypeError):
+                continue
+
+            # Расход в рублях
+            spend_str = row.get('Расход, ₽', '0').strip().replace(',', '.')
+            try:
+                spend = float(spend_str)
+            except (ValueError, TypeError):
+                spend = 0.0
+
+            if spend <= 0:
+                continue
+
+            # Парсим период (может быть "ГГГГ-ММ-ДД - ГГГГ-ММ-ДД" или просто дата)
+            # Для простоты используем date_to как дату (последняя дата периода)
+            # В будущем можно улучшить парсинг периода
+            date = date_to
+
+            if date not in spend_by_date_sku:
+                spend_by_date_sku[date] = {}
+
+            spend_by_date_sku[date][sku] = spend_by_date_sku[date].get(sku, 0) + spend
+
+        if spend_by_date_sku:
+            total_skus = sum(len(skus) for skus in spend_by_date_sku.values())
+            print(f"     ✅ Извлечено: {len(spend_by_date_sku)} дат, {total_skus} товаров с расходами")
+        else:
+            print(f"     ℹ️  Нет данных о товарах с расходами в отчёте")
+
+    except Exception as e:
+        print(f"     ⚠️  Ошибка парсинга CSV: {e}")
+        return {}
+
+    return spend_by_date_sku
+
+
 def load_adv_spend_by_sku(date_from, date_to):
     """
     Загрузка расходов на рекламу по SKU через Performance API.
@@ -533,7 +719,28 @@ def load_adv_spend_by_sku(date_from, date_to):
                 products = products_data.get("products", [])
 
             if not products:
-                print(f"     ⚠️  В кампании нет товаров")
+                # Для SEARCH_PROMO кампаний без товаров пробуем асинхронный API
+                if campaign_type == "SEARCH_PROMO" and campaign_spend_by_date:
+                    print(f"     ⚠️  В кампании нет товаров → используем асинхронный API")
+
+                    # Используем асинхронный API для получения товаров с расходами
+                    async_spend = load_search_promo_products_async(date_from, date_to, headers)
+
+                    if async_spend:
+                        # Объединяем данные из асинхронного API
+                        for date, skus_spend in async_spend.items():
+                            if date not in spend_by_date:
+                                spend_by_date[date] = {}
+
+                            for sku, spend in skus_spend.items():
+                                spend_by_date[date][sku] = spend_by_date[date].get(sku, 0) + spend
+
+                        print(f"     ✅ Данные загружены через асинхронный API")
+                    else:
+                        print(f"     ⚠️  Асинхронный API не вернул данных")
+                else:
+                    print(f"     ⚠️  В кампании нет товаров → пропускаем")
+
                 continue
 
             print(f"     📦 Товаров в кампании: {len(products)}")
