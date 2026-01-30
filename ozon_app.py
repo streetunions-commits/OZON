@@ -1837,25 +1837,27 @@ def load_product_prices(products_data=None):
                     import json
                     print(f"     Весь item: {json.dumps(item, indent=2, ensure_ascii=False)}")
 
-                # Цены из API
-                # old_price - старая цена (базовая цена до скидки/акции)
-                # price - текущая цена (с учетом акций) - это "Ваша цена" в ЛК
-                old_price = item.get("old_price", 0)
-                price = item.get("price", 0)
+                # Извлекаем цены из API
+                price = item.get("price", 0)  # Базовая цена в ЛК
+                price_indexes = item.get("price_indexes", {})
+
+                # Цена на сайте (с Ozon картой) - минимальная цена среди всех маркетплейсов
+                external_index = price_indexes.get("external_index_data", {})
+                ozon_card_price = external_index.get("minimal_price", 0)
 
                 # Конвертируем в float
                 try:
-                    # Цена в ЛК (текущая цена с учетом акций)
-                    current_price = float(price) if price else 0
-                    # Старая цена (до скидки)
-                    base_price = float(old_price) if old_price else 0
+                    # Цена в ЛК (базовая цена, установленная продавцом)
+                    seller_price = float(price) if price else 0
+                    # Цена на сайте (с Ozon картой) - минимальная цена
+                    website_price = float(ozon_card_price) if ozon_card_price else 0
                 except (ValueError, TypeError):
-                    current_price = 0
-                    base_price = 0
+                    seller_price = 0
+                    website_price = 0
 
                 prices_by_sku[sku] = {
-                    "price": current_price,  # Цена в ЛК (с учетом акций)
-                    "marketing_price": base_price  # Пока используем old_price, потом разберемся
+                    "price": seller_price,  # Цена в ЛК (Ваша цена)
+                    "marketing_price": website_price  # Цена на сайте (с Ozon картой)
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
