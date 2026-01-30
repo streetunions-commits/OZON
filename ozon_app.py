@@ -2448,9 +2448,9 @@ HTML_TEMPLATE = '''
         }
 
         .note-cell {
-            width: 1000px;
-            min-width: 1000px;
-            max-width: 1000px;
+            width: 330px;
+            min-width: 330px;
+            max-width: 330px;
             position: relative;
             word-wrap: break-word;
             overflow-wrap: break-word;
@@ -2547,9 +2547,9 @@ HTML_TEMPLATE = '''
             display: flex;
             gap: 8px;
             align-items: flex-start;
-            width: 1000px;
-            min-width: 1000px;
-            max-width: 1000px;
+            width: 330px;
+            min-width: 330px;
+            max-width: 330px;
             word-wrap: break-word;
             overflow-wrap: break-word;
         }
@@ -3033,7 +3033,7 @@ HTML_TEMPLATE = '''
                 const notes = item.notes || '';
                 
                 html += `<tr>`;
-                html += `<td style="width: 1120px; min-width: 1120px; max-width: 1120px; word-wrap: break-word; overflow-wrap: break-word;">
+                html += `<td style="width: 370px; min-width: 370px; max-width: 370px; word-wrap: break-word; overflow-wrap: break-word;">
                     <div class="note-cell">
                         <div id="${uniqueId}_display" class="note-display" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')">
                             ${notes || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>'}
