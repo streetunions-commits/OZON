@@ -48,6 +48,20 @@ def migrate():
         else:
             print("ℹ️  Столбец orders_plan уже существует")
 
+        # Добавляем столбец rating (рейтинг товара)
+        if ensure_column(cursor, "products_history", "rating",
+                         "ALTER TABLE products_history ADD COLUMN rating REAL DEFAULT NULL"):
+            print("✅ Столбец rating добавлен в products_history")
+        else:
+            print("ℹ️  Столбец rating уже существует")
+
+        # Добавляем столбец review_count (количество отзывов)
+        if ensure_column(cursor, "products_history", "review_count",
+                         "ALTER TABLE products_history ADD COLUMN review_count INTEGER DEFAULT NULL"):
+            print("✅ Столбец review_count добавлен в products_history")
+        else:
+            print("ℹ️  Столбец review_count уже существует")
+
         conn.commit()
         conn.close()
 
