@@ -696,24 +696,23 @@ def load_adv_spend_by_sku(date_from, date_to):
             # - SEARCH_PROMO: POST /api/client/campaign/search_promo/v2/products
 
             products = []
+            search_promo_spend_by_date_sku = {}  # {date: {sku: spend}}
 
             if campaign_type == "SEARCH_PROMO":
-                # Для "Оплата за заказ" используем специальный эндпоинт
-                products_url = "https://api-performance.ozon.ru/api/client/campaign/search_promo/v2/products"
+                # Для "Оплата за заказ" загружаем товары из отчёта по ЗАКАЗАМ
+                # ⚠️ ВАЖНО: Расходы SEARCH_PROMO привязаны к заказам, а не к списку товаров кампании
+                search_promo_spend_by_date_sku = load_search_promo_products_async(date_from, date_to, headers)
 
-                r = requests.post(
-                    products_url,
-                    headers=headers,
-                    json={"page": 1, "pageSize": 1000},  # Получаем до 1000 товаров
-                    timeout=15
-                )
+                # Если получили данные из отчёта по заказам, извлекаем список SKU
+                if search_promo_spend_by_date_sku:
+                    # Собираем уникальные SKU из всех дат
+                    all_skus = set()
+                    for date_skus in search_promo_spend_by_date_sku.values():
+                        all_skus.update(date_skus.keys())
 
-                if r.status_code != 200:
-                    print(f"     ⚠️  Ошибка получения товаров SEARCH_PROMO (status={r.status_code})")
-                    continue
-
-                products_data = r.json()
-                products = products_data.get("products", [])
+                    # Создаём products список для совместимости со старым кодом
+                    products = [{"sku": sku} for sku in all_skus]
+                    print(f"     ✅ Загружено {len(products)} товаров из отчёта по заказам")
 
             else:
                 # Для SKU и BANNER используем стандартный эндпоинт
@@ -747,25 +746,41 @@ def load_adv_spend_by_sku(date_from, date_to):
             print(f"     📦 Товаров в кампании: {len(products)}")
 
             # 2.3. Распределяем расход между товарами для КАЖДОЙ даты
-            # Если товар 1 - весь расход ему
-            # Если товаров много - делим поровну (можно улучшить пропорционально кликам)
 
-            for date, total_spend in campaign_spend_by_date.items():
-                spend_per_product = total_spend / len(products)
+            if campaign_type == "SEARCH_PROMO" and search_promo_spend_by_date_sku:
+                # Для SEARCH_PROMO используем ТОЧНЫЕ данные из отчёта по заказам
+                # У нас есть реальные расходы по каждому SKU, не нужно распределять поровну
+                print(f"     💡 Используем точные данные из отчёта по заказам")
 
-                # Инициализируем словарь для этой даты, если его ещё нет
-                if date not in spend_by_date:
-                    spend_by_date[date] = {}
+                for date, sku_spends in search_promo_spend_by_date_sku.items():
+                    # Инициализируем словарь для этой даты, если его ещё нет
+                    if date not in spend_by_date:
+                        spend_by_date[date] = {}
 
-                for product in products:
-                    sku_str = product.get("sku", "")
-                    try:
-                        sku = int(sku_str)
-                        spend_by_date[date][sku] = spend_by_date[date].get(sku, 0) + spend_per_product
-                    except (ValueError, TypeError):
-                        continue
+                    for sku, spend in sku_spends.items():
+                        spend_by_date[date][sku] = spend_by_date[date].get(sku, 0) + spend
 
-            print(f"     ✅ Расход распределен по {len(campaign_spend_by_date)} датам")
+                print(f"     ✅ Загружено точных расходов: {len(search_promo_spend_by_date_sku)} дат")
+
+            else:
+                # Для SKU и BANNER распределяем поровну между товарами
+                # (можно улучшить пропорционально кликам)
+                for date, total_spend in campaign_spend_by_date.items():
+                    spend_per_product = total_spend / len(products)
+
+                    # Инициализируем словарь для этой даты, если его ещё нет
+                    if date not in spend_by_date:
+                        spend_by_date[date] = {}
+
+                    for product in products:
+                        sku_str = product.get("sku", "")
+                        try:
+                            sku = int(sku_str)
+                            spend_by_date[date][sku] = spend_by_date[date].get(sku, 0) + spend_per_product
+                        except (ValueError, TypeError):
+                            continue
+
+                print(f"     ✅ Расход распределен по {len(campaign_spend_by_date)} датам")
 
         if spend_by_date:
             total_dates = len(spend_by_date)
