@@ -2418,6 +2418,8 @@ HTML_TEMPLATE = '''
             border-radius: 4px;
             min-height: 60px;
             word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
             white-space: pre-wrap;
             font-size: 13px;
             line-height: 1.5;
@@ -2459,6 +2461,8 @@ HTML_TEMPLATE = '''
         .note-cell {
             max-width: 250px;
             position: relative;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .note-display {
@@ -2467,6 +2471,8 @@ HTML_TEMPLATE = '''
             border-radius: 4px;
             min-height: 80px;
             word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
             white-space: pre-wrap;
             font-size: 13px;
             line-height: 1.5;
@@ -2551,6 +2557,8 @@ HTML_TEMPLATE = '''
             gap: 8px;
             align-items: flex-start;
             max-width: 250px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
         .note-display {
@@ -2562,6 +2570,8 @@ HTML_TEMPLATE = '''
             font-size: 13px;
             line-height: 1.5;
             word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
             white-space: pre-wrap;
             min-height: 60px;
             cursor: pointer;
@@ -3030,7 +3040,7 @@ HTML_TEMPLATE = '''
                 const notes = item.notes || '';
                 
                 html += `<tr>`;
-                html += `<td style="max-width: 280px;">
+                html += `<td style="max-width: 280px; word-wrap: break-word; overflow-wrap: break-word;">
                     <div class="note-cell">
                         <div id="${uniqueId}_display" class="note-display" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')">
                             ${notes || '<span style="color: #bbb;">Нажмите чтобы добавить...</span>'}
