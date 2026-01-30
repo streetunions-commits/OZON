@@ -1628,7 +1628,19 @@ def load_fbo_supply_orders():
             "limit": 100,
             "offset": 0,
             "sort_by": 1,  # 1 = сортировка по дате создания
-            "filter": {}   # Пустой фильтр (все заявки)
+            "filter": {
+                "states": [
+                    "NEW",
+                    "FILLING_DELIVERY_DETAILS",
+                    "READY_TO_SUPPLY",
+                    "ACCEPTED",
+                    "IN_PROCESS",
+                    "COURIER_ASSIGNED",
+                    "COURIER_PICKED_UP",
+                    "IN_TRANSIT_TO_STORAGE_WAREHOUSE",
+                    "ACCEPTANCE_AT_STORAGE_WAREHOUSE"
+                ]
+            }
         }
 
         all_orders = []
