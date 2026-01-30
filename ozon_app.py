@@ -3068,7 +3068,7 @@ HTML_TEMPLATE = '''
 
                 // Заказы план (редактируемое поле)
                 const ordersPlanValue = item.orders_plan !== null ? item.orders_plan : (prevItem?.orders_plan || '');
-                const isToday = dateStr === new Date().toLocaleDateString('ru-RU', {day: '2d', month: '2d', year: '2d'}).replace(/\./g, '.');
+                const isToday = dateStr === new Date().toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: '2-digit'}).replace(/\./g, '.');
                 const isPast = new Date(item.snapshot_date) < new Date(new Date().setHours(0,0,0,0));
                 const planInputId = `orders_plan_${data.product_sku}_${item.snapshot_date}`;
 
