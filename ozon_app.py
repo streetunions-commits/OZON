@@ -9,8 +9,10 @@ import requests
 import json
 import os
 import sys
+import re
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
+from bs4 import BeautifulSoup
 
 # ✅ TIMEZONE FIX - Белград (Serbia/Balkans)
 try:
@@ -1931,6 +1933,76 @@ def load_product_prices(products_data=None):
     return prices_by_sku
 
 
+def parse_product_card(sku):
+    """
+    ============================================================================
+    ПАРСИНГ КАРТОЧКИ ТОВАРА OZON
+    ============================================================================
+
+    Извлекает рейтинг и количество отзывов с карточки товара на сайте Ozon
+
+    Args:
+        sku (int): SKU товара
+
+    Returns:
+        dict: {'rating': float, 'review_count': int} или None при ошибке
+    """
+    try:
+        url = f"https://www.ozon.ru/product/-{sku}/"
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            print(f"  ⚠️  Не удалось загрузить карточку SKU {sku}: статус {response.status_code}")
+            return None
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Ищем JSON данные в script тегах
+        rating = None
+        review_count = None
+
+        # Вариант 1: Поиск в JSON данных внутри script тегов
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, dict) and 'aggregateRating' in data:
+                    rating = float(data['aggregateRating'].get('ratingValue', 0))
+                    review_count = int(data['aggregateRating'].get('reviewCount', 0))
+                    break
+            except:
+                continue
+
+        # Вариант 2: Поиск через регулярные выражения в HTML
+        if rating is None or review_count is None:
+            # Поиск рейтинга: обычно в формате "4.5" или "4,5"
+            rating_match = re.search(r'"ratingValue["\s:]+([0-9]+[.,][0-9]+)', response.text)
+            if rating_match:
+                rating = float(rating_match.group(1).replace(',', '.'))
+
+            # Поиск количества отзывов
+            review_match = re.search(r'"reviewCount["\s:]+(\d+)', response.text)
+            if review_match:
+                review_count = int(review_match.group(1))
+
+        if rating is not None and review_count is not None:
+            print(f"  ✅ SKU {sku}: рейтинг={rating}, отзывов={review_count}")
+            return {'rating': rating, 'review_count': review_count}
+        else:
+            print(f"  ⚠️  SKU {sku}: не удалось извлечь рейтинг или отзывы")
+            return None
+
+    except Exception as e:
+        print(f"  ❌ Ошибка при парсинге карточки SKU {sku}: {e}")
+        return None
+
+
 def sync_products():
     """
     ============================================================================
@@ -2128,12 +2200,18 @@ def sync_products():
             # CR2 = (заказы / в корзину) * 100
             cr2 = round((orders_qty / cart * 100), 2) if cart > 0 else 0.0
 
-            # Цены товара, рейтинг и отзывы
+            # Цены товара
             price_data = prices_by_sku.get(sku, {})
             price = price_data.get("price", 0)
             marketing_price = price_data.get("marketing_price", 0)
-            rating = price_data.get("rating", None)
-            review_count = price_data.get("review_count", None)
+
+            # Рейтинг и отзывы - парсим с карточки товара
+            rating = None
+            review_count = None
+            card_data = parse_product_card(sku)
+            if card_data:
+                rating = card_data.get("rating")
+                review_count = card_data.get("review_count")
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
