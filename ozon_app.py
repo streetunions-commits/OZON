@@ -268,6 +268,16 @@ def init_database():
                      "ALTER TABLE products_history ADD COLUMN orders_plan INTEGER DEFAULT NULL"):
         print("✅ Столбец orders_plan добавлен в products_history")
 
+    # ✅ Добавляем колонку для рейтинга товара
+    if ensure_column(cursor, "products_history", "rating",
+                     "ALTER TABLE products_history ADD COLUMN rating REAL DEFAULT NULL"):
+        print("✅ Столбец rating добавлен в products_history")
+
+    # ✅ Добавляем колонку для количества отзывов
+    if ensure_column(cursor, "products_history", "review_count",
+                     "ALTER TABLE products_history ADD COLUMN review_count INTEGER DEFAULT NULL"):
+        print("✅ Столбец review_count добавлен в products_history")
+
     if ensure_column(cursor, "products_history", "marketing_price",
                      "ALTER TABLE products_history ADD COLUMN marketing_price REAL DEFAULT 0"):
         print("✅ Столбец marketing_price добавлен в products_history")
@@ -3043,6 +3053,8 @@ HTML_TEMPLATE = '''
             html += '<th>Дата</th>';
             html += '<th>Название</th>';
             html += '<th>SKU</th>';
+            html += '<th>Рейтинг</th>';
+            html += '<th>Отзывы</th>';
             html += '<th>FBO остаток</th>';
             html += '<th>Заказы</th>';
             html += '<th>Заказы план</th>';
@@ -3099,6 +3111,15 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${dateStr}</strong></td>`;
                 html += `<td><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.name}</span></td>`;
                 html += `<td><span class="sku" onclick="copySKU(this, '${item.sku}')" style="cursor: pointer;" title="Нажмите чтобы скопировать">${item.sku}</span></td>`;
+
+                // Рейтинг товара
+                const rating = item.rating !== null && item.rating !== undefined ? item.rating.toFixed(1) : '—';
+                html += `<td><strong>${rating}</strong></td>`;
+
+                // Количество отзывов
+                const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
+                html += `<td><strong>${reviewCount}</strong></td>`;
+
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
 
                 // Заказы (с стрелкой)
@@ -3219,23 +3240,25 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(1)">Дата</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(2)">Название</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(3)">SKU</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(4)">FBO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(5)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Заказы план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Соинвест</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(17)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(19)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(20)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(4)">Рейтинг</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(5)">Отзывы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(6)">FBO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Заказы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Заказы план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(21)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(22)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -3629,6 +3652,8 @@ def get_product_history(sku):
                 fbo_stock,
                 orders_qty,
                 orders_plan,
+                rating,
+                review_count,
                 price,
                 marketing_price,
                 avg_position,
