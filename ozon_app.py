@@ -1791,12 +1791,19 @@ def load_product_prices(products_data=None):
         for i in range(0, len(all_skus), batch_size):
             batch_skus = all_skus[i:i + batch_size]
 
+            # Пробуем /v4/product/info/prices для получения актуальных цен
             data = {
-                "sku": batch_skus
+                "filter": {
+                    "offer_id": [],
+                    "product_id": [],
+                    "visibility": "ALL"
+                },
+                "last_id": "",
+                "limit": 1000
             }
 
             response = requests.post(
-                f"{OZON_HOST}/v3/product/info/list",
+                f"{OZON_HOST}/v4/product/info/prices",
                 json=data,
                 headers=get_ozon_headers(),
                 timeout=30
@@ -1808,8 +1815,15 @@ def load_product_prices(products_data=None):
                 continue
 
             result = response.json()
-            # API /v3/product/info/list возвращает items напрямую, не в result
-            items = result.get("items", [])
+            # API /v4/product/info/prices возвращает items в result
+            items = result.get("result", {}).get("items", [])
+
+            # DEBUG: выводим структуру ответа
+            if i == 0:
+                print(f"  🔍 DEBUG структура ответа /v4/product/info/prices:")
+                print(f"     Ключи result: {result.get('result', {}).keys() if result.get('result') else 'result отсутствует'}")
+                if items and len(items) > 0:
+                    print(f"     Ключи первого item: {items[0].keys()}")
 
             for item in items:
                 sku = item.get("sku")
@@ -1819,12 +1833,8 @@ def load_product_prices(products_data=None):
                 # DEBUG: выводим все поля для первого товара
                 if sku == 1235819146:
                     print(f"\n  🔍 DEBUG для SKU {sku}:")
-                    print(f"     price: {item.get('price')}")
-                    print(f"     old_price: {item.get('old_price')}")
-                    print(f"     min_price: {item.get('min_price')}")
-                    print(f"     marketing_price: {item.get('marketing_price')}")
-                    print(f"     promotions: {item.get('promotions')}")
-                    print(f"     price_indexes: {item.get('price_indexes')}")
+                    import json
+                    print(f"     Весь item: {json.dumps(item, indent=2, ensure_ascii=False)}")
 
                 # Цены из API
                 # old_price - старая цена (базовая цена до скидки/акции)
