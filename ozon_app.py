@@ -1791,59 +1791,98 @@ def load_product_prices(products_data=None):
 
         print(f"  📊 Загрузка цен для {len(all_skus)} товаров...")
 
-        # API ограничение: до 1000 товаров за запрос
+        # ШАГ 1: Получаем mapping SKU → offer_id через /v3/product/info/list
+        sku_to_offer_id = {}
         batch_size = 1000
+
         for i in range(0, len(all_skus), batch_size):
             batch_skus = all_skus[i:i + batch_size]
 
-            # Используем /v3/product/info/list - стандартный endpoint
-            # Примечание: /v1/product/prices/details требует Premium Pro подписку
+            response = requests.post(
+                f"{OZON_HOST}/v3/product/info/list",
+                json={"sku": batch_skus},
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                items = response.json().get("items", [])
+                for item in items:
+                    sku = item.get("sku")
+                    offer_id = item.get("offer_id")
+                    if sku and offer_id:
+                        sku_to_offer_id[sku] = offer_id
+
+        print(f"  ✓ Получено {len(sku_to_offer_id)} offer_id")
+
+        # ШАГ 2: Получаем точные цены через /v5/product/info/prices
+        all_offer_ids = list(sku_to_offer_id.values())
+
+        for i in range(0, len(all_offer_ids), batch_size):
+            batch_offer_ids = all_offer_ids[i:i + batch_size]
+
+            # /v5/product/info/prices содержит marketing_seller_price - точную "Вашу цену"
             data = {
-                "sku": batch_skus
+                "filter": {
+                    "offer_id": batch_offer_ids,
+                    "product_id": [],
+                    "visibility": "ALL"
+                },
+                "limit": 1000
             }
 
             response = requests.post(
-                f"{OZON_HOST}/v3/product/info/list",
+                f"{OZON_HOST}/v5/product/info/prices",
                 json=data,
                 headers=get_ozon_headers(),
                 timeout=30
             )
 
             if response.status_code != 200:
-                print(f"  ⚠️  Ошибка API (batch {i // batch_size + 1}): {response.status_code}")
+                print(f"  ⚠️  Ошибка API /v5/product/info/prices (batch {i // batch_size + 1}): {response.status_code}")
                 print(f"     {response.text[:200]}")
                 continue
 
             result = response.json()
-            # API /v3/product/info/list возвращает items напрямую (не в result)
             items = result.get("items", [])
 
             for item in items:
-                sku = item.get("sku")
+                offer_id = item.get("offer_id")
+                if not offer_id:
+                    continue
+
+                # Находим SKU по offer_id
+                sku = None
+                for s, oid in sku_to_offer_id.items():
+                    if oid == offer_id:
+                        sku = s
+                        break
+
                 if not sku:
                     continue
 
-                # Извлекаем цены из API
-                price = item.get("price", 0)  # Базовая цена в ЛК
+                # Извлекаем цены из price объекта
+                price_obj = item.get("price", {})
                 price_indexes = item.get("price_indexes", {})
 
-                # Цена на сайте (с Ozon картой) - минимальная цена среди всех маркетплейсов
+                # "Ваша цена" в ЛК (с учетом акций/бустинга) = marketing_seller_price
+                marketing_seller_price = price_obj.get("marketing_seller_price", 0)
+
+                # Цена на сайте (с Ozon картой) = минимальная цена из индекса
                 external_index = price_indexes.get("external_index_data", {})
-                ozon_card_price = external_index.get("minimal_price", 0)
+                website_price = external_index.get("min_price", 0)
 
                 # Конвертируем в float
                 try:
-                    # Цена в ЛК (базовая цена, установленная продавцом)
-                    seller_price = float(price) if price else 0
-                    # Цена на сайте (с Ozon картой) - минимальная цена
-                    website_price = float(ozon_card_price) if ozon_card_price else 0
+                    seller_price = float(marketing_seller_price) if marketing_seller_price else 0
+                    site_price = float(website_price) if website_price else 0
                 except (ValueError, TypeError):
                     seller_price = 0
-                    website_price = 0
+                    site_price = 0
 
                 prices_by_sku[sku] = {
-                    "price": seller_price,  # Цена в ЛК (Ваша цена)
-                    "marketing_price": website_price  # Цена на сайте (с Ozon картой)
+                    "price": seller_price,  # Цена в ЛК (Ваша цена с бустингом) - 19,492₽
+                    "marketing_price": site_price  # Цена на сайте (с Ozon картой) - 11,658₽
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
