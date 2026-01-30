@@ -1627,7 +1627,8 @@ def load_fbo_supply_orders():
         data = {
             "limit": 100,
             "offset": 0,
-            "sort_by": 1  # 1 = сортировка по дате создания
+            "sort_by": 1,  # 1 = сортировка по дате создания
+            "filter": {}   # Пустой фильтр (все заявки)
         }
 
         all_orders = []
