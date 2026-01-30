@@ -3009,8 +3009,8 @@ HTML_TEMPLATE = '''
             html += '<th>CR2 (%)</th>';
             html += '<th>Расходы</th>';
             html += '<th>CPO</th>';
-            html += '<th>В ПУТИ</th>';
-            html += '<th>В ЗАЯВКАХ</th>';
+            html += '<th>В пути</th>';
+            html += '<th>В заявках</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -3123,8 +3123,8 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(12)">CR2</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(13)">Расходы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(14)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">В ПУТИ</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">В ЗАЯВКАХ</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
