@@ -462,8 +462,19 @@ def load_search_promo_products_async(date_from, date_to, headers):
     # Формат: Дата;ID заказа;Номер заказа;SKU;...;Расход, ₽
     spend_by_date_sku = {}  # {date: {sku: spend}}
 
+    # 🐛 DEBUG: Выводим первые строки CSV для отладки
+    csv_lines = csv_content.split('\n')
+    print(f"     🐛 DEBUG: CSV содержит {len(csv_lines)} строк")
+    print(f"     🐛 Первые 3 строки CSV:")
+    for i, line in enumerate(csv_lines[:3]):
+        print(f"        Строка {i}: {line[:200]}")  # Первые 200 символов
+
     try:
         csv_reader = csv.DictReader(io.StringIO(csv_content), delimiter=';')
+
+        # 🐛 DEBUG: Выводим названия колонок
+        fieldnames = csv_reader.fieldnames
+        print(f"     🐛 Колонки в CSV: {fieldnames}")
 
         for row in csv_reader:
             # Дата заказа (формат: ДД.ММ.ГГГГ)
