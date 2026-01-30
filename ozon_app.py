@@ -1626,7 +1626,8 @@ def load_fbo_supply_orders():
         # API: /v3/supply-order/list
         data = {
             "limit": 100,
-            "offset": 0
+            "offset": 0,
+            "sort_by": 1  # 1 = сортировка по дате создания
         }
 
         all_orders = []
