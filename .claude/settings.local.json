@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
@@ -32,7 +34,8 @@
       "Bash(powershell.exe -Command \"Start-Service ssh-agent -ErrorAction SilentlyContinue; ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''SSH agent started and key added''\")",
       "Bash(ssh-keygen:*)",
       "Bash(powershell.exe -Command \"Get-Service ssh-agent | Select-Object Status, StartType\")",
-      "Bash(powershell.exe -Command \"ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''''; Write-Host ''Checking SSH connection...''; ssh -T git@github.com 2>&1\")"
+      "Bash(powershell.exe -Command \"ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''''; Write-Host ''Checking SSH connection...''; ssh -T git@github.com 2>&1\")",
+      "Bash(type $env:USERPROFILE.sshid_rsa.pub)"
     ],
     "additionalDirectories": [
       "c:\\Users\\stree\\Documents\\GIT_OZON\\.claude"
