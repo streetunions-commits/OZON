@@ -3134,6 +3134,8 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(4)">FBO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(5)">Заказы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(6)">Заказы план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Цена на сайте</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(9)">Ср. позиция</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(10)">Показы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(11)">Посещения</button>
