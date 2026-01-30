@@ -1817,16 +1817,36 @@ def load_product_prices(products_data=None):
 
             if response.status_code == 200:
                 items = response.json().get("items", [])
+
+                # DEBUG: выводим структуру первого товара для проверки полей
+                if i == 0 and items and len(items) > 0:
+                    print(f"  🔍 DEBUG структура ответа /v3/product/info/list:")
+                    print(f"     Доступные поля: {items[0].keys()}")
+                    # Проверяем есть ли рейтинг и отзывы
+                    if 'rating' in items[0]:
+                        print(f"     ✅ Найдено поле rating: {items[0].get('rating')}")
+                    if 'rating_count' in items[0]:
+                        print(f"     ✅ Найдено поле rating_count: {items[0].get('rating_count')}")
+
                 for item in items:
                     sku = item.get("sku")
                     offer_id = item.get("offer_id")
-                    if sku and offer_id:
-                        sku_to_offer_id[sku] = offer_id
 
-        print(f"  ✓ Получено {len(sku_to_offer_id)} offer_id")
+                    # Извлекаем рейтинг и количество отзывов если есть
+                    rating = item.get("rating", None)
+                    review_count = item.get("rating_count", None)
+
+                    if sku and offer_id:
+                        sku_to_offer_id[sku] = {
+                            "offer_id": offer_id,
+                            "rating": rating,
+                            "review_count": review_count
+                        }
+
+        print(f"  ✓ Получено {len(sku_to_offer_id)} offer_id (с рейтингом и отзывами)")
 
         # ШАГ 2: Получаем точные цены через /v5/product/info/prices
-        all_offer_ids = list(sku_to_offer_id.values())
+        all_offer_ids = [info["offer_id"] for info in sku_to_offer_id.values()]
 
         for i in range(0, len(all_offer_ids), batch_size):
             batch_offer_ids = all_offer_ids[i:i + batch_size]
@@ -1863,9 +1883,11 @@ def load_product_prices(products_data=None):
 
                 # Находим SKU по offer_id
                 sku = None
-                for s, oid in sku_to_offer_id.items():
-                    if oid == offer_id:
+                sku_info = None
+                for s, info in sku_to_offer_id.items():
+                    if info["offer_id"] == offer_id:
                         sku = s
+                        sku_info = info
                         break
 
                 if not sku:
@@ -1892,7 +1914,9 @@ def load_product_prices(products_data=None):
 
                 prices_by_sku[sku] = {
                     "price": seller_price,  # Цена в ЛК (Ваша цена с бустингом) - 19,492₽
-                    "marketing_price": site_price  # Цена на сайте (с Ozon картой) - 11,658₽
+                    "marketing_price": site_price,  # Цена на сайте (с Ozon картой) - 11,658₽
+                    "rating": sku_info["rating"],  # Рейтинг товара
+                    "review_count": sku_info["review_count"]  # Количество отзывов
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
@@ -2104,10 +2128,12 @@ def sync_products():
             # CR2 = (заказы / в корзину) * 100
             cr2 = round((orders_qty / cart * 100), 2) if cart > 0 else 0.0
 
-            # Цены товара
+            # Цены товара, рейтинг и отзывы
             price_data = prices_by_sku.get(sku, {})
             price = price_data.get("price", 0)
             marketing_price = price_data.get("marketing_price", 0)
+            rating = price_data.get("rating", None)
+            review_count = price_data.get("review_count", None)
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
@@ -2150,12 +2176,14 @@ def sync_products():
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
+                    rating=excluded.rating,
+                    review_count=excluded.review_count,
                     price=excluded.price,
                     marketing_price=excluded.marketing_price,
                     avg_position=excluded.avg_position,
@@ -2174,6 +2202,8 @@ def sync_products():
                 data.get("name", ""),
                 data.get("fbo_stock", 0),
                 orders_qty,
+                rating,
+                review_count,
                 price,
                 marketing_price,
                 avg_pos,
