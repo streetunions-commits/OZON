@@ -3542,6 +3542,7 @@ def get_product_history(sku):
                 sku,
                 fbo_stock,
                 orders_qty,
+                orders_plan,
                 price,
                 marketing_price,
                 avg_position,
