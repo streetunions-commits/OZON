@@ -253,7 +253,24 @@ def init_database():
     if ensure_column(cursor, "products", "adv_spend",
                      "ALTER TABLE products ADD COLUMN adv_spend REAL DEFAULT 0"):
         print("✅ Столбец adv_spend добавлен в products")
-    
+
+    # ✅ Добавляем колонки для цен товаров
+    if ensure_column(cursor, "products_history", "price",
+                     "ALTER TABLE products_history ADD COLUMN price REAL DEFAULT 0"):
+        print("✅ Столбец price добавлен в products_history")
+
+    if ensure_column(cursor, "products", "price",
+                     "ALTER TABLE products ADD COLUMN price REAL DEFAULT 0"):
+        print("✅ Столбец price добавлен в products")
+
+    if ensure_column(cursor, "products_history", "marketing_price",
+                     "ALTER TABLE products_history ADD COLUMN marketing_price REAL DEFAULT 0"):
+        print("✅ Столбец marketing_price добавлен в products_history")
+
+    if ensure_column(cursor, "products", "marketing_price",
+                     "ALTER TABLE products ADD COLUMN marketing_price REAL DEFAULT 0"):
+        print("✅ Столбец marketing_price добавлен в products")
+
     conn.commit()
     conn.close()
 
@@ -1895,12 +1912,14 @@ def sync_products():
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
+                    price=excluded.price,
+                    marketing_price=excluded.marketing_price,
                     avg_position=excluded.avg_position,
                     hits_view_search=excluded.hits_view_search,
                     hits_view_search_pdp=excluded.hits_view_search_pdp,
@@ -1915,6 +1934,8 @@ def sync_products():
                 data.get("name", ""),
                 data.get("fbo_stock", 0),
                 orders_qty,
+                price,
+                marketing_price,
                 avg_pos,
                 views,
                 pdp,
@@ -2773,6 +2794,8 @@ HTML_TEMPLATE = '''
             html += '<th>SKU</th>';
             html += '<th>FBO остаток</th>';
             html += '<th>Заказы</th>';
+            html += '<th>Цена в ЛК</th>';
+            html += '<th>Цена на сайте</th>';
             html += '<th>Ср. позиция</th>';
             html += '<th>Показы (поиск+кат.)</th>';
             html += '<th>Посещения</th>';
@@ -2825,6 +2848,12 @@ HTML_TEMPLATE = '''
 
                 // Заказы (с стрелкой)
                 html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}${getTrendArrow(item.orders_qty, prevItem?.orders_qty)}</span></td>`;
+
+                // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
+                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? Math.round(item.price) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
+
+                // Цена на сайте (с стрелкой, инвертированная логика: меньше = лучше)
+                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? Math.round(item.marketing_price) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
 
                 // Ср. позиция (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span></td>`;
@@ -3176,12 +3205,14 @@ def get_product_history(sku):
         
         # Получаем всю историю товара, отсортированную по датам (новые первыми)
         cursor.execute('''
-            SELECT 
+            SELECT
                 snapshot_date,
                 name,
                 sku,
                 fbo_stock,
                 orders_qty,
+                price,
+                marketing_price,
                 avg_position,
                 hits_view_search,
                 hits_view_search_pdp,
@@ -3192,7 +3223,7 @@ def get_product_history(sku):
                 adv_spend,
                 snapshot_time,
                 notes
-            FROM products_history 
+            FROM products_history
             WHERE sku = ?
             ORDER BY snapshot_date DESC
         ''', (sku,))
