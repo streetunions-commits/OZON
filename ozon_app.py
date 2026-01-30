@@ -271,6 +271,23 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN marketing_price REAL DEFAULT 0"):
         print("✅ Столбец marketing_price добавлен в products")
 
+    # ✅ Добавляем колонки для поставок FBO
+    if ensure_column(cursor, "products_history", "in_transit",
+                     "ALTER TABLE products_history ADD COLUMN in_transit INTEGER DEFAULT 0"):
+        print("✅ Столбец in_transit добавлен в products_history")
+
+    if ensure_column(cursor, "products", "in_transit",
+                     "ALTER TABLE products ADD COLUMN in_transit INTEGER DEFAULT 0"):
+        print("✅ Столбец in_transit добавлен в products")
+
+    if ensure_column(cursor, "products_history", "in_draft",
+                     "ALTER TABLE products_history ADD COLUMN in_draft INTEGER DEFAULT 0"):
+        print("✅ Столбец in_draft добавлен в products_history")
+
+    if ensure_column(cursor, "products", "in_draft",
+                     "ALTER TABLE products ADD COLUMN in_draft INTEGER DEFAULT 0"):
+        print("✅ Столбец in_draft добавлен в products")
+
     conn.commit()
     conn.close()
 
@@ -1591,6 +1608,133 @@ def load_fbo_orders():
     return orders_by_sku
 
 
+def load_fbo_supply_orders():
+    """
+    Загрузка заявок на поставку FBO из Ozon API.
+
+    Возвращает два словаря:
+    - in_transit: {sku: qty} - товары "в пути" (статусы ACCEPTED, IN_PROCESS)
+    - in_draft: {sku: qty} - товары "в заявках" (статусы NEW, FILLING_DELIVERY_DETAILS)
+    """
+    print("\n📦 Загрузка заявок на поставку FBO...")
+
+    in_transit = {}  # Товары в пути
+    in_draft = {}    # Товары в заявках/черновиках
+
+    try:
+        # Запрос списка заявок на поставку
+        # API: /v3/supply-order/list
+        data = {
+            "limit": 100,
+            "offset": 0
+        }
+
+        all_orders = []
+        offset = 0
+        max_pages = 10  # Ограничение для безопасности
+
+        while offset < max_pages * 100:
+            data["offset"] = offset
+
+            response = requests.post(
+                f"{OZON_HOST}/v3/supply-order/list",
+                json=data,
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                if offset == 0:
+                    print(f"  ⚠️  Ошибка API /v3/supply-order/list: {response.status_code}")
+                    print(f"     {response.text[:300]}")
+                break
+
+            result = response.json()
+            orders = result.get("result", [])
+
+            if not orders:
+                break
+
+            all_orders.extend(orders)
+
+            if len(orders) < 100:
+                break
+
+            offset += 100
+
+        if not all_orders:
+            print("  ℹ️  Нет заявок на поставку")
+            return in_transit, in_draft
+
+        print(f"  📊 Найдено заявок: {len(all_orders)}")
+
+        # Обрабатываем каждую заявку
+        for order in all_orders:
+            supply_order_id = order.get("supply_order_id")
+            state = order.get("state", "")
+
+            if not supply_order_id:
+                continue
+
+            # Получаем детали заявки через /v3/supply-order/get
+            detail_data = {"supply_order_id": supply_order_id}
+
+            detail_response = requests.post(
+                f"{OZON_HOST}/v3/supply-order/get",
+                json=detail_data,
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+
+            if detail_response.status_code != 200:
+                continue
+
+            detail_result = detail_response.json()
+            order_detail = detail_result.get("result", {})
+            products = order_detail.get("products", [])
+
+            # Определяем, куда записать товары в зависимости от статуса
+            # Статусы "в пути": ACCEPTED, IN_PROCESS
+            # Статусы "в заявках": NEW, FILLING_DELIVERY_DETAILS, COURIER_ASSIGNED
+
+            target_dict = None
+            if state in ["ACCEPTED", "IN_PROCESS", "COURIER_PICKED_UP", "IN_TRANSIT_TO_STORAGE_WAREHOUSE"]:
+                target_dict = in_transit
+            elif state in ["NEW", "FILLING_DELIVERY_DETAILS", "COURIER_ASSIGNED", "READY_TO_SUPPLY"]:
+                target_dict = in_draft
+
+            if target_dict is not None:
+                for product in products:
+                    sku = product.get("sku")
+                    quantity = product.get("quantity", 0)
+
+                    if sku:
+                        try:
+                            quantity = int(quantity)
+                        except (TypeError, ValueError):
+                            quantity = 0
+
+                        target_dict[sku] = target_dict.get(sku, 0) + quantity
+
+        print(f"  ✅ Товаров 'в пути': {len(in_transit)} SKU")
+        print(f"  ✅ Товаров 'в заявках': {len(in_draft)} SKU")
+
+        if in_transit:
+            examples = list(in_transit.items())[:3]
+            print(f"     Примеры (в пути): {examples}")
+
+        if in_draft:
+            examples = list(in_draft.items())[:3]
+            print(f"     Примеры (в заявках): {examples}")
+
+    except Exception as e:
+        print(f"  ⚠️  Ошибка загрузки заявок на поставку: {e}")
+        import traceback
+        traceback.print_exc()
+
+    return in_transit, in_draft
+
+
 def load_product_prices(products_data=None):
     """
     Загрузка цен товаров через Seller API.
@@ -1816,6 +1960,9 @@ def sync_products():
         # ✅ Загружаем заказы
         orders_by_sku = load_fbo_orders()
 
+        # ✅ Загружаем заявки на поставку (В ПУТИ и В ЗАЯВКАХ)
+        in_transit_by_sku, in_draft_by_sku = load_fbo_supply_orders()
+
         # ✅ Загружаем цены товаров
         prices_by_sku = load_product_prices(products_data)
 
@@ -1863,12 +2010,16 @@ def sync_products():
         for sku, data in products_data.items():
             orders_qty = orders_by_sku.get(sku, 0)
             avg_pos = avg_positions.get(sku, 0)
-            
+
             # Показы и метрики
             views = int(hits_view_search_data.get(sku, 0) or 0)
             pdp = int(hits_view_search_pdp_data.get(sku, 0) or 0)
             cart = int(hits_tocart_pdp_data.get(sku, 0) or 0)
             adv_spend = float(adv_spend_data.get(snapshot_date, {}).get(sku, 0) or 0)
+
+            # Поставки FBO
+            in_transit = int(in_transit_by_sku.get(sku, 0))
+            in_draft = int(in_draft_by_sku.get(sku, 0))
             
             # CTR = (посещения карточки / показы) * 100
             search_ctr = round((pdp / views * 100), 2) if views > 0 else 0.0
@@ -1886,8 +2037,8 @@ def sync_products():
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
@@ -1901,6 +2052,8 @@ def sync_products():
                     cr1=excluded.cr1,
                     cr2=excluded.cr2,
                     adv_spend=excluded.adv_spend,
+                    in_transit=excluded.in_transit,
+                    in_draft=excluded.in_draft,
                     updated_at=excluded.updated_at
             ''', (
                 sku,
@@ -1916,13 +2069,15 @@ def sync_products():
                 cr1,
                 cr2,
                 adv_spend,
+                in_transit,
+                in_draft,
                 get_snapshot_time()
             ))
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     fbo_stock=excluded.fbo_stock,
@@ -1937,6 +2092,8 @@ def sync_products():
                     cr1=excluded.cr1,
                     cr2=excluded.cr2,
                     adv_spend=excluded.adv_spend,
+                    in_transit=excluded.in_transit,
+                    in_draft=excluded.in_draft,
                     snapshot_time=excluded.snapshot_time
             ''', (
                 sku,
@@ -1953,6 +2110,8 @@ def sync_products():
                 cr1,
                 cr2,
                 adv_spend,
+                in_transit,
+                in_draft,
                 snapshot_date,
                 snapshot_time
             ))
@@ -2814,6 +2973,8 @@ HTML_TEMPLATE = '''
             html += '<th>CR2 (%)</th>';
             html += '<th>Расходы</th>';
             html += '<th>CPO</th>';
+            html += '<th>В ПУТИ</th>';
+            html += '<th>В ЗАЯВКАХ</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -2897,6 +3058,12 @@ HTML_TEMPLATE = '''
                     : null;
                 html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong></td>`;
 
+                // В ПУТИ - товары из заявок со статусом "в пути"
+                html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}${getTrendArrow(item.in_transit, prevItem?.in_transit)}</span></td>`;
+
+                // В ЗАЯВКАХ - товары из черновиков/новых заявок
+                html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}${getTrendArrow(item.in_draft, prevItem?.in_draft)}</span></td>`;
+
                 html += `</tr>`;
             });
             
@@ -2920,6 +3087,8 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(12)">CR2</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(13)">Расходы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(14)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">В ПУТИ</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">В ЗАЯВКАХ</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -3230,6 +3399,8 @@ def get_product_history(sku):
                 cr1,
                 cr2,
                 adv_spend,
+                in_transit,
+                in_draft,
                 snapshot_time,
                 notes
             FROM products_history
