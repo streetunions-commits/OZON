@@ -3232,9 +3232,21 @@ HTML_TEMPLATE = '''
                 html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}${getTrendArrow(item.orders_qty, prevItem?.orders_qty)}</span></td>`;
 
                 // Заказы план (редактируемое поле)
-                const ordersPlanValue = (item.orders_plan !== null && item.orders_plan !== undefined)
-                    ? item.orders_plan
-                    : ((prevItem?.orders_plan !== null && prevItem?.orders_plan !== undefined) ? prevItem.orders_plan : '');
+                // Если у текущей даты нет плана — ищем последнее установленное значение
+                // в более старых записях (каскадная пропагация назад по истории)
+                let ordersPlanValue = '';
+                if (item.orders_plan !== null && item.orders_plan !== undefined) {
+                    ordersPlanValue = item.orders_plan;
+                } else {
+                    // Ищем ближайшую старую запись с непустым orders_plan
+                    for (let k = index + 1; k < data.history.length; k++) {
+                        const olderItem = data.history[k];
+                        if (olderItem.orders_plan !== null && olderItem.orders_plan !== undefined) {
+                            ordersPlanValue = olderItem.orders_plan;
+                            break;
+                        }
+                    }
+                }
                 // Сравниваем даты напрямую (без времени)
                 const itemDate = new Date(item.snapshot_date);
                 const today = new Date();
