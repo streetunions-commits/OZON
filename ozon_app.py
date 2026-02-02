@@ -4569,25 +4569,98 @@ def _write_parse_state(state):
 @app.route('/api/parse-ratings', methods=['POST'])
 def api_parse_ratings():
     """
-    Создает запрос на парсинг рейтингов.
-    Локальный скрипт на ПК пользователя подхватит этот запрос.
+    Запускает парсинг рейтингов прямо на сервере.
+    Парсер работает в фоновом потоке через Chrome + Xvfb.
     """
     try:
         from datetime import datetime
-        print("\n⭐ Получен запрос на парсинг рейтингов (будет выполнен на ПК)...")
+
+        # Проверяем, не запущен ли уже парсинг
+        current_state = _read_parse_state()
+        if current_state.get('status') == 'running':
+            return jsonify({
+                'success': False,
+                'message': 'Парсинг уже запущен. Дождитесь завершения.'
+            }), 409
+
+        print("\n⭐ Запуск парсинга рейтингов на сервере...")
 
         _write_parse_state({
-            'status': 'requested',
-            'requested_at': datetime.now().isoformat(),
-            'message': 'Запрос создан. Запустите парсер на ПК.'
+            'status': 'running',
+            'started_at': datetime.now().isoformat(),
+            'message': 'Парсер запущен на сервере...'
         })
+
+        # Запускаем парсер в фоновом потоке
+        import threading
+        thread = threading.Thread(target=_run_server_parser, daemon=True)
+        thread.start()
 
         return jsonify({
             'success': True,
-            'message': 'Запрос на парсинг создан. Ожидание локального парсера...'
+            'message': 'Парсинг запущен на сервере. Обновите через пару минут.'
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _run_server_parser():
+    """
+    Запускает parse_ratings_ci.py на сервере в фоновом потоке.
+    Обновляет статус парсинга по завершении.
+    """
+    from datetime import datetime
+    import subprocess as sp
+
+    try:
+        print("⭐ Фоновый парсер: запуск parse_ratings_ci.py...")
+
+        # Запускаем парсер как подпроцесс
+        # parse_ratings_ci.py использует Xvfb + Chrome и отправляет данные на localhost
+        result = sp.run(
+            ['python3', 'parse_ratings_ci.py'],
+            cwd='/root/OZON',
+            capture_output=True,
+            text=True,
+            timeout=600,  # Таймаут 10 минут
+            env={**os.environ, 'SERVER_URL': 'http://127.0.0.1:8000'}
+        )
+
+        print(f"⭐ Фоновый парсер завершён (код: {result.returncode})")
+        if result.stdout:
+            # Выводим последние строки лога
+            lines = result.stdout.strip().split('\n')
+            for line in lines[-10:]:
+                print(f"  {line}")
+
+        if result.returncode == 0:
+            _write_parse_state({
+                'status': 'completed',
+                'completed_at': datetime.now().isoformat(),
+                'message': 'Парсинг завершён успешно'
+            })
+        else:
+            error_msg = result.stderr[-200:] if result.stderr else 'Неизвестная ошибка'
+            _write_parse_state({
+                'status': 'completed',
+                'completed_at': datetime.now().isoformat(),
+                'message': f'Парсинг завершён с ошибками: {error_msg}'
+            })
+
+    except sp.TimeoutExpired:
+        print("⭐ Фоновый парсер: таймаут (10 минут)")
+        _write_parse_state({
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat(),
+            'message': 'Парсинг прерван по таймауту (10 мин)'
+        })
+    except Exception as e:
+        print(f"⭐ Фоновый парсер: ошибка — {e}")
+        _write_parse_state({
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat(),
+            'message': f'Ошибка парсера: {str(e)}'
+        })
 
 
 @app.route('/api/parse-status')
