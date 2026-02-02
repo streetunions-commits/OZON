@@ -59,9 +59,10 @@ When working with Ozon APIs:
 **5. Always deploy to server after pushing code**
 
 After every `git push`, you MUST deploy changes to the production server:
+- **Production server**: `root@89.167.25.21`
 - **ALWAYS run deployment** — never just push and leave old code running on the server
-- SSH to the server and run: `cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker`
-- Or use the deploy script: `./deploy.sh --update`
+- SSH to the server and run: `ssh root@89.167.25.21 "cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker"`
+- Or use the deploy script on the server: `./deploy.sh --update`
 - **Then check logs** to verify changes work correctly
 - Use `sudo journalctl -u ozon-tracker --since '1 minute ago'` to check recent logs
 - Verify that new features load data correctly
@@ -69,9 +70,9 @@ After every `git push`, you MUST deploy changes to the production server:
 - If something doesn't work as expected, add debug logging and redeploy
 - Example workflow:
   1. `git push` (local)
-  2. SSH to server → `cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker`
-  3. Check logs: `sudo journalctl -u ozon-tracker --since '1 minute ago'`
-  4. Run sync if needed: `curl -X POST http://127.0.0.1:8000/api/sync`
+  2. `ssh root@89.167.25.21 "cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker"`
+  3. Check logs: `ssh root@89.167.25.21 "sudo journalctl -u ozon-tracker --since '1 minute ago'"`
+  4. Run sync if needed: `ssh root@89.167.25.21 "curl -X POST http://127.0.0.1:8000/api/sync"`
   5. Verify success or debug issues
 
 **CRITICAL: Push without deploy = incomplete task. The server MUST always run the latest code.**
