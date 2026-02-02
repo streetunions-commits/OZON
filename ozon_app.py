@@ -314,6 +314,15 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN in_draft INTEGER DEFAULT 0"):
         print("✅ Столбец in_draft добавлен в products")
 
+    # Среднее время доставки (в часах)
+    if ensure_column(cursor, "products_history", "avg_delivery_hours",
+                     "ALTER TABLE products_history ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
+        print("✅ Столбец avg_delivery_hours добавлен в products_history")
+
+    if ensure_column(cursor, "products", "avg_delivery_hours",
+                     "ALTER TABLE products ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
+        print("✅ Столбец avg_delivery_hours добавлен в products")
+
     conn.commit()
     conn.close()
 
@@ -589,6 +598,249 @@ def load_search_promo_products_async(date_from, date_to, headers):
         return {}
 
     return spend_by_date_sku
+
+
+def load_avg_delivery_time():
+    """
+    Расчёт среднего времени доставки по SKU на основе доставленных FBO-отправлений.
+
+    Алгоритм:
+    1. Загружаем доставленные FBO-отправления за последние 28 дней
+       через /v2/posting/fbo/list (статус "delivered")
+    2. Для каждого отправления берём created_at и fact_delivery_date
+    3. Считаем delivery_hours = fact_delivery_date - created_at
+    4. Агрегируем по SKU: взвешенное среднее по quantity
+
+    Возвращает: {sku: avg_hours} — среднее время доставки в часах
+    """
+    from datetime import datetime, timedelta, timezone
+
+    print("\n📦 Расчёт среднего времени доставки из доставленных отправлений...")
+
+    try:
+        headers = get_ozon_headers()
+
+        # Период: последние 28 дней (как в кабинете Ozon)
+        now = datetime.now(timezone.utc)
+        date_from = (now - timedelta(days=28)).strftime("%Y-%m-%dT00:00:00.000Z")
+        date_to = now.strftime("%Y-%m-%dT23:59:59.999Z")
+
+        print(f"  📅 Период: {date_from[:10]} — {date_to[:10]}")
+
+        # ====================================================================
+        # Шаг 1: Загружаем все доставленные FBO-отправления за период
+        # ====================================================================
+        all_postings = []
+        offset = 0
+        limit = 1000
+
+        while True:
+            body = {
+                "dir": "ASC",
+                "filter": {
+                    "since": date_from,
+                    "to": date_to,
+                    "status": "delivered"
+                },
+                "limit": limit,
+                "offset": offset,
+                "with": {
+                    "analytics_data": False,
+                    "financial_data": False
+                }
+            }
+
+            url = "https://api-seller.ozon.ru/v2/posting/fbo/list"
+            response = requests.post(url, headers=headers, json=body, timeout=30)
+
+            if response.status_code != 200:
+                print(f"  ❌ /v2/posting/fbo/list статус {response.status_code}: {response.text[:300]}")
+                break
+
+            data = response.json()
+            postings = data.get("result", [])
+
+            if not postings:
+                break
+
+            all_postings.extend(postings)
+            print(f"  📦 Загружено отправлений: {len(all_postings)} (offset={offset})")
+
+            # Если вернулось меньше limit — последняя страница
+            if len(postings) < limit:
+                break
+
+            offset += limit
+            time.sleep(0.3)
+
+        print(f"  📦 Всего доставленных отправлений за 28 дней: {len(all_postings)}")
+
+        if not all_postings:
+            print("  ⚠️  Нет доставленных отправлений — невозможно рассчитать")
+            return {}
+
+        # Логируем первый posting для отладки
+        first = all_postings[0]
+        print(f"  🔍 Поля первого posting: {list(first.keys())}")
+        print(f"     posting_number: {first.get('posting_number')}")
+        print(f"     created_at: {first.get('created_at')}")
+        print(f"     in_process_at: {first.get('in_process_at')}")
+        print(f"     status: {first.get('status')}")
+        for key in ['fact_delivery_date', 'delivery_date', 'delivered_at',
+                     'shipment_date', 'delivering_date']:
+            val = first.get(key)
+            if val:
+                print(f"     {key}: {val}")
+
+        # ====================================================================
+        # Шаг 2: Определяем, есть ли поле с датой доставки в list ответе
+        # ====================================================================
+        delivery_date_field = None
+        has_delivery_date_in_list = False
+
+        for field in ['fact_delivery_date', 'delivery_date', 'delivered_at']:
+            val = first.get(field)
+            if val and val != "0001-01-01T00:00:00Z":
+                has_delivery_date_in_list = True
+                delivery_date_field = field
+                print(f"  ✅ Дата доставки в list: поле '{field}'")
+                break
+
+        if not has_delivery_date_in_list:
+            print("  ⚠️  Дата доставки не найдена в list, пробуем /v2/posting/fbo/get...")
+
+            for posting in all_postings[:5]:
+                pn = posting.get("posting_number")
+                get_url = "https://api-seller.ozon.ru/v2/posting/fbo/get"
+                get_resp = requests.post(get_url, headers=headers, json={
+                    "posting_number": pn,
+                    "with": {"analytics_data": False, "financial_data": False}
+                }, timeout=15)
+
+                if get_resp.status_code == 200:
+                    get_data = get_resp.json().get("result", {})
+                    print(f"     GET {pn}: поля = {list(get_data.keys())}")
+
+                    for field in ['fact_delivery_date', 'delivery_date', 'delivered_at']:
+                        val = get_data.get(field)
+                        if val and val != "0001-01-01T00:00:00Z":
+                            delivery_date_field = field
+                            print(f"     ✅ Дата доставки в GET: {field} = {val}")
+                            break
+                    if delivery_date_field:
+                        break
+                time.sleep(0.3)
+
+        # ====================================================================
+        # Шаг 3: Рассчитываем время доставки по каждому отправлению
+        # ====================================================================
+        sku_data = {}  # sku -> {sum_hours: float, sum_qty: int}
+
+        if has_delivery_date_in_list:
+            # Дата доставки есть в list — считаем из имеющихся данных
+            print(f"  📊 Расчёт из list (поле '{delivery_date_field}')...")
+
+            for posting in all_postings:
+                created_str = posting.get("created_at", "")
+                delivery_str = posting.get(delivery_date_field, "")
+
+                if not created_str or not delivery_str:
+                    continue
+                if delivery_str == "0001-01-01T00:00:00Z":
+                    continue
+
+                try:
+                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    delivered = datetime.fromisoformat(delivery_str.replace("Z", "+00:00"))
+                    hours = (delivered - created).total_seconds() / 3600.0
+
+                    if hours <= 0 or hours > 720:
+                        continue
+
+                    for prod in posting.get("products", []):
+                        sku = prod.get("sku", 0)
+                        qty = prod.get("quantity", 1)
+                        if sku:
+                            if sku not in sku_data:
+                                sku_data[sku] = {"sum_hours": 0.0, "sum_qty": 0}
+                            sku_data[sku]["sum_hours"] += hours * qty
+                            sku_data[sku]["sum_qty"] += qty
+                except Exception:
+                    continue
+
+        elif delivery_date_field:
+            # Дата только в GET — загружаем по каждому posting
+            print(f"  📊 Загрузка через /v2/posting/fbo/get ({len(all_postings)} шт)...")
+
+            for i, posting in enumerate(all_postings):
+                pn = posting.get("posting_number")
+                get_url = "https://api-seller.ozon.ru/v2/posting/fbo/get"
+                get_resp = requests.post(get_url, headers=headers, json={
+                    "posting_number": pn,
+                    "with": {"analytics_data": False, "financial_data": False}
+                }, timeout=15)
+
+                if get_resp.status_code != 200:
+                    continue
+
+                get_data = get_resp.json().get("result", {})
+                created_str = get_data.get("created_at", posting.get("created_at", ""))
+                delivery_str = get_data.get(delivery_date_field, "")
+
+                if not created_str or not delivery_str:
+                    continue
+                if delivery_str == "0001-01-01T00:00:00Z":
+                    continue
+
+                try:
+                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                    delivered = datetime.fromisoformat(delivery_str.replace("Z", "+00:00"))
+                    hours = (delivered - created).total_seconds() / 3600.0
+
+                    if hours <= 0 or hours > 720:
+                        continue
+
+                    products = get_data.get("products", posting.get("products", []))
+                    for prod in products:
+                        sku = prod.get("sku", 0)
+                        qty = prod.get("quantity", 1)
+                        if sku:
+                            if sku not in sku_data:
+                                sku_data[sku] = {"sum_hours": 0.0, "sum_qty": 0}
+                            sku_data[sku]["sum_hours"] += hours * qty
+                            sku_data[sku]["sum_qty"] += qty
+                except Exception:
+                    continue
+
+                if (i + 1) % 50 == 0:
+                    print(f"     Обработано: {i + 1}/{len(all_postings)}")
+                time.sleep(0.2)
+
+        else:
+            print("  ❌ Не найдено поле с датой доставки — расчёт невозможен")
+            return {}
+
+        # ====================================================================
+        # Шаг 4: Взвешенное среднее по каждому SKU
+        # ====================================================================
+        result = {}
+        for sku, d in sku_data.items():
+            if d["sum_qty"] > 0:
+                avg_hours = d["sum_hours"] / d["sum_qty"]
+                result[int(sku)] = round(avg_hours, 1)
+
+        print(f"  ✅ Рассчитано среднее время доставки: {len(result)} товаров")
+        if result:
+            for sku, hours in list(result.items())[:5]:
+                print(f"     SKU {sku}: {hours} ч ({round(hours/24, 1)} дн)")
+
+        return result
+
+    except Exception as e:
+        print(f"  ❌ Ошибка расчёта времени доставки: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
 
 
 def load_adv_spend_by_sku(date_from, date_to):
@@ -2013,6 +2265,107 @@ def parse_product_card(sku):
         return None
 
 
+def load_fbo_analytics(cursor, conn, snapshot_date):
+    """
+    ============================================================================
+    ЗАГРУЗКА АНАЛИТИКИ FBO ПО КЛАСТЕРАМ
+    ============================================================================
+
+    Вызывает /v1/analytics/stocks для получения:
+    - ADS (среднесуточные продажи)
+    - IDC (дней до конца остатка)
+    - Дней без продаж
+    - Статус ликвидности (DEFICIT, POPULAR, ACTUAL, SURPLUS, NO_SALES)
+    - Остатки по кластерам
+
+    Данные сохраняются в таблицу fbo_analytics.
+    """
+    print("\n📊 Загрузка аналитики FBO по кластерам...")
+
+    try:
+        # Очищаем старые данные за сегодня
+        cursor.execute('DELETE FROM fbo_analytics WHERE snapshot_date = ?', (snapshot_date,))
+
+        offset = 0
+        total_rows = 0
+
+        while True:
+            response = requests.post(
+                f"{OZON_HOST}/v1/analytics/stocks",
+                json={
+                    "limit": 100,
+                    "offset": offset,
+                    "warehouse_type": "FBO"
+                },
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+
+            if response.status_code != 200:
+                print(f"  ⚠️  Ошибка API /v1/analytics/stocks: {response.status_code}")
+                if offset == 0:
+                    print(f"     {response.text[:300]}")
+                break
+
+            result = response.json()
+            items = result.get("result", {}).get("items", [])
+
+            if not items:
+                break
+
+            for item in items:
+                sku = item.get("sku")
+                if not sku:
+                    continue
+
+                # Данные по кластерам
+                clusters = item.get("clusters", [])
+                if clusters:
+                    for cluster in clusters:
+                        cluster_name = cluster.get("cluster_name", "")
+                        ads = cluster.get("ads", 0) or 0
+                        idc = cluster.get("idc", 0) or 0
+                        days_no_sales = cluster.get("days_without_sales", 0) or 0
+                        liquidity = cluster.get("liquidity_status", "")
+                        stock = cluster.get("stock", 0) or 0
+
+                        cursor.execute('''
+                            INSERT INTO fbo_analytics
+                            (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (sku, cluster_name, float(ads), float(idc),
+                              int(days_no_sales), liquidity, int(stock), snapshot_date))
+                        total_rows += 1
+                else:
+                    # Нет разбивки по кластерам — сохраняем общие данные
+                    ads = item.get("ads", 0) or 0
+                    idc = item.get("idc", 0) or 0
+                    days_no_sales = item.get("days_without_sales", 0) or 0
+                    liquidity = item.get("liquidity_status", "")
+                    stock = item.get("stock", 0) or 0
+
+                    cursor.execute('''
+                        INSERT INTO fbo_analytics
+                        (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (sku, "Общий", float(ads), float(idc),
+                          int(days_no_sales), liquidity, int(stock), snapshot_date))
+                    total_rows += 1
+
+            if len(items) < 100:
+                break
+
+            offset += 100
+
+        conn.commit()
+        print(f"  ✅ Загружено {total_rows} строк аналитики по кластерам")
+
+    except Exception as e:
+        print(f"  ⚠️  Ошибка загрузки аналитики FBO: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def sync_products():
     """
     ============================================================================
@@ -2052,7 +2405,8 @@ def sync_products():
         print("\n📊 Загрузка остатков...")
         
         products_data = {}  # sku -> {name, fbo_stock}
-        
+        warehouse_rows = []  # Для сохранения остатков по складам
+
         offset = 0
         while True:
             # ✅ ПРАВИЛЬНЫЙ запрос - БЕЗ filter, только warehouse_type!
@@ -2127,10 +2481,25 @@ def sync_products():
                     }
                 
                 products_data[sku]["fbo_stock"] += free_amount
+
+                # Сохраняем строку для таблицы fbo_warehouse_stock
+                wh_name = row.get("warehouse_name", "Неизвестный склад")
+                warehouse_rows.append((sku, wh_name, free_amount))
             
             offset += 1000
         
         print(f"\n  ✅ Всего уникальных товаров: {len(products_data)}")
+
+        # Сохраняем остатки по складам в отдельную таблицу
+        snapshot_date = get_snapshot_date()
+        cursor.execute('DELETE FROM fbo_warehouse_stock WHERE snapshot_date = ?', (snapshot_date,))
+        for wh_sku, wh_name, wh_stock in warehouse_rows:
+            cursor.execute('''
+                INSERT INTO fbo_warehouse_stock (sku, warehouse_name, stock, snapshot_date)
+                VALUES (?, ?, ?, ?)
+            ''', (wh_sku, wh_name, wh_stock, snapshot_date))
+        conn.commit()
+        print(f"  ✅ Сохранено {len(warehouse_rows)} строк по складам")
 
         # ============================================================================
         # ЗАГРУЗКА ДОПОЛНИТЕЛЬНЫХ ДАННЫХ
@@ -2142,6 +2511,9 @@ def sync_products():
 
         # ✅ Загружаем заявки на поставку (В ПУТИ и В ЗАЯВКАХ)
         in_transit_by_sku, in_draft_by_sku = load_fbo_supply_orders()
+
+        # ✅ Загружаем аналитику FBO (ADS, IDC, ликвидность по кластерам)
+        load_fbo_analytics(cursor, conn, snapshot_date)
 
         # ✅ Загружаем цены товаров
         prices_by_sku = load_product_prices(products_data)
@@ -2157,7 +2529,10 @@ def sync_products():
         
         # ✅ Загружаем добавления в корзину
         hits_tocart_pdp_data = load_hits_add_to_cart()
-        
+
+        # ✅ Загружаем среднее время доставки
+        avg_delivery_data = load_avg_delivery_time()
+
         # ✅ Определяем дату снимка по Белграду (YYYY-MM-DD) - ПЕРЕД использованием!
         snapshot_date = get_snapshot_date()
         snapshot_time = get_snapshot_time()
@@ -2200,6 +2575,9 @@ def sync_products():
             # Поставки FBO
             in_transit = int(in_transit_by_sku.get(sku, 0))
             in_draft = int(in_draft_by_sku.get(sku, 0))
+
+            # Среднее время доставки (часы)
+            avg_delivery_hours = avg_delivery_data.get(sku, None)
             
             # CTR = (посещения карточки / показы) * 100
             search_ctr = round((pdp / views * 100), 2) if views > 0 else 0.0
@@ -2224,8 +2602,8 @@ def sync_products():
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, avg_delivery_hours, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products.offer_id),
@@ -2242,6 +2620,7 @@ def sync_products():
                     adv_spend=excluded.adv_spend,
                     in_transit=excluded.in_transit,
                     in_draft=excluded.in_draft,
+                    avg_delivery_hours=COALESCE(excluded.avg_delivery_hours, products.avg_delivery_hours),
                     updated_at=excluded.updated_at
             ''', (
                 sku,
@@ -2260,13 +2639,14 @@ def sync_products():
                 adv_spend,
                 in_transit,
                 in_draft,
+                avg_delivery_hours,
                 get_snapshot_time()
             ))
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, avg_delivery_hours, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products_history.offer_id),
@@ -2286,6 +2666,7 @@ def sync_products():
                     adv_spend=excluded.adv_spend,
                     in_transit=excluded.in_transit,
                     in_draft=excluded.in_draft,
+                    avg_delivery_hours=COALESCE(excluded.avg_delivery_hours, products_history.avg_delivery_hours),
                     snapshot_time=excluded.snapshot_time
             ''', (
                 sku,
@@ -2307,6 +2688,7 @@ def sync_products():
                 adv_spend,
                 in_transit,
                 in_draft,
+                avg_delivery_hours,
                 snapshot_date,
                 snapshot_time
             ))
@@ -2952,6 +3334,106 @@ HTML_TEMPLATE = '''
         th.col-hidden {
             display: none;
         }
+
+        /* ============================================================ */
+        /* АНАЛИТИКА FBO — АККОРДЕОН                                    */
+        /* ============================================================ */
+
+        .fbo-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .fbo-header {
+            background: #f8f9fa;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .fbo-header th {
+            padding: 12px 10px;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            white-space: nowrap;
+        }
+
+        .fbo-row {
+            cursor: pointer;
+            transition: background 0.15s;
+            border-bottom: 1px solid #eee;
+        }
+
+        .fbo-row:hover {
+            background: #f0f4ff;
+        }
+
+        .fbo-row td {
+            padding: 12px 10px;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .fbo-row .fbo-arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+            margin-right: 6px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .fbo-row.expanded .fbo-arrow {
+            transform: rotate(90deg);
+        }
+
+        .fbo-clusters {
+            display: none;
+        }
+
+        .fbo-clusters.visible {
+            display: table-row-group;
+        }
+
+        .cluster-row td {
+            padding: 8px 10px 8px 38px;
+            font-size: 13px;
+            color: #555;
+            background: #fafbfc;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .cluster-row td:first-child {
+            padding-left: 38px;
+        }
+
+        /* Бейджи статуса ликвидности */
+        .liq-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .liq-DEFICIT { background: #fee2e2; color: #dc2626; }
+        .liq-NO_SALES { background: #f3f4f6; color: #6b7280; }
+        .liq-ACTUAL { background: #dbeafe; color: #2563eb; }
+        .liq-POPULAR { background: #dcfce7; color: #16a34a; }
+        .liq-SURPLUS { background: #fef9c3; color: #ca8a04; }
+
+        .fbo-loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .fbo-stock-val {
+            font-weight: 600;
+        }
+
+        .fbo-stock-zero {
+            color: #ccc;
+        }
     </style>
 </head>
 <body>
@@ -2971,6 +3453,7 @@ HTML_TEMPLATE = '''
         <div class="table-container">
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
+                <button class="tab-button" onclick="switchTab(event, 'fbo')">Аналитика FBO</button>
                 <button class="tab-button" onclick="switchTab(event, 'wb')">WB</button>
             </div>
 
@@ -2990,6 +3473,13 @@ HTML_TEMPLATE = '''
                 </div>
                 <div id="history-content">
                     <div class="loading">Выберите товар из списка</div>
+                </div>
+            </div>
+
+            <!-- ТАБ: Аналитика FBO -->
+            <div id="fbo" class="tab-content">
+                <div id="fbo-content">
+                    <div class="fbo-loading">Загрузка данных...</div>
                 </div>
             </div>
 
@@ -3152,14 +3642,143 @@ HTML_TEMPLATE = '''
             // Скрываем все табы
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
-            
+
             // Показываем нужный таб
             document.getElementById(tab).classList.add('active');
             e.target.classList.add('active');
-            
+
             // Если открыли историю - загружаем список товаров
             if (tab === 'history') {
                 loadProductsList();
+            }
+            // Если открыли FBO аналитику - загружаем данные
+            if (tab === 'fbo') {
+                loadFboAnalytics();
+            }
+        }
+
+        // ============================================================
+        // АНАЛИТИКА FBO — АККОРДЕОН
+        // ============================================================
+
+        let fboDataLoaded = false;
+
+        function loadFboAnalytics() {
+            const container = document.getElementById('fbo-content');
+            if (fboDataLoaded) return; // Не перезагружаем если уже загружено
+
+            container.innerHTML = '<div class="fbo-loading">Загрузка аналитики FBO...</div>';
+
+            fetch('/api/fbo-analytics')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        container.innerHTML = '<div class="fbo-loading">Ошибка: ' + (data.error || 'неизвестная') + '</div>';
+                        return;
+                    }
+                    if (!data.products || data.products.length === 0) {
+                        container.innerHTML = '<div class="fbo-loading">Нет данных. Выполните синхронизацию.</div>';
+                        return;
+                    }
+                    fboDataLoaded = true;
+                    renderFboTable(data.products);
+                })
+                .catch(err => {
+                    container.innerHTML = '<div class="fbo-loading">Ошибка загрузки: ' + err.message + '</div>';
+                });
+        }
+
+        function getLiqBadge(status) {
+            const labels = {
+                'DEFICIT': 'Дефицит',
+                'NO_SALES': 'Нет продаж',
+                'ACTUAL': 'Актуальный',
+                'POPULAR': 'Популярный',
+                'SURPLUS': 'Излишек'
+            };
+            const label = labels[status] || status || '—';
+            const cls = status ? 'liq-' + status : '';
+            return '<span class="liq-badge ' + cls + '">' + label + '</span>';
+        }
+
+        function renderFboTable(products) {
+            const container = document.getElementById('fbo-content');
+
+            let html = '<table class="fbo-table">';
+            html += '<thead class="fbo-header"><tr>';
+            html += '<th>Товар</th>';
+            html += '<th>Остаток FBO</th>';
+            html += '<th>ADS (сумм.)</th>';
+            html += '<th>В пути</th>';
+            html += '<th>В заявках</th>';
+            html += '<th>Статус</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+
+            products.forEach(function(p) {
+                const sku = p.sku;
+                const stockClass = p.fbo_stock > 0 ? 'fbo-stock-val' : 'fbo-stock-val fbo-stock-zero';
+
+                // Основная строка товара
+                html += '<tr class="fbo-row" id="fbo-row-' + sku + '" onclick="toggleFboRow(' + sku + ')">';
+                html += '<td><span class="fbo-arrow">&#9654;</span>' + (p.offer_id || p.name || 'SKU ' + sku) + '</td>';
+                html += '<td class="' + stockClass + '">' + p.fbo_stock + ' шт</td>';
+                html += '<td>' + p.total_ads + '</td>';
+                html += '<td>' + (p.in_transit || 0) + '</td>';
+                html += '<td>' + (p.in_draft || 0) + '</td>';
+                html += '<td>' + getLiqBadge(p.worst_liquidity) + '</td>';
+                html += '</tr>';
+
+                // Блок кластеров (скрыт по умолчанию)
+                html += '<tbody class="fbo-clusters" id="fbo-clusters-' + sku + '">';
+
+                if (p.clusters && p.clusters.length > 0) {
+                    // Заголовок кластеров
+                    html += '<tr class="cluster-row" style="background:#f0f2f5;">';
+                    html += '<td style="font-weight:600;color:#888;">Кластер</td>';
+                    html += '<td style="font-weight:600;color:#888;">Остаток</td>';
+                    html += '<td style="font-weight:600;color:#888;">ADS</td>';
+                    html += '<td style="font-weight:600;color:#888;">IDC (дн)</td>';
+                    html += '<td style="font-weight:600;color:#888;">Без продаж</td>';
+                    html += '<td style="font-weight:600;color:#888;">Статус</td>';
+                    html += '</tr>';
+
+                    p.clusters.forEach(function(c) {
+                        const cStockClass = c.stock > 0 ? '' : 'fbo-stock-zero';
+                        html += '<tr class="cluster-row">';
+                        html += '<td>' + c.cluster_name + '</td>';
+                        html += '<td class="' + cStockClass + '">' + c.stock + ' шт</td>';
+                        html += '<td>' + c.ads + '</td>';
+                        html += '<td>' + c.idc + '</td>';
+                        html += '<td>' + c.days_without_sales + ' дн</td>';
+                        html += '<td>' + getLiqBadge(c.liquidity_status) + '</td>';
+                        html += '</tr>';
+                    });
+                } else {
+                    html += '<tr class="cluster-row"><td colspan="6" style="color:#aaa;">Нет данных по кластерам</td></tr>';
+                }
+
+                html += '</tbody>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function toggleFboRow(sku) {
+            const row = document.getElementById('fbo-row-' + sku);
+            const clusters = document.getElementById('fbo-clusters-' + sku);
+
+            if (!row || !clusters) return;
+
+            const isExpanded = row.classList.contains('expanded');
+
+            if (isExpanded) {
+                row.classList.remove('expanded');
+                clusters.classList.remove('visible');
+            } else {
+                row.classList.add('expanded');
+                clusters.classList.add('visible');
             }
         }
 
@@ -3274,6 +3893,7 @@ HTML_TEMPLATE = '''
             html += '<th>CPO</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
+            html += '<th>Ср. доставка</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -3442,6 +4062,10 @@ HTML_TEMPLATE = '''
                 // В ЗАЯВКАХ - товары из черновиков/новых заявок
                 html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
 
+                // СРЕДНЕЕ ВРЕМЯ ДОСТАВКИ (часы)
+                const deliveryHours = item.avg_delivery_hours;
+                html += `<td><strong>${deliveryHours !== null && deliveryHours !== undefined ? deliveryHours + ' ч' : '—'}</strong></td>`;
+
                 html += `</tr>`;
             });
             
@@ -3473,6 +4097,7 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(21)">В пути</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(22)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(23)">Ср. доставка</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -3880,6 +4505,7 @@ def get_product_history(sku):
                 adv_spend,
                 in_transit,
                 in_draft,
+                avg_delivery_hours,
                 snapshot_time,
                 notes
             FROM products_history
@@ -4173,6 +4799,144 @@ def api_sync():
             'success': False,
             'message': f'Ошибка: {str(e)}'
         }), 500
+
+# ============================================================================
+# ЭНДПОИНТ: АНАЛИТИКА FBO ПО КЛАСТЕРАМ
+# ============================================================================
+
+@app.route('/api/fbo-analytics')
+def get_fbo_analytics():
+    """
+    Получить аналитику FBO с разбивкой по кластерам.
+
+    Возвращает список товаров с общими показателями и вложенным массивом кластеров.
+    Каждый кластер содержит: остатки, ADS, IDC, дни без продаж, статус ликвидности.
+    Также включает данные о поставках (в пути и в заявках) из products_history.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем последнюю дату снапшота для аналитики
+        cursor.execute('SELECT MAX(snapshot_date) as max_date FROM fbo_analytics')
+        row = cursor.fetchone()
+        analytics_date = row['max_date'] if row else None
+
+        if not analytics_date:
+            conn.close()
+            return jsonify({'success': True, 'products': [], 'message': 'Нет данных аналитики. Выполните синхронизацию.'})
+
+        # Получаем кластерные данные за последнюю дату
+        cursor.execute('''
+            SELECT sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock
+            FROM fbo_analytics
+            WHERE snapshot_date = ?
+            ORDER BY sku, cluster_name
+        ''', (analytics_date,))
+        analytics_rows = cursor.fetchall()
+
+        # Получаем per-warehouse stock за последнюю дату
+        cursor.execute('SELECT MAX(snapshot_date) as max_date FROM fbo_warehouse_stock')
+        wh_row = cursor.fetchone()
+        wh_date = wh_row['max_date'] if wh_row else None
+
+        warehouse_stocks = {}
+        if wh_date:
+            cursor.execute('''
+                SELECT sku, warehouse_name, stock
+                FROM fbo_warehouse_stock
+                WHERE snapshot_date = ?
+                ORDER BY sku, warehouse_name
+            ''', (wh_date,))
+            for r in cursor.fetchall():
+                sku = r['sku']
+                if sku not in warehouse_stocks:
+                    warehouse_stocks[sku] = []
+                warehouse_stocks[sku].append({
+                    'warehouse_name': r['warehouse_name'],
+                    'stock': r['stock']
+                })
+
+        # Получаем информацию о товарах (название, артикул) и поставки
+        cursor.execute('''
+            SELECT ph.sku, ph.name, ph.offer_id, ph.fbo_stock, ph.in_transit, ph.in_draft
+            FROM products_history ph
+            JOIN (
+                SELECT sku, MAX(snapshot_date) AS max_date
+                FROM products_history
+                GROUP BY sku
+            ) last ON last.sku = ph.sku AND last.max_date = ph.snapshot_date
+        ''')
+        product_info = {}
+        for r in cursor.fetchall():
+            product_info[r['sku']] = {
+                'name': r['name'],
+                'offer_id': r['offer_id'],
+                'fbo_stock': r['fbo_stock'] or 0,
+                'in_transit': r['in_transit'] or 0,
+                'in_draft': r['in_draft'] or 0
+            }
+
+        conn.close()
+
+        # Группируем аналитику по SKU
+        products_map = {}
+        for r in analytics_rows:
+            sku = r['sku']
+            if sku not in products_map:
+                info = product_info.get(sku, {})
+                products_map[sku] = {
+                    'sku': sku,
+                    'offer_id': info.get('offer_id', ''),
+                    'name': info.get('name', ''),
+                    'fbo_stock': info.get('fbo_stock', 0),
+                    'in_transit': info.get('in_transit', 0),
+                    'in_draft': info.get('in_draft', 0),
+                    'total_ads': 0,
+                    'total_stock_analytics': 0,
+                    'worst_liquidity': '',
+                    'clusters': []
+                }
+
+            cluster = {
+                'cluster_name': r['cluster_name'],
+                'stock': r['stock'] or 0,
+                'ads': round(r['ads'] or 0, 2),
+                'idc': round(r['idc'] or 0, 1),
+                'days_without_sales': r['days_without_sales'] or 0,
+                'liquidity_status': r['liquidity_status'] or ''
+            }
+            products_map[sku]['clusters'].append(cluster)
+            products_map[sku]['total_ads'] += (r['ads'] or 0)
+            products_map[sku]['total_stock_analytics'] += (r['stock'] or 0)
+
+            # Определяем худший статус ликвидности
+            liq = r['liquidity_status'] or ''
+            current_worst = products_map[sku]['worst_liquidity']
+            liq_priority = {'NO_SALES': 5, 'DEFICIT': 4, 'SURPLUS': 3, 'ACTUAL': 2, 'POPULAR': 1}
+            if liq_priority.get(liq, 0) > liq_priority.get(current_worst, 0):
+                products_map[sku]['worst_liquidity'] = liq
+
+        # Финализируем данные
+        products = []
+        for sku, prod in products_map.items():
+            prod['total_ads'] = round(prod['total_ads'], 2)
+            products.append(prod)
+
+        # Сортировка: ПЖД (1235819146) первым, потом по артикулу
+        products.sort(key=lambda p: (0 if p['sku'] == 1235819146 else 1, p['offer_id']))
+
+        return jsonify({
+            'success': True,
+            'products': products,
+            'analytics_date': analytics_date
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'products': []})
 
 
 # ============================================================================
