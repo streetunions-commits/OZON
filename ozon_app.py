@@ -315,15 +315,6 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN in_draft INTEGER DEFAULT 0"):
         print("✅ Столбец in_draft добавлен в products")
 
-    # Среднее время доставки (в часах)
-    if ensure_column(cursor, "products_history", "avg_delivery_hours",
-                     "ALTER TABLE products_history ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
-        print("✅ Столбец avg_delivery_hours добавлен в products_history")
-
-    if ensure_column(cursor, "products", "avg_delivery_hours",
-                     "ALTER TABLE products ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
-        print("✅ Столбец avg_delivery_hours добавлен в products")
-
     # ✅ Таблица fbo_warehouse_stock — остатки по складам/кластерам
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS fbo_warehouse_stock (
@@ -625,249 +616,6 @@ def load_search_promo_products_async(date_from, date_to, headers):
         return {}
 
     return spend_by_date_sku
-
-
-def load_avg_delivery_time():
-    """
-    Расчёт среднего времени доставки по SKU на основе доставленных FBO-отправлений.
-
-    Алгоритм:
-    1. Загружаем доставленные FBO-отправления за последние 28 дней
-       через /v2/posting/fbo/list (статус "delivered")
-    2. Для каждого отправления берём created_at и fact_delivery_date
-    3. Считаем delivery_hours = fact_delivery_date - created_at
-    4. Агрегируем по SKU: взвешенное среднее по quantity
-
-    Возвращает: {sku: avg_hours} — среднее время доставки в часах
-    """
-    from datetime import datetime, timedelta, timezone
-
-    print("\n📦 Расчёт среднего времени доставки из доставленных отправлений...")
-
-    try:
-        headers = get_ozon_headers()
-
-        # Период: последние 28 дней (как в кабинете Ozon)
-        now = datetime.now(timezone.utc)
-        date_from = (now - timedelta(days=28)).strftime("%Y-%m-%dT00:00:00.000Z")
-        date_to = now.strftime("%Y-%m-%dT23:59:59.999Z")
-
-        print(f"  📅 Период: {date_from[:10]} — {date_to[:10]}")
-
-        # ====================================================================
-        # Шаг 1: Загружаем все доставленные FBO-отправления за период
-        # ====================================================================
-        all_postings = []
-        offset = 0
-        limit = 1000
-
-        while True:
-            body = {
-                "dir": "ASC",
-                "filter": {
-                    "since": date_from,
-                    "to": date_to,
-                    "status": "delivered"
-                },
-                "limit": limit,
-                "offset": offset,
-                "with": {
-                    "analytics_data": False,
-                    "financial_data": False
-                }
-            }
-
-            url = "https://api-seller.ozon.ru/v2/posting/fbo/list"
-            response = requests.post(url, headers=headers, json=body, timeout=30)
-
-            if response.status_code != 200:
-                print(f"  ❌ /v2/posting/fbo/list статус {response.status_code}: {response.text[:300]}")
-                break
-
-            data = response.json()
-            postings = data.get("result", [])
-
-            if not postings:
-                break
-
-            all_postings.extend(postings)
-            print(f"  📦 Загружено отправлений: {len(all_postings)} (offset={offset})")
-
-            # Если вернулось меньше limit — последняя страница
-            if len(postings) < limit:
-                break
-
-            offset += limit
-            time.sleep(0.3)
-
-        print(f"  📦 Всего доставленных отправлений за 28 дней: {len(all_postings)}")
-
-        if not all_postings:
-            print("  ⚠️  Нет доставленных отправлений — невозможно рассчитать")
-            return {}
-
-        # Логируем первый posting для отладки
-        first = all_postings[0]
-        print(f"  🔍 Поля первого posting: {list(first.keys())}")
-        print(f"     posting_number: {first.get('posting_number')}")
-        print(f"     created_at: {first.get('created_at')}")
-        print(f"     in_process_at: {first.get('in_process_at')}")
-        print(f"     status: {first.get('status')}")
-        for key in ['fact_delivery_date', 'delivery_date', 'delivered_at',
-                     'shipment_date', 'delivering_date']:
-            val = first.get(key)
-            if val:
-                print(f"     {key}: {val}")
-
-        # ====================================================================
-        # Шаг 2: Определяем, есть ли поле с датой доставки в list ответе
-        # ====================================================================
-        delivery_date_field = None
-        has_delivery_date_in_list = False
-
-        for field in ['fact_delivery_date', 'delivery_date', 'delivered_at']:
-            val = first.get(field)
-            if val and val != "0001-01-01T00:00:00Z":
-                has_delivery_date_in_list = True
-                delivery_date_field = field
-                print(f"  ✅ Дата доставки в list: поле '{field}'")
-                break
-
-        if not has_delivery_date_in_list:
-            print("  ⚠️  Дата доставки не найдена в list, пробуем /v2/posting/fbo/get...")
-
-            for posting in all_postings[:5]:
-                pn = posting.get("posting_number")
-                get_url = "https://api-seller.ozon.ru/v2/posting/fbo/get"
-                get_resp = requests.post(get_url, headers=headers, json={
-                    "posting_number": pn,
-                    "with": {"analytics_data": False, "financial_data": False}
-                }, timeout=15)
-
-                if get_resp.status_code == 200:
-                    get_data = get_resp.json().get("result", {})
-                    print(f"     GET {pn}: поля = {list(get_data.keys())}")
-
-                    for field in ['fact_delivery_date', 'delivery_date', 'delivered_at']:
-                        val = get_data.get(field)
-                        if val and val != "0001-01-01T00:00:00Z":
-                            delivery_date_field = field
-                            print(f"     ✅ Дата доставки в GET: {field} = {val}")
-                            break
-                    if delivery_date_field:
-                        break
-                time.sleep(0.3)
-
-        # ====================================================================
-        # Шаг 3: Рассчитываем время доставки по каждому отправлению
-        # ====================================================================
-        sku_data = {}  # sku -> {sum_hours: float, sum_qty: int}
-
-        if has_delivery_date_in_list:
-            # Дата доставки есть в list — считаем из имеющихся данных
-            print(f"  📊 Расчёт из list (поле '{delivery_date_field}')...")
-
-            for posting in all_postings:
-                created_str = posting.get("created_at", "")
-                delivery_str = posting.get(delivery_date_field, "")
-
-                if not created_str or not delivery_str:
-                    continue
-                if delivery_str == "0001-01-01T00:00:00Z":
-                    continue
-
-                try:
-                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
-                    delivered = datetime.fromisoformat(delivery_str.replace("Z", "+00:00"))
-                    hours = (delivered - created).total_seconds() / 3600.0
-
-                    if hours <= 0 or hours > 720:
-                        continue
-
-                    for prod in posting.get("products", []):
-                        sku = prod.get("sku", 0)
-                        qty = prod.get("quantity", 1)
-                        if sku:
-                            if sku not in sku_data:
-                                sku_data[sku] = {"sum_hours": 0.0, "sum_qty": 0}
-                            sku_data[sku]["sum_hours"] += hours * qty
-                            sku_data[sku]["sum_qty"] += qty
-                except Exception:
-                    continue
-
-        elif delivery_date_field:
-            # Дата только в GET — загружаем по каждому posting
-            print(f"  📊 Загрузка через /v2/posting/fbo/get ({len(all_postings)} шт)...")
-
-            for i, posting in enumerate(all_postings):
-                pn = posting.get("posting_number")
-                get_url = "https://api-seller.ozon.ru/v2/posting/fbo/get"
-                get_resp = requests.post(get_url, headers=headers, json={
-                    "posting_number": pn,
-                    "with": {"analytics_data": False, "financial_data": False}
-                }, timeout=15)
-
-                if get_resp.status_code != 200:
-                    continue
-
-                get_data = get_resp.json().get("result", {})
-                created_str = get_data.get("created_at", posting.get("created_at", ""))
-                delivery_str = get_data.get(delivery_date_field, "")
-
-                if not created_str or not delivery_str:
-                    continue
-                if delivery_str == "0001-01-01T00:00:00Z":
-                    continue
-
-                try:
-                    created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
-                    delivered = datetime.fromisoformat(delivery_str.replace("Z", "+00:00"))
-                    hours = (delivered - created).total_seconds() / 3600.0
-
-                    if hours <= 0 or hours > 720:
-                        continue
-
-                    products = get_data.get("products", posting.get("products", []))
-                    for prod in products:
-                        sku = prod.get("sku", 0)
-                        qty = prod.get("quantity", 1)
-                        if sku:
-                            if sku not in sku_data:
-                                sku_data[sku] = {"sum_hours": 0.0, "sum_qty": 0}
-                            sku_data[sku]["sum_hours"] += hours * qty
-                            sku_data[sku]["sum_qty"] += qty
-                except Exception:
-                    continue
-
-                if (i + 1) % 100 == 0:
-                    print(f"     Обработано: {i + 1}/{len(all_postings)}")
-                time.sleep(0.05)
-
-        else:
-            print("  ❌ Не найдено поле с датой доставки — расчёт невозможен")
-            return {}
-
-        # ====================================================================
-        # Шаг 4: Взвешенное среднее по каждому SKU
-        # ====================================================================
-        result = {}
-        for sku, d in sku_data.items():
-            if d["sum_qty"] > 0:
-                avg_hours = d["sum_hours"] / d["sum_qty"]
-                result[int(sku)] = round(avg_hours, 1)
-
-        print(f"  ✅ Рассчитано среднее время доставки: {len(result)} товаров")
-        if result:
-            for sku, hours in list(result.items())[:5]:
-                print(f"     SKU {sku}: {hours} ч ({round(hours/24, 1)} дн)")
-
-        return result
-
-    except Exception as e:
-        print(f"  ❌ Ошибка расчёта времени доставки: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
 
 
 def load_adv_spend_by_sku(date_from, date_to):
@@ -2329,7 +2077,11 @@ def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
         # Очищаем старые данные за сегодня
         cursor.execute('DELETE FROM fbo_analytics WHERE snapshot_date = ?', (snapshot_date,))
 
-        total_rows = 0
+        # Словарь для агрегации по (sku, cluster_name)
+        # API возвращает по строке на КАЖДЫЙ СКЛАД внутри кластера.
+        # Нужно объединить: суммировать stock, а метрики (ADS, IDC и т.д.)
+        # одинаковые для всех складов в кластере — берём один раз.
+        cluster_agg = {}  # ключ: (sku, cluster_name) -> {ads, idc, days, liq, stock}
 
         # API принимает до 100 SKU за раз
         for batch_start in range(0, len(all_skus), 100):
@@ -2356,7 +2108,7 @@ def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
                     break
 
                 result = response.json()
-                # Ответ: {"items": [...]} — каждый элемент = один кластер для одного SKU
+                # Ответ: {"items": [...]} — каждый элемент = один СКЛАД для одного SKU
                 items = result.get("items", [])
 
                 if not items:
@@ -2368,32 +2120,44 @@ def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
                         continue
 
                     cluster_name = item.get("cluster_name", "")
-                    # ads_cluster — среднесуточные продажи В ЭТОМ кластере
-                    ads = item.get("ads_cluster", 0) or 0
-                    # idc_cluster — дней остатка В ЭТОМ кластере
-                    idc = item.get("idc_cluster", 0) or 0
-                    # days_without_sales_cluster — дней без продаж В ЭТОМ кластере
-                    days_no_sales = item.get("days_without_sales_cluster", 0) or 0
-                    # turnover_grade_cluster — статус оборачиваемости в кластере
-                    liquidity = item.get("turnover_grade_cluster", "")
-                    # available_stock_count — доступный остаток для продажи
-                    stock = item.get("available_stock_count", 0) or 0
+                    key = (sku, cluster_name)
 
-                    cursor.execute('''
-                        INSERT INTO fbo_analytics
-                        (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (sku, cluster_name, float(ads), float(idc),
-                          int(days_no_sales), liquidity, int(stock), snapshot_date))
-                    total_rows += 1
+                    # available_stock_count — остаток на КОНКРЕТНОМ складе
+                    stock = int(item.get("available_stock_count", 0) or 0)
+
+                    if key not in cluster_agg:
+                        # Первый склад в этом кластере — записываем метрики
+                        # ads_cluster, idc_cluster, days_without_sales_cluster,
+                        # turnover_grade_cluster — одинаковые для всех складов кластера
+                        cluster_agg[key] = {
+                            'ads': float(item.get("ads_cluster", 0) or 0),
+                            'idc': float(item.get("idc_cluster", 0) or 0),
+                            'days_no_sales': int(item.get("days_without_sales_cluster", 0) or 0),
+                            'liquidity': item.get("turnover_grade_cluster", ""),
+                            'stock': stock
+                        }
+                    else:
+                        # Ещё один склад в том же кластере — суммируем только stock
+                        cluster_agg[key]['stock'] += stock
 
                 if len(items) < 100:
                     break
 
                 offset += 100
 
+        # Записываем агрегированные данные в БД — одна строка на кластер
+        total_rows = 0
+        for (sku, cluster_name), data in cluster_agg.items():
+            cursor.execute('''
+                INSERT INTO fbo_analytics
+                (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (sku, cluster_name, data['ads'], data['idc'],
+                  data['days_no_sales'], data['liquidity'], data['stock'], snapshot_date))
+            total_rows += 1
+
         conn.commit()
-        print(f"  ✅ Загружено {total_rows} строк аналитики по кластерам")
+        print(f"  ✅ Загружено {total_rows} кластеров (агрегировано из {sum(1 for _ in cluster_agg)} уник. пар)")
 
     except Exception as e:
         print(f"  ⚠️  Ошибка загрузки аналитики FBO: {e}")
@@ -2566,8 +2330,7 @@ def sync_products():
         # ✅ Загружаем добавления в корзину
         hits_tocart_pdp_data = load_hits_add_to_cart()
 
-        # ✅ Загружаем среднее время доставки
-        avg_delivery_data = load_avg_delivery_time()
+
 
         # ✅ Определяем дату снимка по Белграду (YYYY-MM-DD) - ПЕРЕД использованием!
         snapshot_date = get_snapshot_date()
@@ -2612,9 +2375,6 @@ def sync_products():
             in_transit = int(in_transit_by_sku.get(sku, 0))
             in_draft = int(in_draft_by_sku.get(sku, 0))
 
-            # Среднее время доставки (часы)
-            avg_delivery_hours = avg_delivery_data.get(sku, None)
-            
             # CTR = (посещения карточки / показы) * 100
             search_ctr = round((pdp / views * 100), 2) if views > 0 else 0.0
             
@@ -2638,8 +2398,8 @@ def sync_products():
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, avg_delivery_hours, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products.offer_id),
@@ -2656,7 +2416,6 @@ def sync_products():
                     adv_spend=excluded.adv_spend,
                     in_transit=excluded.in_transit,
                     in_draft=excluded.in_draft,
-                    avg_delivery_hours=COALESCE(excluded.avg_delivery_hours, products.avg_delivery_hours),
                     updated_at=excluded.updated_at
             ''', (
                 sku,
@@ -2675,14 +2434,13 @@ def sync_products():
                 adv_spend,
                 in_transit,
                 in_draft,
-                avg_delivery_hours,
                 get_snapshot_time()
             ))
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, avg_delivery_hours, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products_history.offer_id),
@@ -2702,7 +2460,6 @@ def sync_products():
                     adv_spend=excluded.adv_spend,
                     in_transit=excluded.in_transit,
                     in_draft=excluded.in_draft,
-                    avg_delivery_hours=COALESCE(excluded.avg_delivery_hours, products_history.avg_delivery_hours),
                     snapshot_time=excluded.snapshot_time
             ''', (
                 sku,
@@ -2724,7 +2481,6 @@ def sync_products():
                 adv_spend,
                 in_transit,
                 in_draft,
-                avg_delivery_hours,
                 snapshot_date,
                 snapshot_time
             ))
@@ -3949,7 +3705,6 @@ HTML_TEMPLATE = '''
             html += '<th>CPO</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
-            html += '<th>Ср. доставка</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -4118,9 +3873,7 @@ HTML_TEMPLATE = '''
                 // В ЗАЯВКАХ - товары из черновиков/новых заявок
                 html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
 
-                // СРЕДНЕЕ ВРЕМЯ ДОСТАВКИ (часы)
-                const deliveryHours = item.avg_delivery_hours;
-                html += `<td><strong>${deliveryHours !== null && deliveryHours !== undefined ? deliveryHours + ' ч' : '—'}</strong></td>`;
+
 
                 html += `</tr>`;
             });
@@ -4153,7 +3906,6 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(21)">В пути</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(22)">В заявках</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(23)">Ср. доставка</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -4561,7 +4313,6 @@ def get_product_history(sku):
                 adv_spend,
                 in_transit,
                 in_draft,
-                avg_delivery_hours,
                 snapshot_time,
                 notes
             FROM products_history
