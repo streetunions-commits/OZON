@@ -2961,7 +2961,10 @@ HTML_TEMPLATE = '''
                 <div>
                     <h1>Ежедневный отчет</h1>
                 </div>
-                <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
+                <div style="display: flex; gap: 8px;">
+                    <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
+                    <button class="refresh-btn" onclick="parseRatings()" id="parse-btn" style="background: rgba(255, 152, 0, 0.2); color: #f57c00;">⭐ Парсить рейтинги</button>
+                </div>
             </div>
         </div>
 
@@ -3059,6 +3062,75 @@ HTML_TEMPLATE = '''
                 setTimeout(() => {
                     btn.innerHTML = originalText;
                     btn.style.backgroundColor = '';
+                    btn.style.opacity = '1';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        }
+
+        // ✅ ПАРСИНГ РЕЙТИНГОВ (кнопка "Парсить рейтинги")
+
+        async function parseRatings() {
+            const btn = document.getElementById('parse-btn');
+            const originalText = btn.innerHTML;
+
+            try {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Парсинг...';
+                btn.style.opacity = '0.7';
+
+                const response = await fetch('/api/parse-ratings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.innerHTML = '✅ Готово!';
+                    btn.style.backgroundColor = 'rgba(76, 175, 80, 0.3)';
+                    btn.style.color = '#4CAF50';
+
+                    // Показываем результат
+                    let msg = `Рейтинги обновлены!\n\nУспешно: ${data.updated}\nНе удалось: ${data.failed}`;
+                    if (data.details && data.details.length > 0) {
+                        msg += '\n\nДетали:\n' + data.details.map(d =>
+                            `• ${d.offer_id}: ${d.status === 'ok' ? d.rating + ' (' + d.review_count + ' отз.)' : d.error}`
+                        ).join('\n');
+                    }
+                    alert(msg);
+
+                    // Перезагрузим страницу
+                    setTimeout(() => {
+                        location.reload();
+                    }, 500);
+                } else {
+                    btn.innerHTML = '❌ Ошибка';
+                    btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
+                    btn.style.color = '#f44336';
+                    alert('Ошибка: ' + (data.message || data.error));
+
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                        btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
+                        btn.style.color = '#f57c00';
+                        btn.style.opacity = '1';
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            } catch (error) {
+                console.error('Ошибка при парсинге рейтингов:', error);
+                btn.innerHTML = '❌ Ошибка';
+                btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
+                btn.style.color = '#f44336';
+                alert('Ошибка подключения к серверу');
+
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
+                    btn.style.color = '#f57c00';
                     btn.style.opacity = '1';
                     btn.disabled = false;
                 }, 2000);
@@ -3955,6 +4027,101 @@ def download_file(filename):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/parse-ratings', methods=['POST'])
+def api_parse_ratings():
+    """
+    ============================================================================
+    ПАРСИНГ РЕЙТИНГОВ ВСЕХ ТОВАРОВ
+    ============================================================================
+
+    Запускает парсинг рейтингов с карточек товаров на Ozon.
+    Для каждого SKU из products_history (сегодня) пытается извлечь рейтинг
+    и количество отзывов через parse_product_card().
+
+    Возвращает:
+        JSON с результатами парсинга для каждого товара
+    """
+    try:
+        print("\n⭐ Запуск парсинга рейтингов по запросу пользователя...")
+
+        snapshot_date = get_snapshot_date()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Получаем все SKU из сегодняшней истории
+        cursor.execute('''
+            SELECT sku, offer_id FROM products_history
+            WHERE snapshot_date = ?
+        ''', (snapshot_date,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'message': 'Нет данных за сегодня. Сначала нажмите "Обновить данные".'
+            })
+
+        updated = 0
+        failed = 0
+        details = []
+
+        for sku, offer_id in rows:
+            print(f"  📦 Парсинг SKU {sku} ({offer_id})...")
+            result = parse_product_card(sku)
+
+            if result and result.get('rating') and result.get('review_count'):
+                # Обновляем рейтинг в БД
+                cursor.execute('''
+                    UPDATE products_history
+                    SET rating = ?, review_count = ?
+                    WHERE sku = ? AND snapshot_date = ?
+                ''', (float(result['rating']), int(result['review_count']), sku, snapshot_date))
+                conn.commit()
+
+                updated += 1
+                details.append({
+                    'sku': sku,
+                    'offer_id': offer_id,
+                    'status': 'ok',
+                    'rating': result['rating'],
+                    'review_count': result['review_count']
+                })
+                print(f"    ✅ {offer_id}: {result['rating']} ({result['review_count']} отзывов)")
+            else:
+                failed += 1
+                details.append({
+                    'sku': sku,
+                    'offer_id': offer_id,
+                    'status': 'error',
+                    'error': 'Не удалось получить рейтинг (возможно IP заблокирован)'
+                })
+                print(f"    ❌ {offer_id}: не удалось получить рейтинг")
+
+            # Задержка между запросами чтобы не блокировали
+            import time
+            time.sleep(2)
+
+        conn.close()
+
+        print(f"\n⭐ Парсинг завершен: {updated} обновлено, {failed} не удалось")
+
+        return jsonify({
+            'success': True,
+            'updated': updated,
+            'failed': failed,
+            'details': details,
+            'message': f'Обновлено: {updated}, не удалось: {failed}'
+        })
+
+    except Exception as e:
+        print(f"❌ Ошибка при парсинге рейтингов: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Ошибка: {str(e)}'
+        }), 500
 
 
 @app.route('/api/sync', methods=['POST'])
