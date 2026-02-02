@@ -4824,7 +4824,7 @@ def get_fbo_analytics():
             products.append(prod)
 
         # Сортировка: по остатку (total_stock_analytics) от большего к меньшему
-        products.sort(key=lambda p: (-p['total_stock_analytics'], p['offer_id']))
+        products.sort(key=lambda p: (-p['total_stock_analytics'], p.get('offer_id') or ''))
 
         return jsonify({
             'success': True,
