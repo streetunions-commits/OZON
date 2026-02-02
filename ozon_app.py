@@ -3728,15 +3728,32 @@ HTML_TEMPLATE = '''
         }
 
         function getLiqBadge(status) {
+            // Статусы оборачиваемости из API /v1/analytics/stocks
             const labels = {
                 'DEFICIT': 'Дефицит',
+                'WAS_DEFICIT': 'Был дефицит',
                 'NO_SALES': 'Нет продаж',
+                'WAS_NO_SALES': 'Были продажи',
                 'ACTUAL': 'Актуальный',
+                'WAS_ACTUAL': 'Был актуален',
                 'POPULAR': 'Популярный',
-                'SURPLUS': 'Излишек'
+                'WAS_POPULAR': 'Был популярен',
+                'SURPLUS': 'Излишек',
+                'WAS_SURPLUS': 'Был излишек',
+                'WAITING_FOR_SUPPLY': 'Ожидает поставку',
+                'RESTRICTED_NO_SALES': 'Ограничен'
             };
-            const label = labels[status] || status || '—';
-            const cls = status ? 'liq-' + status : '';
+            // Группировка цветов: WAS_X использует цвет X
+            var colorMap = {
+                'DEFICIT': 'DEFICIT', 'WAS_DEFICIT': 'DEFICIT',
+                'NO_SALES': 'NO_SALES', 'WAS_NO_SALES': 'NO_SALES', 'RESTRICTED_NO_SALES': 'NO_SALES',
+                'ACTUAL': 'ACTUAL', 'WAS_ACTUAL': 'ACTUAL', 'WAITING_FOR_SUPPLY': 'ACTUAL',
+                'POPULAR': 'POPULAR', 'WAS_POPULAR': 'POPULAR',
+                'SURPLUS': 'SURPLUS', 'WAS_SURPLUS': 'SURPLUS'
+            };
+            var label = labels[status] || status || '\\u2014';
+            var color = colorMap[status] || '';
+            var cls = color ? 'liq-' + color : '';
             return '<span class="liq-badge ' + cls + '">' + label + '</span>';
         }
 
