@@ -324,6 +324,32 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
         print("✅ Столбец avg_delivery_hours добавлен в products")
 
+    # ✅ Таблица fbo_warehouse_stock — остатки по складам/кластерам
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS fbo_warehouse_stock (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku INTEGER NOT NULL,
+            warehouse_name TEXT,
+            stock INTEGER DEFAULT 0,
+            snapshot_date DATE NOT NULL
+        )
+    ''')
+
+    # ✅ Таблица fbo_analytics — аналитика по кластерам (ADS, IDC)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS fbo_analytics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku INTEGER NOT NULL,
+            cluster_name TEXT,
+            ads REAL DEFAULT 0,
+            idc REAL DEFAULT 0,
+            days_without_sales INTEGER DEFAULT 0,
+            liquidity_status TEXT DEFAULT '',
+            stock INTEGER DEFAULT 0,
+            snapshot_date DATE NOT NULL
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -813,9 +839,9 @@ def load_avg_delivery_time():
                 except Exception:
                     continue
 
-                if (i + 1) % 50 == 0:
+                if (i + 1) % 100 == 0:
                     print(f"     Обработано: {i + 1}/{len(all_postings)}")
-                time.sleep(0.2)
+                time.sleep(0.05)
 
         else:
             print("  ❌ Не найдено поле с датой доставки — расчёт невозможен")
@@ -2266,7 +2292,7 @@ def parse_product_card(sku):
         return None
 
 
-def load_fbo_analytics(cursor, conn, snapshot_date):
+def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
     """
     ============================================================================
     ЗАГРУЗКА АНАЛИТИКИ FBO ПО КЛАСТЕРАМ
@@ -2279,16 +2305,20 @@ def load_fbo_analytics(cursor, conn, snapshot_date):
     - Статус оборачиваемости (turnover_grade_cluster)
     - Остатки по кластерам (available_stock_count)
 
-    API требует список SKU, поэтому сначала берём SKU из БД.
+    API требует список SKU. Если sku_list передан — используем его,
+    иначе берём из таблицы products.
     Каждая строка в ответе — один кластер для одного SKU.
     Данные сохраняются в таблицу fbo_analytics.
     """
     print("\n📊 Загрузка аналитики FBO по кластерам...")
 
     try:
-        # Получаем список SKU из products
-        cursor.execute('SELECT sku FROM products')
-        all_skus = [row[0] for row in cursor.fetchall()]
+        # Используем переданный список SKU или берём из БД
+        if sku_list:
+            all_skus = list(sku_list)
+        else:
+            cursor.execute('SELECT sku FROM products')
+            all_skus = [row[0] for row in cursor.fetchall()]
 
         if not all_skus:
             print("  ⚠️  Нет товаров в БД — пропускаем загрузку аналитики")
@@ -2518,7 +2548,8 @@ def sync_products():
         in_transit_by_sku, in_draft_by_sku = load_fbo_supply_orders()
 
         # ✅ Загружаем аналитику FBO (ADS, IDC, ликвидность по кластерам)
-        load_fbo_analytics(cursor, conn, snapshot_date)
+        # Передаём список SKU из products_data, т.к. таблица products ещё не заполнена
+        load_fbo_analytics(cursor, conn, snapshot_date, sku_list=list(products_data.keys()))
 
         # ✅ Загружаем цены товаров
         prices_by_sku = load_product_prices(products_data)
@@ -2729,6 +2760,9 @@ def sync_products():
 # ============================================================================
 
 app = Flask(__name__)
+
+# ✅ Инициализация БД при старте (нужно для gunicorn, который не запускает __main__)
+init_database()
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
