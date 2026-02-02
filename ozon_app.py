@@ -4830,8 +4830,10 @@ def get_fbo_analytics():
             prod['total_ads'] = round(prod['total_ads'], 2)
             products.append(prod)
 
-        # Сортировка: по остатку (total_stock_analytics) от большего к меньшему
-        products.sort(key=lambda p: (-p['total_stock_analytics'], p.get('offer_id') or ''))
+        # Сортировка: по реальному остатку FBO (fbo_stock) от большего к меньшему
+        # fbo_stock — точные данные из /v2/analytics/stock_on_warehouses
+        # total_stock_analytics — из /v1/analytics/stocks (может быть с задержкой)
+        products.sort(key=lambda p: (-p['fbo_stock'], p.get('offer_id') or ''))
 
         return jsonify({
             'success': True,
