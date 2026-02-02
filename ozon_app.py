@@ -3069,72 +3069,81 @@ HTML_TEMPLATE = '''
         }
 
         // ✅ ПАРСИНГ РЕЙТИНГОВ (кнопка "Парсить рейтинги")
+        // Кнопка отправляет запрос на сервер, локальный скрипт на ПК подхватывает и парсит
+
+        let parsePollingTimer = null;
 
         async function parseRatings() {
             const btn = document.getElementById('parse-btn');
-            const originalText = btn.innerHTML;
 
             try {
                 btn.disabled = true;
-                btn.innerHTML = '⏳ Парсинг...';
+                btn.innerHTML = '⏳ Запрос отправлен...';
                 btn.style.opacity = '0.7';
 
                 const response = await fetch('/api/parse-ratings', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
                 const data = await response.json();
 
                 if (data.success) {
+                    btn.innerHTML = '⏳ Ожидание парсера...';
+                    // Начинаем опрос статуса каждые 5 секунд
+                    parsePollingTimer = setInterval(checkParseStatus, 5000);
+                } else {
+                    resetParseBtn(btn, data.message || 'Ошибка');
+                }
+            } catch (error) {
+                resetParseBtn(document.getElementById('parse-btn'), 'Ошибка сети');
+            }
+        }
+
+        async function checkParseStatus() {
+            try {
+                const response = await fetch('/api/parse-status');
+                const data = await response.json();
+                const btn = document.getElementById('parse-btn');
+
+                if (data.status === 'running') {
+                    btn.innerHTML = '⏳ Парсер работает...';
+                } else if (data.status === 'completed') {
+                    clearInterval(parsePollingTimer);
                     btn.innerHTML = '✅ Готово!';
                     btn.style.backgroundColor = 'rgba(76, 175, 80, 0.3)';
                     btn.style.color = '#4CAF50';
 
-                    // Показываем результат
-                    let msg = 'Рейтинги обновлены!' + '\\n\\n' + 'Успешно: ' + data.updated + '\\n' + 'Не удалось: ' + data.failed;
-                    if (data.details && data.details.length > 0) {
-                        msg += '\\n\\nДетали:\\n' + data.details.map(d =>
-                            d.offer_id + ': ' + (d.status === 'ok' ? d.rating + ' (' + d.review_count + ' отз.)' : d.error)
-                        ).join('\\n');
+                    let msg = 'Рейтинги обновлены!';
+                    if (data.results) {
+                        msg += '\\nУспешно: ' + (data.results.success || 0);
+                        msg += '\\nНе удалось: ' + (data.results.failed || 0);
                     }
                     alert(msg);
-
-                    // Перезагрузим страницу
-                    setTimeout(() => {
-                        location.reload();
-                    }, 500);
-                } else {
-                    btn.innerHTML = '❌ Ошибка';
-                    btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
-                    btn.style.color = '#f44336';
-                    alert('Ошибка: ' + (data.message || data.error));
-
-                    setTimeout(() => {
-                        btn.innerHTML = originalText;
-                        btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
-                        btn.style.color = '#f57c00';
-                        btn.style.opacity = '1';
-                        btn.disabled = false;
-                    }, 2000);
+                    setTimeout(() => location.reload(), 500);
+                } else if (data.status === 'error') {
+                    clearInterval(parsePollingTimer);
+                    resetParseBtn(btn, data.message || 'Ошибка парсера');
+                } else if (data.status === 'idle') {
+                    // Ещё не подхвачено — продолжаем ждать
+                    btn.innerHTML = '⏳ Ожидание парсера на ПК...';
                 }
-            } catch (error) {
-                console.error('Ошибка при парсинге рейтингов:', error);
-                btn.innerHTML = '❌ Ошибка';
-                btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
-                btn.style.color = '#f44336';
-                alert('Ошибка подключения к серверу');
-
-                setTimeout(() => {
-                    btn.innerHTML = originalText;
-                    btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
-                    btn.style.color = '#f57c00';
-                    btn.style.opacity = '1';
-                    btn.disabled = false;
-                }, 2000);
+            } catch (e) {
+                // Сетевая ошибка — продолжаем ждать
             }
+        }
+
+        function resetParseBtn(btn, errorMsg) {
+            if (parsePollingTimer) clearInterval(parsePollingTimer);
+            btn.innerHTML = '❌ ' + errorMsg;
+            btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
+            btn.style.color = '#f44336';
+            setTimeout(() => {
+                btn.innerHTML = '⭐ Парсить рейтинги';
+                btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
+                btn.style.color = '#f57c00';
+                btn.style.opacity = '1';
+                btn.disabled = false;
+            }, 3000);
         }
 
         // ✅ НОВЫЕ ФУНКЦИИ ДЛЯ ТАБОВ И ИСТОРИИ
@@ -4029,99 +4038,114 @@ def download_file(filename):
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# ПАРСИНГ РЕЙТИНГОВ (флаг для локального парсера)
+# ============================================================================
+#
+# Как работает:
+# 1. Пользователь нажимает кнопку "Парсить рейтинги" на сайте
+# 2. Сервер сохраняет запрос в файл /tmp/ozon-parse-request.json
+# 3. Локальный скрипт (update_ratings_local.py --watch) опрашивает сервер
+# 4. Когда видит запрос — парсит рейтинги через Chrome на ПК пользователя
+# 5. Отправляет результаты обратно на сервер
+# 6. Сайт показывает результат
+# ============================================================================
+
+PARSE_REQUEST_FILE = '/tmp/ozon-parse-request.json'
+
+
+def _read_parse_state():
+    """Читает текущее состояние запроса на парсинг из файла"""
+    try:
+        if os.path.exists(PARSE_REQUEST_FILE):
+            with open(PARSE_REQUEST_FILE, 'r') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {'status': 'idle'}
+
+
+def _write_parse_state(state):
+    """Записывает состояние запроса на парсинг в файл"""
+    with open(PARSE_REQUEST_FILE, 'w') as f:
+        json.dump(state, f)
+
+
 @app.route('/api/parse-ratings', methods=['POST'])
 def api_parse_ratings():
     """
-    ============================================================================
-    ПАРСИНГ РЕЙТИНГОВ ВСЕХ ТОВАРОВ
-    ============================================================================
-
-    Запускает парсинг рейтингов с карточек товаров на Ozon.
-    Для каждого SKU из products_history (сегодня) пытается извлечь рейтинг
-    и количество отзывов через parse_product_card().
-
-    Возвращает:
-        JSON с результатами парсинга для каждого товара
+    Создает запрос на парсинг рейтингов.
+    Локальный скрипт на ПК пользователя подхватит этот запрос.
     """
     try:
-        print("\n⭐ Запуск парсинга рейтингов по запросу пользователя...")
+        from datetime import datetime
+        print("\n⭐ Получен запрос на парсинг рейтингов (будет выполнен на ПК)...")
 
-        snapshot_date = get_snapshot_date()
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Получаем все SKU из сегодняшней истории
-        cursor.execute('''
-            SELECT sku, offer_id FROM products_history
-            WHERE snapshot_date = ?
-        ''', (snapshot_date,))
-        rows = cursor.fetchall()
-
-        if not rows:
-            conn.close()
-            return jsonify({
-                'success': False,
-                'message': 'Нет данных за сегодня. Сначала нажмите "Обновить данные".'
-            })
-
-        updated = 0
-        failed = 0
-        details = []
-
-        for sku, offer_id in rows:
-            print(f"  📦 Парсинг SKU {sku} ({offer_id})...")
-            result = parse_product_card(sku)
-
-            if result and result.get('rating') and result.get('review_count'):
-                # Обновляем рейтинг в БД
-                cursor.execute('''
-                    UPDATE products_history
-                    SET rating = ?, review_count = ?
-                    WHERE sku = ? AND snapshot_date = ?
-                ''', (float(result['rating']), int(result['review_count']), sku, snapshot_date))
-                conn.commit()
-
-                updated += 1
-                details.append({
-                    'sku': sku,
-                    'offer_id': offer_id,
-                    'status': 'ok',
-                    'rating': result['rating'],
-                    'review_count': result['review_count']
-                })
-                print(f"    ✅ {offer_id}: {result['rating']} ({result['review_count']} отзывов)")
-            else:
-                failed += 1
-                details.append({
-                    'sku': sku,
-                    'offer_id': offer_id,
-                    'status': 'error',
-                    'error': 'Не удалось получить рейтинг (возможно IP заблокирован)'
-                })
-                print(f"    ❌ {offer_id}: не удалось получить рейтинг")
-
-            # Задержка между запросами чтобы не блокировали
-            import time
-            time.sleep(2)
-
-        conn.close()
-
-        print(f"\n⭐ Парсинг завершен: {updated} обновлено, {failed} не удалось")
+        _write_parse_state({
+            'status': 'requested',
+            'requested_at': datetime.now().isoformat(),
+            'message': 'Запрос создан. Запустите парсер на ПК.'
+        })
 
         return jsonify({
             'success': True,
-            'updated': updated,
-            'failed': failed,
-            'details': details,
-            'message': f'Обновлено: {updated}, не удалось: {failed}'
+            'message': 'Запрос на парсинг создан. Ожидание локального парсера...'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/parse-status')
+def api_parse_status():
+    """
+    Возвращает текущий статус парсинга.
+    Используется кнопкой на сайте (поллинг) и локальным скриптом.
+    """
+    return jsonify(_read_parse_state())
+
+
+@app.route('/api/parse-complete', methods=['POST'])
+def api_parse_complete():
+    """
+    Вызывается локальным парсером когда работа завершена.
+    Сохраняет результаты и обновляет статус.
+    """
+    try:
+        from datetime import datetime
+        data = request.json or {}
+
+        _write_parse_state({
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat(),
+            'results': {
+                'success': data.get('success', 0),
+                'failed': data.get('failed', 0)
+            },
+            'message': data.get('message', 'Парсинг завершен')
         })
 
+        print(f"⭐ Парсинг завершен: {data.get('success', 0)} успешно, {data.get('failed', 0)} не удалось")
+        return jsonify({'success': True})
     except Exception as e:
-        print(f"❌ Ошибка при парсинге рейтингов: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'Ошибка: {str(e)}'
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/parse-start', methods=['POST'])
+def api_parse_start():
+    """
+    Вызывается локальным парсером когда он начинает работу.
+    Обновляет статус на 'running'.
+    """
+    try:
+        from datetime import datetime
+        _write_parse_state({
+            'status': 'running',
+            'started_at': datetime.now().isoformat(),
+            'message': 'Парсер работает на ПК...'
+        })
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/sync', methods=['POST'])
