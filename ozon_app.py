@@ -2608,14 +2608,12 @@ HTML_TEMPLATE = '''
 
         .header {
             background: white;
-            padding: 10px;
+            padding: 4px 50px;
             border-radius: 12px;
-            margin-bottom: 30px;
+            margin-bottom: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             margin-left: -20px;
             margin-right: -20px;
-            padding-left: 50px;
-            padding-right: 50px;
         }
 
         .header h1 {
@@ -2641,7 +2639,7 @@ HTML_TEMPLATE = '''
 
         .table-header {
             background: #f8f9fa;
-            padding: 20px 30px;
+            padding: 8px 30px;
             border-bottom: 2px solid #e9ecef;
             display: flex;
             justify-content: space-between;
@@ -2741,11 +2739,11 @@ HTML_TEMPLATE = '''
             display: flex;
             gap: 0;
             border-bottom: 2px solid #e9ecef;
-            margin: 20px 0 0 0;
+            margin: 0;
         }
 
         .tab-button {
-            padding: 15px 30px;
+            padding: 8px 30px;
             background: none;
             border: none;
             cursor: pointer;
@@ -3293,10 +3291,7 @@ HTML_TEMPLATE = '''
 <body>
     <div class="container">
         <div class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <div>
-                    <h1>Ежедневный отчет</h1>
-                </div>
+            <div style="display: flex; justify-content: flex-end; align-items: center;">
                 <div style="display: flex; gap: 8px;">
                     <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
                 </div>
