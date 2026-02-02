@@ -3520,7 +3520,7 @@ HTML_TEMPLATE = '''
             html += '<thead class="fbo-header"><tr>';
             html += '<th>Товар</th>';
             html += '<th>Остаток FBO</th>';
-            html += '<th>ADS (сумм.)</th>';
+            html += '<th>Продаж/день</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
             html += '<th>Статус</th>';
@@ -3549,8 +3549,8 @@ HTML_TEMPLATE = '''
                     html += '<tr class="cluster-row" style="background:#f0f2f5;">';
                     html += '<td style="font-weight:600;color:#888;">Кластер</td>';
                     html += '<td style="font-weight:600;color:#888;">Остаток</td>';
-                    html += '<td style="font-weight:600;color:#888;">ADS</td>';
-                    html += '<td style="font-weight:600;color:#888;">IDC (дн)</td>';
+                    html += '<td style="font-weight:600;color:#888;">Продаж/день</td>';
+                    html += '<td style="font-weight:600;color:#888;">Дней до конца</td>';
                     html += '<td style="font-weight:600;color:#888;">Без продаж</td>';
                     html += '<td style="font-weight:600;color:#888;">Статус</td>';
                     html += '</tr>';
