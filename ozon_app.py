@@ -4623,7 +4623,12 @@ def _run_server_parser():
             capture_output=True,
             text=True,
             timeout=600,  # Таймаут 10 минут
-            env={**os.environ, 'SERVER_URL': 'http://127.0.0.1:8000'}
+            env={
+                **os.environ,
+                'SERVER_URL': 'http://127.0.0.1:8000',
+                'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                'DISPLAY': ':99'
+            }
         )
 
         print(f"⭐ Фоновый парсер завершён (код: {result.returncode})")
