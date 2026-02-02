@@ -3299,7 +3299,6 @@ HTML_TEMPLATE = '''
                 </div>
                 <div style="display: flex; gap: 8px;">
                     <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
-                    <button class="refresh-btn" onclick="parseRatings()" id="parse-btn" style="background: rgba(255, 152, 0, 0.2); color: #f57c00;">⭐ Парсить рейтинги</button>
                 </div>
             </div>
         </div>
@@ -3412,85 +3411,7 @@ HTML_TEMPLATE = '''
             }
         }
 
-        // ✅ ПАРСИНГ РЕЙТИНГОВ (кнопка "Парсить рейтинги")
-        // Кнопка отправляет запрос на сервер, локальный скрипт на ПК подхватывает и парсит
-
-        let parsePollingTimer = null;
-
-        async function parseRatings() {
-            const btn = document.getElementById('parse-btn');
-
-            try {
-                btn.disabled = true;
-                btn.innerHTML = '⏳ Запрос отправлен...';
-                btn.style.opacity = '0.7';
-
-                const response = await fetch('/api/parse-ratings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                const data = await response.json();
-
-                if (data.success) {
-                    btn.innerHTML = '⏳ Ожидание парсера...';
-                    // Начинаем опрос статуса каждые 5 секунд
-                    parsePollingTimer = setInterval(checkParseStatus, 5000);
-                } else {
-                    resetParseBtn(btn, data.message || 'Ошибка');
-                }
-            } catch (error) {
-                resetParseBtn(document.getElementById('parse-btn'), 'Ошибка сети');
-            }
-        }
-
-        async function checkParseStatus() {
-            try {
-                const response = await fetch('/api/parse-status');
-                const data = await response.json();
-                const btn = document.getElementById('parse-btn');
-
-                if (data.status === 'running') {
-                    btn.innerHTML = '⏳ Парсер работает...';
-                } else if (data.status === 'completed') {
-                    clearInterval(parsePollingTimer);
-                    btn.innerHTML = '✅ Готово!';
-                    btn.style.backgroundColor = 'rgba(76, 175, 80, 0.3)';
-                    btn.style.color = '#4CAF50';
-
-                    let msg = 'Рейтинги обновлены!';
-                    if (data.results) {
-                        msg += '\\nУспешно: ' + (data.results.success || 0);
-                        msg += '\\nНе удалось: ' + (data.results.failed || 0);
-                    }
-                    alert(msg);
-                    setTimeout(() => location.reload(), 500);
-                } else if (data.status === 'error') {
-                    clearInterval(parsePollingTimer);
-                    resetParseBtn(btn, data.message || 'Ошибка парсера');
-                } else if (data.status === 'idle') {
-                    // Ещё не подхвачено — продолжаем ждать
-                    btn.innerHTML = '⏳ Ожидание парсера на ПК...';
-                }
-            } catch (e) {
-                // Сетевая ошибка — продолжаем ждать
-            }
-        }
-
-        function resetParseBtn(btn, errorMsg) {
-            if (parsePollingTimer) clearInterval(parsePollingTimer);
-            btn.innerHTML = '❌ ' + errorMsg;
-            btn.style.backgroundColor = 'rgba(244, 67, 54, 0.3)';
-            btn.style.color = '#f44336';
-            setTimeout(() => {
-                btn.innerHTML = '⭐ Парсить рейтинги';
-                btn.style.backgroundColor = 'rgba(255, 152, 0, 0.2)';
-                btn.style.color = '#f57c00';
-                btn.style.opacity = '1';
-                btn.disabled = false;
-            }, 3000);
-        }
-
-        // ✅ НОВЫЕ ФУНКЦИИ ДЛЯ ТАБОВ И ИСТОРИИ
+        // ✅ ФУНКЦИИ ДЛЯ ТАБОВ И ИСТОРИИ
 
         function switchTab(e, tab) {
             // Скрываем все табы
@@ -4564,108 +4485,6 @@ def _write_parse_state(state):
     """Записывает состояние запроса на парсинг в файл"""
     with open(PARSE_REQUEST_FILE, 'w') as f:
         json.dump(state, f)
-
-
-@app.route('/api/parse-ratings', methods=['POST'])
-def api_parse_ratings():
-    """
-    Запускает парсинг рейтингов прямо на сервере.
-    Парсер работает в фоновом потоке через Chrome + Xvfb.
-    """
-    try:
-        from datetime import datetime
-
-        # Проверяем, не запущен ли уже парсинг
-        current_state = _read_parse_state()
-        if current_state.get('status') == 'running':
-            return jsonify({
-                'success': False,
-                'message': 'Парсинг уже запущен. Дождитесь завершения.'
-            }), 409
-
-        print("\n⭐ Запуск парсинга рейтингов на сервере...")
-
-        _write_parse_state({
-            'status': 'running',
-            'started_at': datetime.now().isoformat(),
-            'message': 'Парсер запущен на сервере...'
-        })
-
-        # Запускаем парсер в фоновом потоке
-        import threading
-        thread = threading.Thread(target=_run_server_parser, daemon=True)
-        thread.start()
-
-        return jsonify({
-            'success': True,
-            'message': 'Парсинг запущен на сервере. Обновите через пару минут.'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-def _run_server_parser():
-    """
-    Запускает parse_ratings_ci.py на сервере в фоновом потоке.
-    Обновляет статус парсинга по завершении.
-    """
-    from datetime import datetime
-    import subprocess as sp
-
-    try:
-        print("⭐ Фоновый парсер: запуск parse_ratings_ci.py...")
-
-        # Запускаем парсер как подпроцесс
-        # parse_ratings_ci.py использует Xvfb + Chrome и отправляет данные на localhost
-        result = sp.run(
-            ['python3', 'parse_ratings_ci.py'],
-            cwd='/root/OZON',
-            capture_output=True,
-            text=True,
-            timeout=600,  # Таймаут 10 минут
-            env={
-                **os.environ,
-                'SERVER_URL': 'http://127.0.0.1:8000',
-                'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-                'DISPLAY': ':99'
-            }
-        )
-
-        print(f"⭐ Фоновый парсер завершён (код: {result.returncode})")
-        if result.stdout:
-            # Выводим последние строки лога
-            lines = result.stdout.strip().split('\n')
-            for line in lines[-10:]:
-                print(f"  {line}")
-
-        if result.returncode == 0:
-            _write_parse_state({
-                'status': 'completed',
-                'completed_at': datetime.now().isoformat(),
-                'message': 'Парсинг завершён успешно'
-            })
-        else:
-            error_msg = result.stderr[-200:] if result.stderr else 'Неизвестная ошибка'
-            _write_parse_state({
-                'status': 'completed',
-                'completed_at': datetime.now().isoformat(),
-                'message': f'Парсинг завершён с ошибками: {error_msg}'
-            })
-
-    except sp.TimeoutExpired:
-        print("⭐ Фоновый парсер: таймаут (10 минут)")
-        _write_parse_state({
-            'status': 'completed',
-            'completed_at': datetime.now().isoformat(),
-            'message': 'Парсинг прерван по таймауту (10 мин)'
-        })
-    except Exception as e:
-        print(f"⭐ Фоновый парсер: ошибка — {e}")
-        _write_parse_state({
-            'status': 'completed',
-            'completed_at': datetime.now().isoformat(),
-            'message': f'Ошибка парсера: {str(e)}'
-        })
 
 
 @app.route('/api/parse-status')
