@@ -265,6 +265,15 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN price REAL DEFAULT 0"):
         print("✅ Столбец price добавлен в products")
 
+    # ✅ Добавляем колонку для артикула товара (offer_id)
+    if ensure_column(cursor, "products", "offer_id",
+                     "ALTER TABLE products ADD COLUMN offer_id TEXT DEFAULT NULL"):
+        print("✅ Столбец offer_id добавлен в products")
+
+    if ensure_column(cursor, "products_history", "offer_id",
+                     "ALTER TABLE products_history ADD COLUMN offer_id TEXT DEFAULT NULL"):
+        print("✅ Столбец offer_id добавлен в products_history")
+
     # ✅ Добавляем колонку для плановых заказов (orders_plan)
     if ensure_column(cursor, "products_history", "orders_plan",
                      "ALTER TABLE products_history ADD COLUMN orders_plan INTEGER DEFAULT NULL"):
@@ -1918,7 +1927,8 @@ def load_product_prices(products_data=None):
                     "price": seller_price,  # Цена в ЛК (Ваша цена с бустингом) - 19,492₽
                     "marketing_price": site_price,  # Цена на сайте (с Ozon картой) - 11,658₽
                     "rating": sku_info["rating"],  # Рейтинг товара
-                    "review_count": sku_info["review_count"]  # Количество отзывов
+                    "review_count": sku_info["review_count"],  # Количество отзывов
+                    "offer_id": offer_id  # Артикул товара (текстовый, например "ABC-123")
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
@@ -2200,10 +2210,11 @@ def sync_products():
             # CR2 = (заказы / в корзину) * 100
             cr2 = round((orders_qty / cart * 100), 2) if cart > 0 else 0.0
 
-            # Цены товара
+            # Цены и артикул товара
             price_data = prices_by_sku.get(sku, {})
             price = price_data.get("price", 0)
             marketing_price = price_data.get("marketing_price", 0)
+            offer_id = price_data.get("offer_id", None)
 
             # Рейтинг и отзывы - пока оставляем пустыми
             # (парсинг не работает с сервера из-за блокировки Ozon)
@@ -2213,10 +2224,11 @@ def sync_products():
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
+                    offer_id=COALESCE(excluded.offer_id, products.offer_id),
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
                     price=excluded.price,
@@ -2234,6 +2246,7 @@ def sync_products():
             ''', (
                 sku,
                 data.get("name", ""),
+                offer_id,
                 data.get("fbo_stock", 0),
                 orders_qty,
                 price,
@@ -2252,10 +2265,11 @@ def sync_products():
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
+                    offer_id=COALESCE(excluded.offer_id, products_history.offer_id),
                     fbo_stock=excluded.fbo_stock,
                     orders_qty=excluded.orders_qty,
                     rating=excluded.rating,
@@ -2276,6 +2290,7 @@ def sync_products():
             ''', (
                 sku,
                 data.get("name", ""),
+                offer_id,
                 data.get("fbo_stock", 0),
                 orders_qty,
                 rating,
@@ -3078,7 +3093,7 @@ HTML_TEMPLATE = '''
                         data.products.forEach(p => {
                             const option = document.createElement('option');
                             option.value = p.sku;
-                            option.textContent = `${p.name} (SKU: ${p.sku})`;
+                            option.textContent = p.offer_id ? `${p.offer_id}` : `${p.name} (SKU: ${p.sku})`;
                             select.appendChild(option);
                         });
                         
@@ -3726,10 +3741,10 @@ def get_products_list():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Берём товары с последним известным названием (по дате)
+        # Берём товары с последним известным названием и артикулом (по дате)
         # SKU 1235819146 (ПЖД) первым, потом остальные по имени
         cursor.execute('''
-            SELECT ph.sku, ph.name
+            SELECT ph.sku, ph.name, ph.offer_id
             FROM products_history ph
             JOIN (
               SELECT sku, MAX(snapshot_date) AS max_date
@@ -3737,12 +3752,12 @@ def get_products_list():
               GROUP BY sku
             ) last
             ON last.sku = ph.sku AND last.max_date = ph.snapshot_date
-            ORDER BY 
+            ORDER BY
                 CASE WHEN ph.sku = 1235819146 THEN 0 ELSE 1 END,
                 ph.name
         ''')
-        
-        products = [{'sku': row['sku'], 'name': row['name']} for row in cursor.fetchall()]
+
+        products = [{'sku': row['sku'], 'name': row['name'], 'offer_id': row['offer_id']} for row in cursor.fetchall()]
         conn.close()
         
         return jsonify({
