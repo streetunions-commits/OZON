@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template_string, jsonify, request
 from bs4 import BeautifulSoup
@@ -2272,90 +2273,94 @@ def load_fbo_analytics(cursor, conn, snapshot_date):
     ============================================================================
 
     Вызывает /v1/analytics/stocks для получения:
-    - ADS (среднесуточные продажи)
-    - IDC (дней до конца остатка)
-    - Дней без продаж
-    - Статус ликвидности (DEFICIT, POPULAR, ACTUAL, SURPLUS, NO_SALES)
-    - Остатки по кластерам
+    - ADS (среднесуточные продажи) — общий по товару и по кластеру
+    - IDC (дней до конца остатка по кластеру)
+    - Дней без продаж (по кластеру)
+    - Статус оборачиваемости (turnover_grade_cluster)
+    - Остатки по кластерам (available_stock_count)
 
+    API требует список SKU, поэтому сначала берём SKU из БД.
+    Каждая строка в ответе — один кластер для одного SKU.
     Данные сохраняются в таблицу fbo_analytics.
     """
     print("\n📊 Загрузка аналитики FBO по кластерам...")
 
     try:
+        # Получаем список SKU из products
+        cursor.execute('SELECT sku FROM products')
+        all_skus = [row[0] for row in cursor.fetchall()]
+
+        if not all_skus:
+            print("  ⚠️  Нет товаров в БД — пропускаем загрузку аналитики")
+            return
+
+        print(f"  📦 SKU для запроса: {len(all_skus)}")
+
         # Очищаем старые данные за сегодня
         cursor.execute('DELETE FROM fbo_analytics WHERE snapshot_date = ?', (snapshot_date,))
 
-        offset = 0
         total_rows = 0
 
-        while True:
-            response = requests.post(
-                f"{OZON_HOST}/v1/analytics/stocks",
-                json={
-                    "limit": 100,
-                    "offset": offset,
-                    "warehouse_type": "FBO"
-                },
-                headers=get_ozon_headers(),
-                timeout=30
-            )
+        # API принимает до 100 SKU за раз
+        for batch_start in range(0, len(all_skus), 100):
+            batch_skus = all_skus[batch_start:batch_start + 100]
+            offset = 0
 
-            if response.status_code != 200:
-                print(f"  ⚠️  Ошибка API /v1/analytics/stocks: {response.status_code}")
-                if offset == 0:
-                    print(f"     {response.text[:300]}")
-                break
+            while True:
+                response = requests.post(
+                    f"{OZON_HOST}/v1/analytics/stocks",
+                    json={
+                        "limit": 100,
+                        "offset": offset,
+                        "warehouse_type": "FBO",
+                        "skus": batch_skus
+                    },
+                    headers=get_ozon_headers(),
+                    timeout=30
+                )
 
-            result = response.json()
-            items = result.get("result", {}).get("items", [])
+                if response.status_code != 200:
+                    print(f"  ⚠️  Ошибка API /v1/analytics/stocks: {response.status_code}")
+                    if offset == 0:
+                        print(f"     {response.text[:300]}")
+                    break
 
-            if not items:
-                break
+                result = response.json()
+                # Ответ: {"items": [...]} — каждый элемент = один кластер для одного SKU
+                items = result.get("items", [])
 
-            for item in items:
-                sku = item.get("sku")
-                if not sku:
-                    continue
+                if not items:
+                    break
 
-                # Данные по кластерам
-                clusters = item.get("clusters", [])
-                if clusters:
-                    for cluster in clusters:
-                        cluster_name = cluster.get("cluster_name", "")
-                        ads = cluster.get("ads", 0) or 0
-                        idc = cluster.get("idc", 0) or 0
-                        days_no_sales = cluster.get("days_without_sales", 0) or 0
-                        liquidity = cluster.get("liquidity_status", "")
-                        stock = cluster.get("stock", 0) or 0
+                for item in items:
+                    sku = item.get("sku")
+                    if not sku:
+                        continue
 
-                        cursor.execute('''
-                            INSERT INTO fbo_analytics
-                            (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (sku, cluster_name, float(ads), float(idc),
-                              int(days_no_sales), liquidity, int(stock), snapshot_date))
-                        total_rows += 1
-                else:
-                    # Нет разбивки по кластерам — сохраняем общие данные
-                    ads = item.get("ads", 0) or 0
-                    idc = item.get("idc", 0) or 0
-                    days_no_sales = item.get("days_without_sales", 0) or 0
-                    liquidity = item.get("liquidity_status", "")
-                    stock = item.get("stock", 0) or 0
+                    cluster_name = item.get("cluster_name", "")
+                    # ads_cluster — среднесуточные продажи В ЭТОМ кластере
+                    ads = item.get("ads_cluster", 0) or 0
+                    # idc_cluster — дней остатка В ЭТОМ кластере
+                    idc = item.get("idc_cluster", 0) or 0
+                    # days_without_sales_cluster — дней без продаж В ЭТОМ кластере
+                    days_no_sales = item.get("days_without_sales_cluster", 0) or 0
+                    # turnover_grade_cluster — статус оборачиваемости в кластере
+                    liquidity = item.get("turnover_grade_cluster", "")
+                    # available_stock_count — доступный остаток для продажи
+                    stock = item.get("available_stock_count", 0) or 0
 
                     cursor.execute('''
                         INSERT INTO fbo_analytics
                         (sku, cluster_name, ads, idc, days_without_sales, liquidity_status, stock, snapshot_date)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (sku, "Общий", float(ads), float(idc),
+                    ''', (sku, cluster_name, float(ads), float(idc),
                           int(days_no_sales), liquidity, int(stock), snapshot_date))
                     total_rows += 1
 
-            if len(items) < 100:
-                break
+                if len(items) < 100:
+                    break
 
-            offset += 100
+                offset += 100
 
         conn.commit()
         print(f"  ✅ Загружено {total_rows} строк аналитики по кластерам")
