@@ -191,6 +191,50 @@ def cleanup(xvfb, chrome):
 
 
 # ============================================================================
+# ТРАНСЛИТЕРАЦИЯ ДЛЯ ПОСТРОЕНИЯ URL
+# ============================================================================
+
+# Таблица транслитерации русских букв в латиницу (как на Ozon)
+_TRANSLIT_MAP = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+}
+
+
+def _transliterate_to_slug(name):
+    """
+    Транслитерирует название товара в URL-slug (как на Ozon).
+    Пример: "ONSEN предпусковой подогреватель 12в" → "onsen-predpuskovoy-podogrevatel-12v"
+    """
+    text = name.lower()
+    result = []
+    for char in text:
+        if char in _TRANSLIT_MAP:
+            result.append(_TRANSLIT_MAP[char])
+        elif char.isascii() and char.isalnum():
+            result.append(char)
+        else:
+            result.append('-')
+    slug = re.sub(r'-+', '-', ''.join(result)).strip('-')
+    return slug
+
+
+def _build_product_url(sku, name=None):
+    """
+    Строит полный URL карточки товара на Ozon.
+    Формат: /product/{slug}-{sku}/ (работает для товаров не в наличии)
+    """
+    if name:
+        slug = _transliterate_to_slug(name)
+        # Добавляем ?oos_search=false — позволяет открыть товары не в наличии
+        return f'https://www.ozon.ru/product/{slug}-{sku}/?oos_search=false'
+    return f'https://www.ozon.ru/product/{sku}/'
+
+
+# ============================================================================
 # ПАРСИНГ РЕЙТИНГОВ
 # ============================================================================
 
@@ -240,15 +284,15 @@ async def _parse_single(page, sku, name):
     Парсит рейтинг одного товара.
 
     Стратегия:
-    1. Прямой URL /product/{sku}/
+    1. Полный URL с slug: /product/{slug}-{sku}/
     2. Поиск через Ozon по названию (fallback)
     3. Извлечение: JSON-LD → regex → видимый текст
 
     Возвращает:
         dict или None
     """
-    # Попытка 1: Прямой URL
-    url = f"https://www.ozon.ru/product/{sku}/"
+    # Попытка 1: Полный URL с slug (работает для товаров не в наличии)
+    url = _build_product_url(sku, name)
     print(f"    📥 Открываю {url}...")
 
     resp = await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
@@ -269,7 +313,7 @@ async def _parse_single(page, sku, name):
     # Попытка 2: Поиск через Ozon
     if not is_product:
         print(f"    ⚠️  Прямой URL не сработал. Ищу через поиск...")
-        product_url = await _search_product(page, name)
+        product_url = await _search_product(page, name, sku)
         if product_url:
             resp = await page.goto(product_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT)
             await page.wait_for_timeout(REQUEST_DELAY * 1000)
@@ -305,7 +349,7 @@ async def _parse_single(page, sku, name):
     return None
 
 
-async def _search_product(page, name):
+async def _search_product(page, name, sku=None):
     """Ищет товар через поиск Ozon по первым 5 словам названия"""
     words = name.split()[:5]
     query = " ".join(words)
@@ -337,6 +381,14 @@ async def _search_product(page, name):
     """, key_words)
 
     if links:
+        # Приоритет: ссылка, содержащая наш SKU в URL (точное совпадение)
+        if sku:
+            sku_str = str(sku)
+            for link in links:
+                if sku_str in link['href']:
+                    print(f"    ✅ Найден (SKU в URL): {link['href'][:80]}...")
+                    return link['href']
+            print(f"    ⚠️  SKU {sku} не найден в URL результатов")
         print(f"    ✅ Найден: {links[0]['href'][:80]}...")
         return links[0]["href"]
     return None
