@@ -21,7 +21,7 @@ import os
 bind = "127.0.0.1:8000"  # Gunicorn слушает локально, Nginx проксирует
 workers = multiprocessing.cpu_count() * 2 + 1  # Рекомендуемое количество
 worker_class = "sync"
-timeout = 120  # Таймаут для долгих запросов к Ozon API
+timeout = 300  # Таймаут для долгих запросов к Ozon API (синхронизация ~3-4 мин)
 
 # Логирование
 accesslog = "/var/log/ozon-tracker/access.log"
