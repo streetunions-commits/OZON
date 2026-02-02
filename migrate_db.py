@@ -75,6 +75,13 @@ def migrate():
         else:
             print("ℹ️  Столбец avg_delivery_hours уже существует в products")
 
+        # Добавляем столбец offer_id в products (артикул товара)
+        if ensure_column(cursor, "products", "offer_id",
+                         "ALTER TABLE products ADD COLUMN offer_id TEXT DEFAULT NULL"):
+            print("✅ Столбец offer_id добавлен в products")
+        else:
+            print("ℹ️  Столбец offer_id уже существует в products")
+
         # ============================================================
         # Таблица fbo_warehouse_stock — остатки по складам/кластерам
         # ============================================================
