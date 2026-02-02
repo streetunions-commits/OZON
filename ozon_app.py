@@ -2040,6 +2040,61 @@ def parse_product_card(sku):
         return None
 
 
+def load_all_account_skus():
+    """
+    ============================================================================
+    ПОЛУЧЕНИЕ ВСЕХ SKU АККАУНТА
+    ============================================================================
+
+    Запрашивает /v3/product/list (все активные товары), затем через
+    /v3/product/info/list получает FBO SKU каждого товара.
+
+    Возвращает:
+        list[int]: Список всех SKU (включая товары без FBO остатков)
+    """
+    try:
+        # Шаг 1: получаем все product_id из аккаунта
+        resp = requests.post(
+            f"{OZON_HOST}/v3/product/list",
+            json={"filter": {"visibility": "ALL"}, "limit": 1000},
+            headers=get_ozon_headers(),
+            timeout=15
+        )
+        if resp.status_code != 200:
+            print(f"  ⚠️  Ошибка /v3/product/list: {resp.status_code}")
+            return []
+
+        items = resp.json().get("result", {}).get("items", [])
+        if not items:
+            return []
+
+        # Шаг 2: получаем SKU через /v3/product/info/list по product_id
+        product_ids = [it["product_id"] for it in items]
+        all_skus = []
+
+        for i in range(0, len(product_ids), 100):
+            batch = product_ids[i:i + 100]
+            resp2 = requests.post(
+                f"{OZON_HOST}/v3/product/info/list",
+                json={"product_id": batch},
+                headers=get_ozon_headers(),
+                timeout=30
+            )
+            if resp2.status_code == 200:
+                info_items = resp2.json().get("items", [])
+                for it in info_items:
+                    sku = it.get("sku")
+                    if sku:
+                        all_skus.append(sku)
+
+        print(f"  📦 Всего товаров в аккаунте: {len(all_skus)} SKU")
+        return all_skus
+
+    except Exception as e:
+        print(f"  ❌ Ошибка load_all_account_skus: {e}")
+        return []
+
+
 def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
     """
     ============================================================================
@@ -2312,8 +2367,12 @@ def sync_products():
         in_transit_by_sku, in_draft_by_sku = load_fbo_supply_orders()
 
         # ✅ Загружаем аналитику FBO (ADS, IDC, ликвидность по кластерам)
-        # Передаём список SKU из products_data, т.к. таблица products ещё не заполнена
-        load_fbo_analytics(cursor, conn, snapshot_date, sku_list=list(products_data.keys()))
+        # Получаем ВСЕ SKU аккаунта (не только те что на складах FBO),
+        # чтобы на вкладке "Аналитика FBO" отображались все товары
+        all_account_skus = load_all_account_skus()
+        # Объединяем с SKU из stock_on_warehouses (на случай если какой-то SKU не в product/list)
+        combined_skus = list(set(list(products_data.keys()) + all_account_skus))
+        load_fbo_analytics(cursor, conn, snapshot_date, sku_list=combined_skus)
 
         # ✅ Загружаем цены товаров
         prices_by_sku = load_product_prices(products_data)
@@ -4687,6 +4746,33 @@ def get_fbo_analytics():
 
         conn.close()
 
+        # Для SKU которых нет в products_history — подтягиваем offer_id и name из API
+        analytics_skus = set(r['sku'] for r in analytics_rows)
+        missing_skus = [s for s in analytics_skus if s not in product_info]
+        if missing_skus:
+            try:
+                for i in range(0, len(missing_skus), 100):
+                    batch = missing_skus[i:i + 100]
+                    resp = requests.post(
+                        f"{OZON_HOST}/v3/product/info/list",
+                        json={"sku": batch},
+                        headers=get_ozon_headers(),
+                        timeout=15
+                    )
+                    if resp.status_code == 200:
+                        for it in resp.json().get("items", []):
+                            s = it.get("sku")
+                            if s and s not in product_info:
+                                product_info[s] = {
+                                    'name': it.get('name', ''),
+                                    'offer_id': it.get('offer_id', ''),
+                                    'fbo_stock': 0,
+                                    'in_transit': 0,
+                                    'in_draft': 0
+                                }
+            except Exception:
+                pass  # Если не получилось — покажем SKU без названия
+
         # Группируем аналитику по SKU
         products_map = {}
         for r in analytics_rows:
@@ -4737,8 +4823,8 @@ def get_fbo_analytics():
             prod['total_ads'] = round(prod['total_ads'], 2)
             products.append(prod)
 
-        # Сортировка: ПЖД (1235819146) первым, потом по артикулу
-        products.sort(key=lambda p: (0 if p['sku'] == 1235819146 else 1, p['offer_id']))
+        # Сортировка: по остатку (total_stock_analytics) от большего к меньшему
+        products.sort(key=lambda p: (-p['total_stock_analytics'], p['offer_id']))
 
         return jsonify({
             'success': True,
