@@ -56,19 +56,25 @@ When working with Ozon APIs:
   - `.claude/ozon-api-docs/ozon-seller-api.*` - Seller API (товары, остатки, заказы)
   - `.claude/ozon-api-docs/ozon-performance-api.*` - Performance API (реклама, статистика)
 
-**5. Always check logs after deployment**
+**5. Always deploy to server after pushing code**
 
-After deploying changes to the server:
-- **ALWAYS check logs** to verify changes work correctly
+After every `git push`, you MUST deploy changes to the production server:
+- **ALWAYS run deployment** — never just push and leave old code running on the server
+- SSH to the server and run: `cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker`
+- Or use the deploy script: `./deploy.sh --update`
+- **Then check logs** to verify changes work correctly
 - Use `sudo journalctl -u ozon-tracker --since '1 minute ago'` to check recent logs
 - Verify that new features load data correctly
 - Check for errors or warnings in the logs
 - If something doesn't work as expected, add debug logging and redeploy
 - Example workflow:
-  1. Deploy code to server
-  2. Run sync: `curl -X POST http://127.0.0.1:8000/api/sync`
+  1. `git push` (local)
+  2. SSH to server → `cd /root/OZON && git pull origin main && sudo systemctl restart ozon-tracker`
   3. Check logs: `sudo journalctl -u ozon-tracker --since '1 minute ago'`
-  4. Verify success or debug issues
+  4. Run sync if needed: `curl -X POST http://127.0.0.1:8000/api/sync`
+  5. Verify success or debug issues
+
+**CRITICAL: Push without deploy = incomplete task. The server MUST always run the latest code.**
 
 ## Self-annealing loop
 
