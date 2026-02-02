@@ -3664,7 +3664,7 @@ HTML_TEMPLATE = '''
                         data.products.forEach(p => {
                             const option = document.createElement('option');
                             option.value = p.sku;
-                            option.textContent = p.offer_id ? `${p.offer_id}` : `${p.name} (SKU: ${p.sku})`;
+                            option.textContent = p.offer_id ? `${p.offer_id}` : `SKU: ${p.sku}`;
                             select.appendChild(option);
                         });
                         
