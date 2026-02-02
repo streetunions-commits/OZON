@@ -4721,7 +4721,13 @@ def get_fbo_analytics():
             # Определяем худший статус ликвидности
             liq = r['liquidity_status'] or ''
             current_worst = products_map[sku]['worst_liquidity']
-            liq_priority = {'NO_SALES': 5, 'DEFICIT': 4, 'SURPLUS': 3, 'ACTUAL': 2, 'POPULAR': 1}
+            liq_priority = {
+                'NO_SALES': 10, 'WAS_NO_SALES': 9, 'RESTRICTED_NO_SALES': 9,
+                'DEFICIT': 8, 'WAS_DEFICIT': 7,
+                'SURPLUS': 6, 'WAS_SURPLUS': 5,
+                'ACTUAL': 4, 'WAS_ACTUAL': 3, 'WAITING_FOR_SUPPLY': 3,
+                'POPULAR': 2, 'WAS_POPULAR': 1
+            }
             if liq_priority.get(liq, 0) > liq_priority.get(current_worst, 0):
                 products_map[sku]['worst_liquidity'] = liq
 
