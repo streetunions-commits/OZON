@@ -227,12 +227,13 @@ async def _parse_single_product(page, sku):
     title = await page.title()
     current_url = page.url
 
-    # Проверяем, что мы на карточке товара (а не на поиске/блокировке)
+    # Проверяем что мы на карточке товара, а не на странице поиска/блокировки
+    # Примечание: URL товара не в наличии содержит ?oos_search=false — это НЕ поиск
     is_product_page = (
         resp.status == 200
         and 'ограничен' not in title.lower()
         and '/product/' in current_url
-        and 'search' not in current_url
+        and '/search/' not in current_url
     )
 
     if not is_product_page:
@@ -249,6 +250,7 @@ async def _parse_single_product(page, sku):
                 resp.status == 200
                 and 'ограничен' not in title.lower()
                 and '/product/' in page.url
+                and '/search/' not in page.url
             )
 
     if not is_product_page:

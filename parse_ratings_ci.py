@@ -257,12 +257,13 @@ async def _parse_single(page, sku, name):
     title = await page.title()
     current_url = page.url
 
+    # Примечание: URL товара не в наличии содержит ?oos_search=false — это НЕ поиск
     is_product = (
         resp.status == 200
         and "ограничен" not in title.lower()
         and "antibot" not in title.lower()
         and "/product/" in current_url
-        and "search" not in current_url
+        and "/search/" not in current_url
     )
 
     # Попытка 2: Поиск через Ozon
