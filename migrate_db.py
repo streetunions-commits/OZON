@@ -82,6 +82,19 @@ def migrate():
         else:
             print("ℹ️  Столбец offer_id уже существует в products")
 
+        # Добавляем недостающие столбцы в products
+        for col, sql_type, default in [
+            ("price", "REAL", "0"),
+            ("marketing_price", "REAL", "0"),
+            ("in_transit", "INTEGER", "0"),
+            ("in_draft", "INTEGER", "0"),
+        ]:
+            if ensure_column(cursor, "products", col,
+                             f"ALTER TABLE products ADD COLUMN {col} {sql_type} DEFAULT {default}"):
+                print(f"✅ Столбец {col} добавлен в products")
+            else:
+                print(f"ℹ️  Столбец {col} уже существует в products")
+
         # ============================================================
         # Таблица fbo_warehouse_stock — остатки по складам/кластерам
         # ============================================================
