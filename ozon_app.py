@@ -4746,9 +4746,9 @@ def get_fbo_analytics():
 
         conn.close()
 
-        # Для SKU которых нет в products_history — подтягиваем offer_id и name из API
+        # Для SKU которых нет в products_history или у которых нет offer_id — подтягиваем из API
         analytics_skus = set(r['sku'] for r in analytics_rows)
-        missing_skus = [s for s in analytics_skus if s not in product_info]
+        missing_skus = [s for s in analytics_skus if s not in product_info or not product_info[s].get('offer_id')]
         if missing_skus:
             try:
                 for i in range(0, len(missing_skus), 100):
@@ -4762,14 +4762,21 @@ def get_fbo_analytics():
                     if resp.status_code == 200:
                         for it in resp.json().get("items", []):
                             s = it.get("sku")
-                            if s and s not in product_info:
-                                product_info[s] = {
-                                    'name': it.get('name', ''),
-                                    'offer_id': it.get('offer_id', ''),
-                                    'fbo_stock': 0,
-                                    'in_transit': 0,
-                                    'in_draft': 0
-                                }
+                            if s:
+                                if s not in product_info:
+                                    product_info[s] = {
+                                        'name': it.get('name', ''),
+                                        'offer_id': it.get('offer_id', ''),
+                                        'fbo_stock': 0,
+                                        'in_transit': 0,
+                                        'in_draft': 0
+                                    }
+                                else:
+                                    # Дополняем недостающие поля
+                                    if not product_info[s].get('offer_id'):
+                                        product_info[s]['offer_id'] = it.get('offer_id', '')
+                                    if not product_info[s].get('name'):
+                                        product_info[s]['name'] = it.get('name', '')
             except Exception:
                 pass  # Если не получилось — покажем SKU без названия
 
