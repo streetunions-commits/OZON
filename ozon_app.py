@@ -4315,9 +4315,11 @@ def get_products_list():
         cursor = conn.cursor()
         
         # Берём товары с последним известным названием и артикулом (по дате)
+        # Если offer_id нет в products_history — подтягиваем из products
         # SKU 1235819146 (ПЖД) первым, потом остальные по имени
         cursor.execute('''
-            SELECT ph.sku, ph.name, ph.offer_id
+            SELECT ph.sku, ph.name,
+                   COALESCE(ph.offer_id, p.offer_id) AS offer_id
             FROM products_history ph
             JOIN (
               SELECT sku, MAX(snapshot_date) AS max_date
@@ -4325,6 +4327,7 @@ def get_products_list():
               GROUP BY sku
             ) last
             ON last.sku = ph.sku AND last.max_date = ph.snapshot_date
+            LEFT JOIN products p ON p.sku = ph.sku
             ORDER BY
                 CASE WHEN ph.sku = 1235819146 THEN 0 ELSE 1 END,
                 ph.name
