@@ -62,6 +62,51 @@ def migrate():
         else:
             print("ℹ️  Столбец review_count уже существует")
 
+        # Добавляем столбец avg_delivery_hours (среднее время доставки в часах)
+        if ensure_column(cursor, "products_history", "avg_delivery_hours",
+                         "ALTER TABLE products_history ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
+            print("✅ Столбец avg_delivery_hours добавлен в products_history")
+        else:
+            print("ℹ️  Столбец avg_delivery_hours уже существует")
+
+        if ensure_column(cursor, "products", "avg_delivery_hours",
+                         "ALTER TABLE products ADD COLUMN avg_delivery_hours REAL DEFAULT NULL"):
+            print("✅ Столбец avg_delivery_hours добавлен в products")
+        else:
+            print("ℹ️  Столбец avg_delivery_hours уже существует в products")
+
+        # ============================================================
+        # Таблица fbo_warehouse_stock — остатки по складам/кластерам
+        # ============================================================
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fbo_warehouse_stock (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku INTEGER NOT NULL,
+                warehouse_name TEXT,
+                stock INTEGER DEFAULT 0,
+                snapshot_date DATE NOT NULL
+            )
+        ''')
+        print("✅ Таблица fbo_warehouse_stock создана (или уже существует)")
+
+        # ============================================================
+        # Таблица fbo_analytics — аналитика по кластерам (ADS, IDC)
+        # ============================================================
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fbo_analytics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sku INTEGER NOT NULL,
+                cluster_name TEXT,
+                ads REAL DEFAULT 0,
+                idc REAL DEFAULT 0,
+                days_without_sales INTEGER DEFAULT 0,
+                liquidity_status TEXT DEFAULT '',
+                stock INTEGER DEFAULT 0,
+                snapshot_date DATE NOT NULL
+            )
+        ''')
+        print("✅ Таблица fbo_analytics создана (или уже существует)")
+
         conn.commit()
         conn.close()
 
