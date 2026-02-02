@@ -3094,11 +3094,11 @@ HTML_TEMPLATE = '''
                     btn.style.color = '#4CAF50';
 
                     // Показываем результат
-                    let msg = `Рейтинги обновлены!\n\nУспешно: ${data.updated}\nНе удалось: ${data.failed}`;
+                    let msg = 'Рейтинги обновлены!' + '\\n\\n' + 'Успешно: ' + data.updated + '\\n' + 'Не удалось: ' + data.failed;
                     if (data.details && data.details.length > 0) {
-                        msg += '\n\nДетали:\n' + data.details.map(d =>
-                            `• ${d.offer_id}: ${d.status === 'ok' ? d.rating + ' (' + d.review_count + ' отз.)' : d.error}`
-                        ).join('\n');
+                        msg += '\\n\\nДетали:\\n' + data.details.map(d =>
+                            d.offer_id + ': ' + (d.status === 'ok' ? d.rating + ' (' + d.review_count + ' отз.)' : d.error)
+                        ).join('\\n');
                     }
                     alert(msg);
 
