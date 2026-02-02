@@ -1,86 +1,507 @@
 #!/usr/bin/env python3
 """
 ============================================================================
-ЛОКАЛЬНЫЙ ПАРСЕР РЕЙТИНГОВ OZON
+ЛОКАЛЬНЫЙ ПАРСЕР РЕЙТИНГОВ OZON (через реальный Chrome)
 ============================================================================
 
-Парсит карточки товаров локально (без блокировки) и отправляет данные на сервер
+Назначение:
+    Парсит карточки товаров на Ozon через реальный браузер Chrome,
+    извлекает рейтинг и количество отзывов, отправляет данные на сервер.
+
+Как это работает:
+    1. Запускает реальный Chrome с отдельным профилем и портом отладки
+    2. Подключается к Chrome через CDP (Chrome DevTools Protocol) + Playwright
+    3. Открывает страницу каждого товара на Ozon
+    4. Извлекает рейтинг из JSON-LD разметки (самый надёжный способ)
+    5. Fallback: regex поиск в HTML, затем в видимом тексте страницы
+    6. Отправляет данные на сервер через API /api/update-rating/<sku>
+
+Почему нужен реальный Chrome:
+    Ozon использует агрессивную антибот-защиту (WAF/DataDome),
+    которая блокирует requests, cloudscraper, headless Playwright/Selenium.
+    Только реальный Chrome с обычным профилем проходит проверки.
+
+Зависимости:
+    pip install playwright requests
+    python -m playwright install chromium
 
 Использование:
     python update_ratings_local.py
 
-============================================================================
+@author OZON Tracker Team
+@version 2.0.0
+@lastUpdated 2026-02-02
 """
 
+import asyncio
+import subprocess
+import time
 import requests
-from bs4 import BeautifulSoup
 import json
 import re
 import sqlite3
+import sys
+import os
 
-# Конфигурация
-SERVER_URL = "http://89.167.25.21"  # URL вашего сервера
-DB_PATH = "ozon_data.db"  # Локальная БД
+# ============================================================================
+# КОНФИГУРАЦИЯ
+# ============================================================================
+
+# URL сервера для отправки данных рейтинга
+SERVER_URL = "http://89.167.25.21"
+
+# Путь к локальной базе данных
+DB_PATH = "ozon_data.db"
+
+# Путь к Chrome (стандартная установка Windows)
+CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+
+# Порт для Chrome DevTools Protocol (не стандартный 9222, чтобы не конфликтовать)
+CDP_PORT = 9333
+
+# Директория для отдельного профиля Chrome (не затрагивает основной профиль)
+CHROME_PROFILE_DIR = os.path.join(
+    os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+    'ozon-scraper-chrome-profile'
+)
+
+# Задержка между запросами к Ozon (в секундах) — чтобы не вызывать подозрений
+REQUEST_DELAY = 5
+
+# Максимальное время ожидания загрузки страницы (мс)
+PAGE_TIMEOUT = 30000
 
 
-def parse_product_card(sku):
-    """Парсит карточку товара и извлекает рейтинг и отзывы"""
+# ============================================================================
+# УПРАВЛЕНИЕ CHROME
+# ============================================================================
+
+def ensure_chrome_running():
+    """
+    Проверяет, запущен ли Chrome с портом отладки.
+    Если нет — запускает новый экземпляр с отдельным профилем.
+
+    Возвращает:
+        bool: True если Chrome готов к работе, False при ошибке
+    """
     try:
-        url = f"https://www.ozon.ru/product/-{sku}/"
+        # Проверяем, уже ли запущен Chrome на нужном порту
+        resp = requests.get(f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=2)
+        version = resp.json().get('Browser', 'Unknown')
+        print(f"  ✅ Chrome уже запущен: {version}")
+        return True
+    except Exception:
+        pass
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        }
+    # Chrome не запущен — запускаем
+    if not os.path.exists(CHROME_PATH):
+        print(f"  ❌ Chrome не найден по пути: {CHROME_PATH}")
+        print(f"     Укажите правильный путь в переменной CHROME_PATH")
+        return False
 
-        print(f"  📥 Загружаю карточку SKU {sku}...")
-        response = requests.get(url, headers=headers, timeout=10)
+    os.makedirs(CHROME_PROFILE_DIR, exist_ok=True)
 
-        if response.status_code != 200:
-            print(f"  ⚠️  Ошибка: статус {response.status_code}")
-            return None
+    print(f"  🚀 Запускаю Chrome с портом отладки {CDP_PORT}...")
+    subprocess.Popen(
+        [
+            CHROME_PATH,
+            f'--remote-debugging-port={CDP_PORT}',
+            f'--user-data-dir={CHROME_PROFILE_DIR}',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--lang=ru-RU',
+            'about:blank',
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-        soup = BeautifulSoup(response.text, 'html.parser')
+    # Ждём пока Chrome запустится
+    for attempt in range(10):
+        time.sleep(1)
+        try:
+            resp = requests.get(f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=2)
+            version = resp.json().get('Browser', 'Unknown')
+            print(f"  ✅ Chrome запущен: {version}")
+            return True
+        except Exception:
+            continue
 
-        rating = None
-        review_count = None
+    print("  ❌ Chrome не удалось запустить")
+    return False
 
-        # Вариант 1: JSON-LD данные
-        for script in soup.find_all('script', type='application/ld+json'):
+
+def close_chrome():
+    """
+    Закрывает Chrome, запущенный на порту отладки.
+    Отправляет команду через CDP.
+    """
+    try:
+        # Получаем список целей (targets) и закрываем браузер
+        resp = requests.get(f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=2)
+        ws_url = resp.json().get('webSocketDebuggerUrl')
+        if ws_url:
+            # Просто закрываем все страницы — Chrome завершится сам
+            requests.put(f'http://127.0.0.1:{CDP_PORT}/json/close/all', timeout=2)
+    except Exception:
+        pass
+
+
+# ============================================================================
+# ПАРСИНГ РЕЙТИНГА С КАРТОЧКИ ТОВАРА
+# ============================================================================
+
+async def parse_ratings_via_chrome(skus):
+    """
+    Парсит рейтинги и отзывы для списка SKU через реальный Chrome.
+
+    Подключается к Chrome через CDP, открывает страницу каждого товара,
+    извлекает данные из JSON-LD, regex или видимого текста.
+
+    Аргументы:
+        skus (list): Список SKU для парсинга
+
+    Возвращает:
+        dict: {sku: {'rating': float, 'review_count': int}} или {sku: None}
+    """
+    from playwright.async_api import async_playwright
+
+    results = {}
+
+    async with async_playwright() as p:
+        print(f"\n  🔌 Подключаюсь к Chrome через CDP (порт {CDP_PORT})...")
+        browser = await p.chromium.connect_over_cdp(f'http://127.0.0.1:{CDP_PORT}')
+        context = browser.contexts[0]
+        page = context.pages[0] if context.pages else await context.new_page()
+
+        for i, sku in enumerate(skus, 1):
+            print(f"\n  [{i}/{len(skus)}] SKU {sku}:")
+
             try:
-                data = json.loads(script.string)
-                if isinstance(data, dict) and 'aggregateRating' in data:
-                    rating = float(data['aggregateRating'].get('ratingValue', 0))
-                    review_count = int(data['aggregateRating'].get('reviewCount', 0))
-                    break
-            except:
-                continue
+                result = await _parse_single_product(page, sku)
+                results[sku] = result
+            except Exception as e:
+                print(f"    ❌ Ошибка: {e}")
+                results[sku] = None
 
-        # Вариант 2: Regex поиск
-        if rating is None or review_count is None:
-            rating_match = re.search(r'"ratingValue["\s:]+([0-9]+[.,][0-9]+)', response.text)
-            if rating_match:
-                rating = float(rating_match.group(1).replace(',', '.'))
+            # Задержка между запросами
+            if i < len(skus):
+                await page.wait_for_timeout(REQUEST_DELAY * 1000)
 
-            review_match = re.search(r'"reviewCount["\s:]+(\d+)', response.text)
-            if review_match:
-                review_count = int(review_match.group(1))
+        await browser.close()
 
-        if rating is not None and review_count is not None:
-            print(f"  ✅ SKU {sku}: рейтинг={rating}, отзывов={review_count}")
-            return {'rating': rating, 'review_count': review_count}
-        else:
-            print(f"  ⚠️  SKU {sku}: не удалось извлечь данные")
-            return None
+    return results
 
-    except Exception as e:
-        print(f"  ❌ Ошибка при парсинге SKU {sku}: {e}")
+
+async def _parse_single_product(page, sku):
+    """
+    Парсит одну карточку товара на Ozon.
+
+    Стратегия URL:
+    1. Сначала пробуем прямой URL: /product/{sku}/
+       (работает для большинства товаров — Ozon делает редирект на полный URL)
+    2. Если не сработало — ищем товар через поиск Ozon
+
+    Стратегия извлечения данных:
+    1. JSON-LD разметка (самый надёжный — структурированные данные)
+    2. Regex в HTML-исходнике (fallback)
+    3. Видимый текст страницы (последний вариант)
+
+    Аргументы:
+        page: Playwright page object
+        sku (int): SKU товара
+
+    Возвращает:
+        dict: {'rating': float, 'review_count': int} или None
+    """
+    rating = None
+    review_count = None
+
+    # --- Шаг 1: Открываем карточку товара ---
+    url = f'https://www.ozon.ru/product/{sku}/'
+    print(f"    📥 Открываю {url}...")
+
+    resp = await page.goto(url, wait_until='domcontentloaded', timeout=PAGE_TIMEOUT)
+    await page.wait_for_timeout(REQUEST_DELAY * 1000)
+
+    title = await page.title()
+    current_url = page.url
+
+    # Проверяем, что мы на карточке товара (а не на поиске/блокировке)
+    is_product_page = (
+        resp.status == 200
+        and 'ограничен' not in title.lower()
+        and '/product/' in current_url
+        and 'search' not in current_url
+    )
+
+    if not is_product_page:
+        print(f"    ⚠️  Прямой URL не сработал (редирект на: {current_url[:80]})")
+        print(f"    🔍 Пробую найти через поиск Ozon...")
+
+        # Fallback: ищем товар через поиск
+        product_url = await _find_product_via_search(page, sku)
+        if product_url:
+            resp = await page.goto(product_url, wait_until='domcontentloaded', timeout=PAGE_TIMEOUT)
+            await page.wait_for_timeout(REQUEST_DELAY * 1000)
+            title = await page.title()
+            is_product_page = (
+                resp.status == 200
+                and 'ограничен' not in title.lower()
+                and '/product/' in page.url
+            )
+
+    if not is_product_page:
+        print(f"    ❌ Не удалось открыть карточку товара")
+        return None
+
+    print(f"    📄 Страница: {title[:60]}...")
+
+    # --- Шаг 2: Извлекаем рейтинг ---
+
+    # Способ 1: JSON-LD разметка (самый надёжный)
+    rating, review_count = await _extract_from_json_ld(page)
+
+    # Способ 2: Regex в HTML
+    if rating is None:
+        content = await page.content()
+        rating, review_count = _extract_from_html_regex(content)
+
+    # Способ 3: Видимый текст
+    if rating is None:
+        rating, review_count = await _extract_from_visible_text(page)
+
+    if rating is not None and review_count is not None:
+        print(f"    ✅ Рейтинг: {rating}, Отзывов: {review_count}")
+        return {'rating': rating, 'review_count': review_count}
+    else:
+        print(f"    ⚠️  Не удалось извлечь рейтинг")
         return None
 
 
+async def _find_product_via_search(page, sku):
+    """
+    Ищет товар на Ozon через поисковую строку по SKU.
+
+    Аргументы:
+        page: Playwright page object
+        sku (int): SKU товара
+
+    Возвращает:
+        str: URL карточки товара или None
+    """
+    # Получаем имя товара из БД для более точного поиска
+    product_name = _get_product_name(sku)
+    if not product_name:
+        return None
+
+    # Берём первые 5 слов из названия для поиска
+    search_words = product_name.split()[:5]
+    search_query = ' '.join(search_words)
+
+    search_url = f'https://www.ozon.ru/search/?text={requests.utils.quote(search_query)}'
+    print(f"    🔍 Поиск: {search_query}")
+
+    await page.goto(search_url, wait_until='domcontentloaded', timeout=PAGE_TIMEOUT)
+    await page.wait_for_timeout(REQUEST_DELAY * 1000)
+
+    # Ищем ссылку на наш товар в результатах поиска
+    # Проверяем по нескольким ключевым словам из названия
+    key_words = [w.lower() for w in search_words[:3] if len(w) > 2]
+
+    links = await page.evaluate('''
+        (keyWords) => {
+            const anchors = document.querySelectorAll('a[href*="/product/"]');
+            const results = [];
+            for (const a of anchors) {
+                const text = a.textContent.toLowerCase();
+                const matches = keyWords.filter(w => text.includes(w));
+                if (matches.length >= 2) {
+                    results.push({
+                        href: a.href.split('?')[0],
+                        text: a.textContent.substring(0, 100),
+                        score: matches.length
+                    });
+                }
+            }
+            // Сортируем по количеству совпадений
+            results.sort((a, b) => b.score - a.score);
+            return results.slice(0, 3);
+        }
+    ''', key_words)
+
+    if links:
+        url = links[0]['href']
+        print(f"    ✅ Найден: {url[:80]}...")
+        return url
+
+    print(f"    ❌ Товар не найден в поиске")
+    return None
+
+
+async def _extract_from_json_ld(page):
+    """
+    Извлекает рейтинг из JSON-LD разметки (schema.org).
+    Это самый надёжный способ — структурированные данные для поисковиков.
+
+    Пример JSON-LD:
+        {
+            "@type": "Product",
+            "aggregateRating": {
+                "ratingValue": "4.5",
+                "reviewCount": "1402"
+            }
+        }
+
+    Возвращает:
+        tuple: (rating, review_count) или (None, None)
+    """
+    scripts_json = await page.evaluate('''
+        () => {
+            const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+            return Array.from(scripts).map(s => s.textContent);
+        }
+    ''')
+
+    for s in scripts_json:
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict) and 'aggregateRating' in data:
+                ar = data['aggregateRating']
+                rating = float(ar.get('ratingValue', 0))
+                review_count = int(ar.get('reviewCount', 0))
+                if rating > 0:
+                    print(f"    📊 Источник: JSON-LD (schema.org)")
+                    return rating, review_count
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+
+    return None, None
+
+
+def _extract_from_html_regex(content):
+    """
+    Извлекает рейтинг через regex из HTML-исходника.
+    Ищет паттерны ratingValue и reviewCount в JSON-подобных структурах.
+
+    Аргументы:
+        content (str): HTML-содержимое страницы
+
+    Возвращает:
+        tuple: (rating, review_count) или (None, None)
+    """
+    rating = None
+    review_count = None
+
+    m_rating = re.search(r'"ratingValue"[:\s]*"?([0-9]+[.,][0-9]+)', content)
+    m_reviews = re.search(r'"reviewCount"[:\s]*"?(\d+)', content)
+
+    if m_rating:
+        rating = float(m_rating.group(1).replace(',', '.'))
+    if m_reviews:
+        review_count = int(m_reviews.group(1))
+
+    if rating is not None and review_count is not None:
+        print(f"    📊 Источник: HTML regex")
+    return rating, review_count
+
+
+async def _extract_from_visible_text(page):
+    """
+    Извлекает рейтинг из видимого текста страницы.
+    Последний вариант — ищет паттерн вида "4.5  1402 отзыва".
+
+    Возвращает:
+        tuple: (rating, review_count) или (None, None)
+    """
+    body_text = await page.evaluate('() => document.body.innerText')
+
+    for line in body_text.split('\n'):
+        line = line.strip()
+        # Ищем паттерн: рейтинг + число + "отзыв"
+        m = re.search(r'([0-9]+[.,][0-9]+)\s+(\d[\d\s]*)\s*отзыв', line, re.IGNORECASE)
+        if m:
+            rating = float(m.group(1).replace(',', '.'))
+            review_count = int(m.group(2).replace(' ', ''))
+            if 1.0 <= rating <= 5.0 and review_count > 0:
+                print(f"    📊 Источник: видимый текст")
+                return rating, review_count
+
+    return None, None
+
+
+def _get_product_name(sku):
+    """
+    Получает название товара из локальной БД по SKU.
+
+    Аргументы:
+        sku (int): SKU товара
+
+    Возвращает:
+        str: Название товара или None
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT name FROM products WHERE sku = ?', (sku,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+# ============================================================================
+# ОТПРАВКА ДАННЫХ НА СЕРВЕР
+# ============================================================================
+
+def save_to_local_db(sku, rating, review_count):
+    """
+    Сохраняет рейтинг в локальную БД (products_history).
+    Обновляет запись за сегодняшнюю дату.
+
+    Аргументы:
+        sku (int): SKU товара
+        rating (float): Рейтинг (1.0 - 5.0)
+        review_count (int): Количество отзывов
+    """
+    try:
+        from datetime import date
+        today = date.today().isoformat()
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Обновляем в products_history за сегодня
+        cursor.execute('''
+            UPDATE products_history
+            SET rating = ?, review_count = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (float(rating), int(review_count), sku, today))
+
+        if cursor.rowcount > 0:
+            print(f"    ✅ Сохранено в локальную БД (дата: {today})")
+        else:
+            print(f"    ⚠️  Нет записи в истории за {today} для SKU {sku}")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"    ❌ Ошибка записи в БД: {e}")
+
+
 def send_to_server(sku, rating, review_count):
-    """Отправляет данные на сервер"""
+    """
+    Отправляет данные рейтинга на сервер через API.
+
+    API: POST /api/update-rating/<sku>
+    Body: {"rating": 4.5, "review_count": 1402}
+
+    Аргументы:
+        sku (int): SKU товара
+        rating (float): Рейтинг (1.0 - 5.0)
+        review_count (int): Количество отзывов
+    """
     try:
         url = f"{SERVER_URL}/api/update-rating/{sku}"
         data = {
@@ -89,45 +510,95 @@ def send_to_server(sku, rating, review_count):
         }
 
         response = requests.post(url, json=data, timeout=10)
-        result = response.json()
 
-        if result.get('success'):
-            print(f"  ✅ Данные отправлены на сервер")
+        # Проверяем что ответ — валидный JSON
+        if response.headers.get('content-type', '').startswith('application/json'):
+            result = response.json()
+            if result.get('success'):
+                print(f"    ✅ Данные отправлены на сервер")
+            else:
+                print(f"    ⚠️  Ошибка сервера: {result.get('error')}")
         else:
-            print(f"  ⚠️  Ошибка сервера: {result.get('error')}")
+            print(f"    ⚠️  Сервер вернул не-JSON ответ (статус {response.status_code})")
 
+    except requests.exceptions.ConnectionError:
+        print(f"    ⚠️  Сервер недоступен ({SERVER_URL})")
     except Exception as e:
-        print(f"  ❌ Ошибка при отправке: {e}")
+        print(f"    ❌ Ошибка при отправке: {e}")
 
+
+# ============================================================================
+# ГЛАВНАЯ ФУНКЦИЯ
+# ============================================================================
 
 def main():
-    """Основная функция"""
-    print("\n" + "="*70)
-    print("📊 ЛОКАЛЬНЫЙ ПАРСЕР РЕЙТИНГОВ OZON")
-    print("="*70 + "\n")
+    """
+    Основная функция:
+    1. Получает список SKU из локальной БД
+    2. Запускает Chrome
+    3. Парсит рейтинги через Chrome CDP
+    4. Отправляет результаты на сервер
+    5. Закрывает Chrome
+    """
+    # Кодировка для Windows
+    sys.stdout.reconfigure(encoding='utf-8')
 
-    # Получаем список SKU из локальной БД
+    print("\n" + "=" * 70)
+    print("📊 ПАРСЕР РЕЙТИНГОВ OZON (через реальный Chrome)")
+    print("=" * 70)
+
+    # --- Шаг 1: Получаем список SKU ---
+    print("\n📦 Загрузка списка товаров из БД...")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('SELECT DISTINCT sku FROM products ORDER BY sku')
     skus = [row[0] for row in cursor.fetchall()]
     conn.close()
 
-    print(f"📦 Найдено товаров: {len(skus)}\n")
+    if not skus:
+        print("  ⚠️  Нет товаров в БД")
+        return
 
-    for i, sku in enumerate(skus, 1):
-        print(f"[{i}/{len(skus)}] SKU {sku}:")
+    print(f"  Найдено товаров: {len(skus)}")
 
-        # Парсим карточку
-        card_data = parse_product_card(sku)
+    # --- Шаг 2: Запускаем Chrome ---
+    print("\n🌐 Подготовка Chrome...")
+    if not ensure_chrome_running():
+        print("\n❌ Не удалось запустить Chrome. Завершение.")
+        return
 
-        if card_data:
+    # --- Шаг 3: Парсим рейтинги ---
+    print("\n🔍 Парсинг рейтингов...")
+    try:
+        results = asyncio.run(parse_ratings_via_chrome(skus))
+    except Exception as e:
+        print(f"\n❌ Ошибка парсинга: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
+    # --- Шаг 4: Сохраняем результаты ---
+    print("\n📤 Сохранение результатов...")
+    success_count = 0
+    for sku, data in results.items():
+        if data:
+            # Сохраняем в локальную БД
+            save_to_local_db(sku, data['rating'], data['review_count'])
             # Отправляем на сервер
-            send_to_server(sku, card_data['rating'], card_data['review_count'])
+            send_to_server(sku, data['rating'], data['review_count'])
+            success_count += 1
 
-        print()  # Пустая строка для разделения
+    # --- Итоги ---
+    print("\n" + "=" * 70)
+    print(f"✅ Парсинг завершен!")
+    print(f"   Всего товаров: {len(skus)}")
+    print(f"   Успешно получено: {success_count}")
+    print(f"   Не удалось: {len(skus) - success_count}")
+    print("=" * 70)
 
-    print("\n✅ Парсинг завершен!")
+    # Не закрываем Chrome — он может использоваться для следующего запуска
+    print("\n💡 Chrome остаётся запущенным для последующих запусков.")
+    print("   Закройте его вручную, если не нужен.")
 
 
 if __name__ == "__main__":
