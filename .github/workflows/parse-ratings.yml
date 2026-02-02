@@ -1,0 +1,65 @@
+# ============================================================================
+# GITHUB ACTIONS: ПАРСИНГ РЕЙТИНГОВ OZON
+# ============================================================================
+#
+# Запускается по расписанию (раз в день в 06:00 UTC = 09:00 MSK)
+# Или вручную через GitHub UI (workflow_dispatch)
+#
+# Как работает:
+# 1. Устанавливает Chrome + Xvfb на Ubuntu runner
+# 2. Запускает Chrome с виртуальным дисплеем
+# 3. Парсит рейтинги через CDP + Playwright
+# 4. Отправляет данные на сервер через API
+#
+# ВАЖНО: GitHub Actions IP — тоже датацентр. Ozon может заблокировать.
+# Если блокирует — можно добавить retry с задержкой или резидентный прокси.
+# ============================================================================
+
+name: Parse Ozon Ratings
+
+on:
+  schedule:
+    # Каждый день в 06:00 UTC (09:00 по Москве)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Ручной запуск через GitHub UI
+
+jobs:
+  parse-ratings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # --- Шаг 1: Получаем код ---
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- Шаг 2: Python ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # --- Шаг 3: Зависимости ---
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          python -m playwright install chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+
+      # --- Шаг 4: Устанавливаем Google Chrome (реальный, не Chromium) ---
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+          echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main' | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq google-chrome-stable
+          google-chrome --version
+
+      # --- Шаг 5: Запускаем парсер ---
+      - name: Parse ratings
+        env:
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        run: |
+          python parse_ratings_ci.py
