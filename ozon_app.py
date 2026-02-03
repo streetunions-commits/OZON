@@ -3846,28 +3846,31 @@ HTML_TEMPLATE = '''
                 const pricePlanInputId = `price_plan_${data.product_sku}_${item.snapshot_date}`;
 
                 // Определяем цвет ячейки Цена план на основе сравнения плана и факта цены
-                // Для цены: меньше = лучше, если факт < план — зелёный (хорошо)
+                // Для цены: выше = лучше, если факт > план — зелёный (хорошо)
                 let pricePlanBgColor = '#f5f5f5';
                 const planPrice = parseInt(pricePlanValue) || 0;
                 const actualPrice = (item.price !== null && item.price !== undefined && item.price > 0) ? Math.round(item.price) : 0;
 
                 if (pricePlanValue !== '' && planPrice > 0 && actualPrice > 0) {
-                    if (actualPrice > planPrice) {
-                        pricePlanBgColor = '#ffe5e5'; // Бледно-красный (цена выше плана — плохо)
-                    } else if (actualPrice < planPrice) {
-                        pricePlanBgColor = '#e5ffe5'; // Бледно-зеленый (цена ниже плана — хорошо)
+                    if (actualPrice < planPrice) {
+                        pricePlanBgColor = '#ffe5e5'; // Бледно-красный (цена ниже плана — плохо)
+                    } else if (actualPrice > planPrice) {
+                        pricePlanBgColor = '#e5ffe5'; // Бледно-зеленый (цена выше плана — хорошо)
                     }
                 }
+
+                // Форматируем значение с пробелами между тысячами для отображения
+                const pricePlanDisplay = pricePlanValue !== '' ? formatNumber(parseInt(pricePlanValue)) : '';
 
                 html += `<td style="background-color: ${pricePlanBgColor};">
                     <input
                         type="text"
                         id="${pricePlanInputId}"
-                        value="${pricePlanValue}"
-                        style="width: 60px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
+                        value="${pricePlanDisplay}"
+                        style="width: 80px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
                         ${isPast ? 'readonly' : ''}
-                        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
-                        onblur="savePricePlan('${data.product_sku}', '${item.snapshot_date}', this.value)"
+                        oninput="this.value = this.value.replace(/[^0-9\\s]/g, '').replace(/\\s/g, ''); this.value = this.value.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');"
+                        onblur="savePricePlan('${data.product_sku}', '${item.snapshot_date}', this.value.replace(/\\s/g, ''))"
                     />
                 </td>`;
 
