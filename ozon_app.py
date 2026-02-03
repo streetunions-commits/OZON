@@ -3901,8 +3901,17 @@ HTML_TEMPLATE = '''
                 // Ср. позиция (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span></td>`;
 
-                // Показы (поиск+кат.) - с стрелкой
-                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}${getTrendArrow(item.hits_view_search, prevItem?.hits_view_search)}</strong></td>`;
+                // Показы (поиск+кат.) - с стрелкой и разницей от прошлого дня
+                const curViews = item.hits_view_search || 0;
+                const prevViews = prevItem?.hits_view_search || 0;
+                const viewsDiff = (prevItem && prevItem.hits_view_search !== null && prevItem.hits_view_search !== undefined) ? curViews - prevViews : null;
+                let viewsDiffHtml = '';
+                if (viewsDiff !== null && viewsDiff !== 0) {
+                    const diffColor = viewsDiff > 0 ? '#22c55e' : '#ef4444';
+                    const diffSign = viewsDiff > 0 ? '+' : '';
+                    viewsDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(viewsDiff)}</span>`;
+                }
+                html += `<td><strong>${formatNumber(curViews)}${getTrendArrow(item.hits_view_search, prevItem?.hits_view_search)}</strong>${viewsDiffHtml}</td>`;
 
                 // Посещения - с стрелкой
                 html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}${getTrendArrow(item.hits_view_search_pdp, prevItem?.hits_view_search_pdp)}</strong></td>`;
