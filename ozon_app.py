@@ -2289,12 +2289,19 @@ def sync_products():
             
             stocks_result = stocks_response.json()
             rows = stocks_result.get("result", {}).get("rows", [])
-            
+
+            # ✅ DEBUG: показываем RAW ответ для диагностики пустых остатков
+            if offset == 0:
+                raw_text = stocks_response.text[:500]
+                print(f"  🔍 RAW ответ API: {raw_text}")
+                print(f"  🔍 Ключи result: {list(stocks_result.get('result', {}).keys())}")
+                print(f"  🔍 Rows count: {len(rows)}")
+
             # ✅ DEBUG: показываем структуру первой строки
             if offset == 0 and rows:
                 print(f"\n  🔍 Структура первой строки:")
                 print(f"     {json.dumps(rows[0], ensure_ascii=False, indent=6)}\n")
-            
+
             if not rows:
                 print(f"  ✓ Конец данных при offset={offset}")
                 break
