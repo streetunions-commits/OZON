@@ -1,15 +1,16 @@
 @echo off
 REM ============================================================================
-REM ЗАПУСК ПАРСЕРА РЕЙТИНГОВ OZON
+REM ZAPUSK PARSERA REYTINGOV OZON
 REM ============================================================================
-REM Запускается автоматически через Планировщик Windows (ежедневно в 09:00 MSK)
-REM Если ПК был выключен — запустится при включении
-REM Логи пишутся в ratings_parser.log
+REM Zapuskaetsya avtomaticheski cherez Planirovshchik Windows (ezhednevno v 09:00 MSK)
+REM Esli PK byl vyklyuchen - zapustitsya pri vklyuchenii
+REM Logi pishutsya v ratings_parser.log
 REM ============================================================================
 
-chcp 65001 >nul
 cd /d "C:\Users\stree\Documents\GIT_OZON"
 
-echo [%date% %time%] Запуск парсера рейтингов... >> ratings_parser.log
-python update_ratings_local.py >> ratings_parser.log 2>&1
-echo [%date% %time%] Парсер завершён (код: %ERRORLEVEL%) >> ratings_parser.log
+set PYTHON_EXE=C:\Users\stree\AppData\Local\Python\pythoncore-3.14-64\python.exe
+
+echo [%date% %time%] Zapusk parsera reytingov... >> ratings_parser.log
+"%PYTHON_EXE%" update_ratings_local.py >> ratings_parser.log 2>&1
+echo [%date% %time%] Parser zavershen (kod: %ERRORLEVEL%) >> ratings_parser.log
