@@ -2254,10 +2254,9 @@ def sync_products():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # ✅ Очищаем старые данные
-        cursor.execute('DELETE FROM products')
-        conn.commit()
-        
+        # ⚠️ НЕ удаляем products здесь — удалим перед записью, когда данные уже получены
+        # Это защищает от ситуации когда API временно возвращает пустой ответ
+
         print("\n📊 Загрузка остатков...")
         
         products_data = {}  # sku -> {name, fbo_stock}
@@ -2289,13 +2288,6 @@ def sync_products():
             
             stocks_result = stocks_response.json()
             rows = stocks_result.get("result", {}).get("rows", [])
-
-            # ✅ DEBUG: показываем RAW ответ для диагностики пустых остатков
-            if offset == 0:
-                raw_text = stocks_response.text[:500]
-                print(f"  🔍 RAW ответ API: {raw_text}")
-                print(f"  🔍 Ключи result: {list(stocks_result.get('result', {}).keys())}")
-                print(f"  🔍 Rows count: {len(rows)}")
 
             # ✅ DEBUG: показываем структуру первой строки
             if offset == 0 and rows:
@@ -2451,6 +2443,13 @@ def sync_products():
 
             conn.commit()
             print(f"  ✅ Обновлено записей: {updated_count}")
+
+        # ✅ Очищаем products ТОЛЬКО когда есть данные для записи
+        if products_data:
+            cursor.execute('DELETE FROM products')
+            conn.commit()
+        else:
+            print("  ⚠️  Нет данных для записи — оставляем старые products без изменений")
 
         # ✅ Пишем в обе таблицы
         for sku, data in products_data.items():
