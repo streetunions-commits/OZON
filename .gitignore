@@ -1,0 +1,26 @@
+# База данных — НИКОГДА не коммитить!
+# git pull перезаписывает серверную БД локальной копией и данные теряются
+ozon_data.db
+ozon_data.db-journal
+ozon_data.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Окружение
+.env
+.tmp/
+
+# Логи
+*.log
+
+# Системные файлы
+nul
+.DS_Store
+Thumbs.db
+
+# Учётные данные
+credentials.json
+token.json
