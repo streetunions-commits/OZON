@@ -280,6 +280,11 @@ def init_database():
                      "ALTER TABLE products_history ADD COLUMN orders_plan INTEGER DEFAULT NULL"):
         print("✅ Столбец orders_plan добавлен в products_history")
 
+    # ✅ Добавляем колонку для планового CPO (cpo_plan)
+    if ensure_column(cursor, "products_history", "cpo_plan",
+                     "ALTER TABLE products_history ADD COLUMN cpo_plan INTEGER DEFAULT NULL"):
+        print("✅ Столбец cpo_plan добавлен в products_history")
+
     # ✅ Добавляем колонку для рейтинга товара
     if ensure_column(cursor, "products_history", "rating",
                      "ALTER TABLE products_history ADD COLUMN rating REAL DEFAULT NULL"):
@@ -3709,6 +3714,7 @@ HTML_TEMPLATE = '''
             html += '<th>CR1 (%)</th>';
             html += '<th>CR2 (%)</th>';
             html += '<th>Расходы</th>';
+            html += '<th>CPO план</th>';
             html += '<th>CPO</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
@@ -3865,10 +3871,55 @@ HTML_TEMPLATE = '''
                 // Расходы - с стрелкой
                 html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
 
-                // CPO (Cost Per Order) - расходы/заказы с стрелкой (меньше = лучше)
+                // CPO план (редактируемое поле, аналогично Заказы план)
+                // Если у текущей даты нет плана — ищем последнее установленное значение
+                let cpoPlanValue = '';
+                if (item.cpo_plan !== null && item.cpo_plan !== undefined) {
+                    cpoPlanValue = item.cpo_plan;
+                } else {
+                    // Ищем ближайшую старую запись с непустым cpo_plan
+                    for (let k = index + 1; k < data.history.length; k++) {
+                        const olderItem = data.history[k];
+                        if (olderItem.cpo_plan !== null && olderItem.cpo_plan !== undefined) {
+                            cpoPlanValue = olderItem.cpo_plan;
+                            break;
+                        }
+                    }
+                }
+                const cpoPlanInputId = `cpo_plan_${data.product_sku}_${item.snapshot_date}`;
+
+                // CPO (Cost Per Order) - расходы/заказы
                 const cpo = (item.adv_spend !== null && item.adv_spend !== undefined && item.orders_qty > 0)
                     ? Math.round(item.adv_spend / item.orders_qty)
                     : null;
+
+                // Определяем цвет ячейки CPO план на основе сравнения плана и факта CPO
+                // Для CPO: меньше = лучше, поэтому если факт < план — зелёный (хорошо)
+                let cpoPlanBgColor = '#f5f5f5'; // По умолчанию бледно-серый
+                const planCpo = parseInt(cpoPlanValue) || 0;
+                const actualCpo = cpo || 0;
+
+                if (cpoPlanValue !== '' && planCpo > 0 && cpo !== null) {
+                    if (actualCpo > planCpo) {
+                        cpoPlanBgColor = '#ffe5e5'; // Бледно-красный (CPO выше плана — плохо)
+                    } else if (actualCpo < planCpo) {
+                        cpoPlanBgColor = '#e5ffe5'; // Бледно-зеленый (CPO ниже плана — хорошо)
+                    }
+                }
+
+                html += `<td style="background-color: ${cpoPlanBgColor};">
+                    <input
+                        type="text"
+                        id="${cpoPlanInputId}"
+                        value="${cpoPlanValue}"
+                        style="width: 60px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
+                        ${isPast ? 'readonly' : ''}
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                        onblur="saveCpoPlan('${data.product_sku}', '${item.snapshot_date}', this.value)"
+                    />
+                </td>`;
+
+                // CPO (Cost Per Order) - с стрелкой (меньше = лучше)
                 const prevCpo = (prevItem?.adv_spend !== null && prevItem?.adv_spend !== undefined && prevItem?.orders_qty > 0)
                     ? Math.round(prevItem.adv_spend / prevItem.orders_qty)
                     : null;
@@ -3910,9 +3961,10 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(17)">CR1</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(18)">CR2</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(19)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(21)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(22)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(21)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(22)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(23)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -3994,6 +4046,35 @@ HTML_TEMPLATE = '''
             .then(data => {
                 if (data.success) {
                     console.log('✅ План заказов сохранен');
+                } else {
+                    alert('❌ Ошибка при сохранении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Ошибка: ' + error);
+                console.error('Ошибка:', error);
+            });
+        }
+
+        // ✅ Функция для сохранения планового CPO
+        function saveCpoPlan(sku, date, value) {
+            const payload = {
+                sku: parseInt(sku),
+                date: date,
+                cpo_plan: value
+            };
+
+            fetch('/api/history/save-cpo-plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ План CPO сохранен');
                 } else {
                     alert('❌ Ошибка при сохранении: ' + data.error);
                 }
@@ -4309,6 +4390,7 @@ def get_product_history(sku):
                 fbo_stock,
                 orders_qty,
                 orders_plan,
+                cpo_plan,
                 rating,
                 review_count,
                 price,
@@ -4418,6 +4500,49 @@ def save_orders_plan():
         conn.close()
 
         return jsonify({'success': True, 'message': 'План заказов сохранен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/history/save-cpo-plan', methods=['POST'])
+def save_cpo_plan():
+    """Сохранить плановый CPO для товара и даты"""
+    try:
+        data = request.json
+        sku = data.get('sku')
+        snapshot_date = data.get('date')
+        cpo_plan = data.get('cpo_plan')
+
+        if not sku or not snapshot_date:
+            return jsonify({'success': False, 'error': 'Отсутствуют sku или date'})
+
+        # Проверяем, что редактируем только сегодняшние или будущие данные
+        from datetime import datetime
+        today = datetime.now().date()
+        target_date = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
+
+        if target_date < today:
+            return jsonify({'success': False, 'error': 'Нельзя редактировать прошлые данные'})
+
+        # Преобразуем пустую строку в NULL
+        if cpo_plan == '':
+            cpo_plan = None
+        else:
+            cpo_plan = int(cpo_plan)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE products_history
+            SET cpo_plan = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (cpo_plan, sku, snapshot_date))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'План CPO сохранен'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
