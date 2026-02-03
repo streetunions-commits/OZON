@@ -2062,15 +2062,16 @@ def load_all_account_skus():
         )
         if resp.status_code != 200:
             print(f"  ⚠️  Ошибка /v3/product/list: {resp.status_code}")
-            return []
+            return [], {}
 
         items = resp.json().get("result", {}).get("items", [])
         if not items:
-            return []
+            return [], {}
 
-        # Шаг 2: получаем SKU через /v3/product/info/list по product_id
+        # Шаг 2: получаем SKU и имена через /v3/product/info/list по product_id
         product_ids = [it["product_id"] for it in items]
         all_skus = []
+        sku_names = {}  # {sku: name} — имена товаров для заполнения products_data
 
         for i in range(0, len(product_ids), 100):
             batch = product_ids[i:i + 100]
@@ -2086,13 +2087,14 @@ def load_all_account_skus():
                     sku = it.get("sku")
                     if sku:
                         all_skus.append(sku)
+                        sku_names[sku] = it.get("name", "")
 
         print(f"  📦 Всего товаров в аккаунте: {len(all_skus)} SKU")
-        return all_skus
+        return all_skus, sku_names
 
     except Exception as e:
         print(f"  ❌ Ошибка load_all_account_skus: {e}")
-        return []
+        return [], {}
 
 
 def load_fbo_analytics(cursor, conn, snapshot_date, sku_list=None):
@@ -2369,7 +2371,31 @@ def sync_products():
         # ✅ Загружаем аналитику FBO (ADS, IDC, ликвидность по кластерам)
         # Получаем ВСЕ SKU аккаунта (не только те что на складах FBO),
         # чтобы на вкладке "Аналитика FBO" отображались все товары
-        all_account_skus = load_all_account_skus()
+        all_account_skus, sku_names = load_all_account_skus()
+
+        # ✅ Если stock_on_warehouses вернул пустой результат, заполняем products_data
+        # из all_account_skus, чтобы товары всё равно записались в БД с fbo_stock=0
+        if not products_data and all_account_skus:
+            print(f"\n  ⚠️  Остатки FBO пустые, но найдено {len(all_account_skus)} SKU в аккаунте")
+            print(f"  📦 Создаём записи товаров с fbo_stock=0")
+            for sku in all_account_skus:
+                products_data[sku] = {
+                    "name": sku_names.get(sku, ""),
+                    "fbo_stock": 0
+                }
+        elif all_account_skus:
+            # Добавляем SKU, которые есть в аккаунте, но отсутствуют в stock_on_warehouses
+            missing_count = 0
+            for sku in all_account_skus:
+                if sku not in products_data:
+                    products_data[sku] = {
+                        "name": sku_names.get(sku, ""),
+                        "fbo_stock": 0
+                    }
+                    missing_count += 1
+            if missing_count > 0:
+                print(f"  📦 Добавлено {missing_count} SKU без FBO остатков")
+
         # Объединяем с SKU из stock_on_warehouses (на случай если какой-то SKU не в product/list)
         combined_skus = list(set(list(products_data.keys()) + all_account_skus))
         load_fbo_analytics(cursor, conn, snapshot_date, sku_list=combined_skus)
