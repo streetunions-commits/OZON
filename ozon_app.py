@@ -285,6 +285,11 @@ def init_database():
                      "ALTER TABLE products_history ADD COLUMN cpo_plan INTEGER DEFAULT NULL"):
         print("✅ Столбец cpo_plan добавлен в products_history")
 
+    # ✅ Добавляем колонку для плановой цены (price_plan)
+    if ensure_column(cursor, "products_history", "price_plan",
+                     "ALTER TABLE products_history ADD COLUMN price_plan INTEGER DEFAULT NULL"):
+        print("✅ Столбец price_plan добавлен в products_history")
+
     # ✅ Добавляем колонку для рейтинга товара
     if ensure_column(cursor, "products_history", "rating",
                      "ALTER TABLE products_history ADD COLUMN rating REAL DEFAULT NULL"):
@@ -3704,6 +3709,7 @@ HTML_TEMPLATE = '''
             html += '<th>Заказы</th>';
             html += '<th>Заказы план</th>';
             html += '<th>Цена в ЛК</th>';
+            html += '<th>Цена план</th>';
             html += '<th>Соинвест</th>';
             html += '<th>Цена на сайте</th>';
             html += '<th>Ср. позиция</th>';
@@ -3822,6 +3828,48 @@ HTML_TEMPLATE = '''
 
                 // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
                 html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
+
+                // Цена план (редактируемое поле, аналогично Заказы план)
+                let pricePlanValue = '';
+                if (item.price_plan !== null && item.price_plan !== undefined) {
+                    pricePlanValue = item.price_plan;
+                } else {
+                    // Ищем ближайшую старую запись с непустым price_plan
+                    for (let k = index + 1; k < data.history.length; k++) {
+                        const olderItem = data.history[k];
+                        if (olderItem.price_plan !== null && olderItem.price_plan !== undefined) {
+                            pricePlanValue = olderItem.price_plan;
+                            break;
+                        }
+                    }
+                }
+                const pricePlanInputId = `price_plan_${data.product_sku}_${item.snapshot_date}`;
+
+                // Определяем цвет ячейки Цена план на основе сравнения плана и факта цены
+                // Для цены: меньше = лучше, если факт < план — зелёный (хорошо)
+                let pricePlanBgColor = '#f5f5f5';
+                const planPrice = parseInt(pricePlanValue) || 0;
+                const actualPrice = (item.price !== null && item.price !== undefined && item.price > 0) ? Math.round(item.price) : 0;
+
+                if (pricePlanValue !== '' && planPrice > 0 && actualPrice > 0) {
+                    if (actualPrice > planPrice) {
+                        pricePlanBgColor = '#ffe5e5'; // Бледно-красный (цена выше плана — плохо)
+                    } else if (actualPrice < planPrice) {
+                        pricePlanBgColor = '#e5ffe5'; // Бледно-зеленый (цена ниже плана — хорошо)
+                    }
+                }
+
+                html += `<td style="background-color: ${pricePlanBgColor};">
+                    <input
+                        type="text"
+                        id="${pricePlanInputId}"
+                        value="${pricePlanValue}"
+                        style="width: 60px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
+                        ${isPast ? 'readonly' : ''}
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                        onblur="savePricePlan('${data.product_sku}', '${item.snapshot_date}', this.value)"
+                    />
+                </td>`;
 
                 // Соинвест (процент скидки от Цены в ЛК до Цены на сайте)
                 let coinvest = '—';
@@ -3951,20 +3999,21 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(7)">Заказы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(8)">Заказы план</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(9)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Соинвест</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(19)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CPO план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(21)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(22)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(23)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Цена план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(21)">CPO план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(22)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(23)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(24)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -4075,6 +4124,35 @@ HTML_TEMPLATE = '''
             .then(data => {
                 if (data.success) {
                     console.log('✅ План CPO сохранен');
+                } else {
+                    alert('❌ Ошибка при сохранении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Ошибка: ' + error);
+                console.error('Ошибка:', error);
+            });
+        }
+
+        // ✅ Функция для сохранения плановой цены
+        function savePricePlan(sku, date, value) {
+            const payload = {
+                sku: parseInt(sku),
+                date: date,
+                price_plan: value
+            };
+
+            fetch('/api/history/save-price-plan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ План цены сохранен');
                 } else {
                     alert('❌ Ошибка при сохранении: ' + data.error);
                 }
@@ -4391,6 +4469,7 @@ def get_product_history(sku):
                 orders_qty,
                 orders_plan,
                 cpo_plan,
+                price_plan,
                 rating,
                 review_count,
                 price,
@@ -4543,6 +4622,49 @@ def save_cpo_plan():
         conn.close()
 
         return jsonify({'success': True, 'message': 'План CPO сохранен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/history/save-price-plan', methods=['POST'])
+def save_price_plan():
+    """Сохранить плановую цену для товара и даты"""
+    try:
+        data = request.json
+        sku = data.get('sku')
+        snapshot_date = data.get('date')
+        price_plan = data.get('price_plan')
+
+        if not sku or not snapshot_date:
+            return jsonify({'success': False, 'error': 'Отсутствуют sku или date'})
+
+        # Проверяем, что редактируем только сегодняшние или будущие данные
+        from datetime import datetime
+        today = datetime.now().date()
+        target_date = datetime.strptime(snapshot_date, '%Y-%m-%d').date()
+
+        if target_date < today:
+            return jsonify({'success': False, 'error': 'Нельзя редактировать прошлые данные'})
+
+        # Преобразуем пустую строку в NULL
+        if price_plan == '':
+            price_plan = None
+        else:
+            price_plan = int(price_plan)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE products_history
+            SET price_plan = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (price_plan, sku, snapshot_date))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'План цены сохранен'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
