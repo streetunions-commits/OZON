@@ -5448,9 +5448,10 @@ HTML_TEMPLATE = '''
 
             const diff = arrivalQty - factoryQty;
 
-            // --- Шаг 3: корректируем план текущей строки (излишек или недостача) ---
-            modifyPlanQty(row, -diff);
-            row.dataset.arrivalLocalAdj = String(-diff);
+            // --- Шаг 3: корректируем план текущей строки (всегда уменьшаем на разницу) ---
+            const localAdj = -Math.abs(diff);
+            modifyPlanQty(row, localAdj);
+            row.dataset.arrivalLocalAdj = String(localAdj);
 
             // --- Шаг 4: переносим разницу на следующую строку ---
             let targetRow = null;
