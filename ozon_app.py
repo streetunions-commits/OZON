@@ -5105,6 +5105,47 @@ HTML_TEMPLATE = '''
         /**
          * Создание ячейки с числовым полем (пробелы в тысячных)
          */
+        /**
+         * Проверка: можно ли заполнять exit_factory_qty или arrival_warehouse_qty.
+         * Нельзя, если предыдущая строка того же товара (по дате) ещё не имеет
+         * заполненного поля "Кол-во выхода с фабрики".
+         * Возвращает true если можно заполнять, false если нет.
+         */
+        function canFillQtyField(row) {
+            const data = getRowData(row);
+            if (!data.sku) return true; // товар не выбран — пока разрешаем
+
+            const currentDate = data.exit_plan_date || data.exit_factory_date || '';
+            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+
+            // Ищем строки с тем же SKU и более ранней датой
+            const prevRows = allRows.filter(r => {
+                if (r === row) return false;
+                const sel = r.querySelector('select');
+                const sku = sel ? (parseInt(sel.value) || 0) : 0;
+                if (sku !== data.sku) return false;
+
+                const dateInputs = r.querySelectorAll('input[type="date"]');
+                const rDate = dateInputs[0] ? dateInputs[0].value : '';
+                // Строка с более ранней датой (или той же, но выше в таблице)
+                if (currentDate && rDate) return rDate < currentDate;
+                if (!currentDate && rDate) return true; // у текущей нет даты — считаем предыдущей любую с датой
+                return allRows.indexOf(r) < allRows.indexOf(row); // без дат — по порядку в таблице
+            });
+
+            if (prevRows.length === 0) return true; // нет предыдущих строк — можно
+
+            // Проверяем: у всех предыдущих строк должно быть заполнено exit_factory_qty
+            for (const prevRow of prevRows) {
+                const textInputs = prevRow.querySelectorAll('input[type="text"]');
+                const exitFactoryVal = textInputs[1] ? parseNumberFromSpaces(textInputs[1].value) : 0;
+                if (!exitFactoryVal) {
+                    return false; // предыдущая строка не заполнена
+                }
+            }
+            return true;
+        }
+
         function createNumberCell(value, isLocked, row, fieldName) {
             const td = document.createElement('td');
             const input = document.createElement('input');
@@ -5116,6 +5157,16 @@ HTML_TEMPLATE = '''
                 input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
             }
             input.disabled = isLocked;
+
+            // Валидация: нельзя заполнять выход/приход, если предыдущая поставка не заполнена
+            if (fieldName === 'exit_factory_qty' || fieldName === 'arrival_warehouse_qty') {
+                input.onfocus = function() {
+                    if (!canFillQtyField(row)) {
+                        this.blur();
+                        alert('⚠️ Сначала заполните "Кол-во выхода с фабрики" в предыдущей поставке этого товара');
+                    }
+                };
+            }
 
             // Форматирование при вводе — только цифры и пробелы
             input.oninput = function() {
