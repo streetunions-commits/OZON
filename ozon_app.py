@@ -5201,6 +5201,34 @@ HTML_TEMPLATE = '''
             }
             input.disabled = isLocked;
 
+            // Кнопка-карандаш для редактирования плана (только для order_qty_plan)
+            let pencilBtn = null;
+            if (fieldName === 'order_qty_plan') {
+                pencilBtn = document.createElement('button');
+                pencilBtn.type = 'button';
+                pencilBtn.className = 'supply-plan-edit-btn';
+                pencilBtn.textContent = '✏️';
+                pencilBtn.title = 'Редактировать план';
+                pencilBtn.style.cssText = 'border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:2px;display:none;vertical-align:middle;';
+
+                // Если значение уже заполнено и строка не заблокирована — блокируем поле, показываем карандаш
+                if (input.value.trim() !== '' && !isLocked) {
+                    input.disabled = true;
+                    pencilBtn.style.display = 'inline-block';
+                }
+                // Если строка заблокирована — карандаш скрыт
+                if (isLocked) {
+                    pencilBtn.style.display = 'none';
+                }
+
+                // Клик по карандашу — разрешает редактирование поля план
+                pencilBtn.onclick = function() {
+                    input.disabled = false;
+                    pencilBtn.style.display = 'none';
+                    input.focus();
+                };
+            }
+
             // Валидация: нельзя заполнять количество без соответствующей даты
             input.onfocus = function() {
                 const dateInputs = row.querySelectorAll('input[type="date"]');
@@ -5238,6 +5266,12 @@ HTML_TEMPLATE = '''
             };
 
             input.onblur = () => {
+                // После ввода плана — блокируем поле и показываем карандаш
+                if (fieldName === 'order_qty_plan' && input.value.trim() !== '' && pencilBtn) {
+                    input.disabled = true;
+                    pencilBtn.style.display = 'inline-block';
+                }
+
                 // Валидации для прихода на склад
                 if (fieldName === 'arrival_warehouse_qty' && input.value.trim() !== '') {
                     const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
@@ -5279,18 +5313,13 @@ HTML_TEMPLATE = '''
                 }
 
                 onSupplyFieldChange(row);
-
-                // Логика перераспределения для "Кол-во выхода с фабрики"
-                if (fieldName === 'exit_factory_qty') {
-                    handleExitFactoryQtyChange(row);
-                }
-                // Логика перераспределения для "Кол-во прихода на склад"
-                if (fieldName === 'arrival_warehouse_qty') {
-                    handleArrivalQtyChange(row);
-                }
             };
 
             td.appendChild(input);
+            // Добавляем кнопку-карандаш рядом с полем плана
+            if (pencilBtn) {
+                td.appendChild(pencilBtn);
+            }
             return td;
         }
 
@@ -5449,204 +5478,8 @@ HTML_TEMPLATE = '''
             });
         }
 
-        /**
-         * Логика перераспределения разницы "Кол-во выхода с фабрики" vs "Заказ кол-во ПЛАН"
-         *
-         * Если "Кол-во выхода с фабрики" отличается от "Заказ кол-во ПЛАН",
-         * разница переносится на следующую по дате строку с тем же товаром.
-         * Если такой строки нет — создаётся новая строка.
-         */
-        /**
-         * Перераспределение разницы "Кол-во выхода с фабрики" vs "Заказ кол-во ПЛАН".
-         *
-         * Логика (на примере):
-         *   План = 1000, факт = 500
-         *   → План в ЭТОЙ строке становится 500 (= факт)
-         *   → Остаток 500 (= 1000 - 500) добавляется к плану следующей строки
-         *
-         *   Потом факт меняется на 600
-         *   → План в ЭТОЙ строке становится 600
-         *   → Откат: убираем старые +500 из следующей строки
-         *   → Новый остаток 400 (= 1000 - 600) добавляется к следующей строке
-         *
-         * Для этого запоминаем:
-         *   dataset.originalPlan — исходный план до первого ввода факта
-         *   dataset.redistTarget — ID строки-получателя
-         *   dataset.redistAmount — сколько было перенесено (для отката)
-         */
-        function handleExitFactoryQtyChange(row) {
-            const data = getRowData(row);
-            if (!data.sku) return;
-
-            const factQty = data.exit_factory_qty || 0;
-
-            // Запоминаем исходный план при первом вводе факта
-            if (!row.dataset.originalPlan) {
-                row.dataset.originalPlan = String(data.order_qty_plan);
-            }
-            const originalPlan = parseInt(row.dataset.originalPlan) || 0;
-
-            // --- Шаг 1: откатываем предыдущий перенос ---
-            const prevTargetId = row.dataset.redistTarget || '';
-            const prevAmount = parseInt(row.dataset.redistAmount) || 0;
-
-            if (prevTargetId && prevAmount !== 0) {
-                const prevTargetRow = findRowById(prevTargetId);
-                if (prevTargetRow) {
-                    modifyPlanQty(prevTargetRow, -prevAmount);
-                }
-            }
-            row.dataset.redistTarget = '';
-            row.dataset.redistAmount = '0';
-
-            // --- Шаг 2: обновляем план в ЭТОЙ строке = факт ---
-            const planInput = row.querySelectorAll('input[type="text"]')[0];
-            if (planInput) {
-                const wasDisabled = planInput.disabled;
-                if (wasDisabled) planInput.disabled = false;
-                planInput.value = factQty ? formatNumberWithSpaces(factQty) : formatNumberWithSpaces(originalPlan);
-                if (wasDisabled) planInput.disabled = true;
-            }
-
-            // Если факт не введён — восстанавливаем исходный план, очищаем память
-            if (!factQty) {
-                row.dataset.originalPlan = '';
-                onSupplyFieldChange(row);
-                return;
-            }
-
-            // --- Шаг 3: считаем остаток и переносим ---
-            const remainder = originalPlan - factQty;
-            if (remainder === 0) {
-                onSupplyFieldChange(row);
-                return;
-            }
-
-            // Ищем строку-получатель
-            let targetRow = null;
-
-            if (prevTargetId) {
-                targetRow = findRowById(prevTargetId);
-            }
-            if (!targetRow) {
-                targetRow = findNextSameSkuRow(row, data);
-            }
-            if (!targetRow) {
-                targetRow = createRedistributionRow(data);
-            }
-
-            // Переносим остаток (remainder > 0 = недополучили, добавляем к следующему)
-            modifyPlanQty(targetRow, remainder);
-
-            row.dataset.redistTarget = getRowId(targetRow);
-            row.dataset.redistAmount = String(remainder);
-
-            onSupplyFieldChange(row);
-        }
-
-        /**
-         * Обработка "Кол-во прихода на склад".
-         *
-         * Сравниваем приход с выходом с фабрики:
-         *   - Приход < выход: разницу вычитаем из плана текущей строки,
-         *     прибавляем к плану следующей строки (каскадно)
-         *   - Приход > выход: разницу прибавляем к плану текущей строки,
-         *     вычитаем из плана следующей строки (каскадно)
-         *   - Приход = выход: ничего не делаем
-         *
-         * Пример: выход=3000, приход=2000, разница=1000
-         *   → Текущая строка: план -= 1000
-         *   → Следующая строка: план += 1000 (каскад если не хватает)
-         */
-        function handleArrivalQtyChange(row) {
-            const data = getRowData(row);
-            if (!data.sku) return;
-
-            const factoryQty = data.exit_factory_qty || 0;
-            const arrivalQty = data.arrival_warehouse_qty || 0;
-
-            // --- Шаг 1: откатываем ВСЕ предыдущие переносы (каскадные) ---
-            const prevCascadeJson = row.dataset.arrivalCascade || '[]';
-            const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
-
-            try {
-                const prevCascade = JSON.parse(prevCascadeJson);
-                for (const entry of prevCascade) {
-                    const targetRow = findRowById(entry.id);
-                    if (targetRow && entry.amount !== 0) {
-                        modifyPlanQty(targetRow, -entry.amount);
-                    }
-                }
-            } catch(e) {}
-
-            // Откат из текущей строки
-            if (prevLocalAdj !== 0) {
-                modifyPlanQty(row, -prevLocalAdj);
-            }
-
-            row.dataset.arrivalCascade = '[]';
-            row.dataset.arrivalLocalAdj = '0';
-
-            // --- Шаг 2: если нет данных или приход = выход — разницы нет ---
-            if (!arrivalQty || !factoryQty || arrivalQty === factoryQty) return;
-
-            // shortage > 0: пришло меньше чем уехало → вычитаем из текущей, прибавляем к следующим
-            // shortage < 0: пришло больше → прибавляем к текущей, вычитаем из следующих
-            const shortage = factoryQty - arrivalQty;
-
-            // --- Шаг 3: корректируем план текущей строки ---
-            modifyPlanQty(row, -shortage);
-            row.dataset.arrivalLocalAdj = String(-shortage);
-
-            // --- Шаг 4: каскадный перенос на следующие строки ---
-            const cascade = [];
-            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
-            const currentDate = data.exit_plan_date || '';
-
-            const sameSku = allRows.filter(r => {
-                if (r === row) return false;
-                const sel = r.querySelector('select');
-                return sel && (parseInt(sel.value) || 0) === data.sku;
-            });
-
-            const sorted = sameSku.map(r => {
-                const di = r.querySelectorAll('input[type="date"]');
-                return { row: r, date: di[0] ? di[0].value : '' };
-            }).filter(item => {
-                if (!currentDate || !item.date) return true;
-                return item.date > currentDate;
-            }).sort((a, b) => {
-                if (a.date && b.date) return a.date.localeCompare(b.date);
-                return 0;
-            });
-
-            let remaining = shortage; // положит. = прибавить к следующим, отрицат. = вычесть
-
-            for (const item of sorted) {
-                if (remaining === 0) break;
-
-                const targetRow = item.row;
-                const textInputs = targetRow.querySelectorAll('input[type="text"]');
-                const targetPlan = parseNumberFromSpaces(textInputs[0] ? textInputs[0].value : '0');
-
-                if (remaining > 0) {
-                    // Пришло меньше — прибавляем к следующим строкам
-                    modifyPlanQty(targetRow, remaining);
-                    cascade.push({ id: getRowId(targetRow), amount: remaining });
-                    remaining = 0;
-                } else {
-                    // Пришло больше — вычитаем из следующих строк (каскадно)
-                    const canTake = Math.min(Math.abs(remaining), targetPlan);
-                    if (canTake > 0) {
-                        modifyPlanQty(targetRow, -canTake);
-                        cascade.push({ id: getRowId(targetRow), amount: -canTake });
-                        remaining += canTake;
-                    }
-                }
-            }
-
-            row.dataset.arrivalCascade = JSON.stringify(cascade);
-        }
+        // Перераспределение между столбцами ПЛАН / ВЫХОД / ПРИХОД удалено.
+        // Столбцы независимы друг от друга.
 
         /**
          * Найти строку таблицы по supply ID
@@ -5663,81 +5496,7 @@ HTML_TEMPLATE = '''
             return row.dataset.supplyId || '';
         }
 
-        /**
-         * Найти следующую строку с тем же SKU для переноса разницы.
-         * Приоритет: по дате > ниже в таблице > любая.
-         */
-        function findNextSameSkuRow(currentRow, data) {
-            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
-            const currentIdx = allRows.indexOf(currentRow);
-            const currentDate = data.exit_plan_date || data.exit_factory_date || '';
-            const skuNum = data.sku;
-
-            // Собираем все строки с тем же SKU, кроме текущей
-            const sameSku = allRows.filter(r => {
-                if (r === currentRow) return false;
-                const sel = r.querySelector('select');
-                return sel && (parseInt(sel.value) || 0) === skuNum;
-            });
-
-            if (sameSku.length === 0) return null;
-
-            // a) Строка с более поздней датой (ближайшая)
-            if (currentDate) {
-                const withLaterDate = sameSku
-                    .map(r => {
-                        const dateInputs = r.querySelectorAll('input[type="date"]');
-                        return { row: r, date: dateInputs[0] ? dateInputs[0].value : '' };
-                    })
-                    .filter(item => item.date && item.date > currentDate)
-                    .sort((a, b) => a.date.localeCompare(b.date));
-
-                if (withLaterDate.length > 0) return withLaterDate[0].row;
-            }
-
-            // b) Следующая по порядку в таблице
-            const below = sameSku.find(r => allRows.indexOf(r) > currentIdx);
-            if (below) return below;
-
-            // c) Любая
-            return sameSku[0];
-        }
-
-        /**
-         * Изменить "Заказ кол-во ПЛАН" в строке на указанную дельту.
-         * Работает даже с заблокированными строками.
-         */
-        function modifyPlanQty(targetRow, delta) {
-            const textInputs = targetRow.querySelectorAll('input[type="text"]');
-            const planInput = textInputs[0]; // order_qty_plan
-            if (!planInput) return;
-
-            const wasDisabled = planInput.disabled;
-            if (wasDisabled) planInput.disabled = false;
-
-            const currentVal = parseNumberFromSpaces(planInput.value);
-            const newVal = Math.max(0, currentVal + delta);
-            planInput.value = formatNumberWithSpaces(newVal);
-
-            if (wasDisabled) planInput.disabled = true;
-
-            onSupplyFieldChange(targetRow);
-        }
-
-        /**
-         * Создать новую строку для перераспределения остатка.
-         * Возвращает созданную строку (план пока 0 — вызывающий код сам впишет).
-         */
-        function createRedistributionRow(sourceData) {
-            const tbody = document.getElementById('supplies-tbody');
-            const newRow = createSupplyRowElement(null);
-            tbody.appendChild(newRow);
-
-            const newSelect = newRow.querySelector('select');
-            if (newSelect) newSelect.value = sourceData.sku;
-
-            return newRow;
-        }
+        // findNextSameSkuRow, modifyPlanQty, createRedistributionRow — удалены вместе с перераспределением.
 
         /**
          * Показать диалог подтверждения для редактирования заблокированного поля.
@@ -5780,6 +5539,12 @@ HTML_TEMPLATE = '''
             const inputs = row.querySelectorAll('.supply-input, .supply-select, .supply-checkbox');
             inputs.forEach(el => el.disabled = true);
             row.classList.add('locked-row');
+
+            // Скрываем кнопку-карандаш при блокировке
+            const pencilBtn = row.querySelector('.supply-plan-edit-btn');
+            if (pencilBtn) {
+                pencilBtn.style.display = 'none';
+            }
 
             // Обновляем иконку замка
             const lockBtn = row.querySelector('.supply-lock-btn');
@@ -5826,6 +5591,14 @@ HTML_TEMPLATE = '''
             if (lockBtn) {
                 lockBtn.textContent = '🔓';
                 lockBtn.title = 'Нажмите чтобы заблокировать';
+            }
+
+            // Если план заполнен — оставляем поле заблокированным, показываем карандаш
+            const planInput = row.querySelector('input[data-field="order_qty_plan"]');
+            const pencilBtn = row.querySelector('.supply-plan-edit-btn');
+            if (planInput && planInput.value.trim() !== '' && pencilBtn) {
+                planInput.disabled = true;
+                pencilBtn.style.display = 'inline-block';
             }
 
             // Запоминаем время разблокировки (сохраняется 30 минут)
