@@ -5547,27 +5547,27 @@ HTML_TEMPLATE = '''
         /**
          * Обработка "Кол-во прихода на склад".
          *
-         * Логика: план текущей строки СТАНОВИТСЯ = приход.
-         * Остаток (оригинальный план - приход) каскадно вычитается
-         * из следующих строк того же товара по датам.
+         * Сравниваем приход с выходом с фабрики:
+         *   - Приход < выход: разницу вычитаем из плана текущей строки,
+         *     прибавляем к плану следующей строки (каскадно)
+         *   - Приход > выход: разницу прибавляем к плану текущей строки,
+         *     вычитаем из плана следующей строки (каскадно)
+         *   - Приход = выход: ничего не делаем
          *
-         * Пример: оригинальный план=4000, приход=3000
-         *   → Текущая строка: план = 3000
-         *   → Остаток = 4000 - 3000 = 1000
-         *   → Следующая строка (план=3000): план -= 1000 → 2000
-         *   → Если остаток > плана следующей — каскад дальше
-         *
-         * При повторном редактировании — откат всех изменений.
+         * Пример: выход=3000, приход=2000, разница=1000
+         *   → Текущая строка: план -= 1000
+         *   → Следующая строка: план += 1000 (каскад если не хватает)
          */
         function handleArrivalQtyChange(row) {
             const data = getRowData(row);
             if (!data.sku) return;
 
+            const factoryQty = data.exit_factory_qty || 0;
             const arrivalQty = data.arrival_warehouse_qty || 0;
 
             // --- Шаг 1: откатываем ВСЕ предыдущие переносы (каскадные) ---
             const prevCascadeJson = row.dataset.arrivalCascade || '[]';
-            const prevArrivalPlan = row.dataset.arrivalSavedPlan || '';
+            const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
 
             try {
                 const prevCascade = JSON.parse(prevCascadeJson);
@@ -5579,54 +5579,26 @@ HTML_TEMPLATE = '''
                 }
             } catch(e) {}
 
-            // Откат плана текущей строки к значению до прихода
-            if (prevArrivalPlan !== '') {
-                const planInput = row.querySelectorAll('input[type="text"]')[0];
-                if (planInput) {
-                    const wasDisabled = planInput.disabled;
-                    if (wasDisabled) planInput.disabled = false;
-                    planInput.value = formatNumberWithSpaces(parseInt(prevArrivalPlan) || 0);
-                    if (wasDisabled) planInput.disabled = true;
-                }
+            // Откат из текущей строки
+            if (prevLocalAdj !== 0) {
+                modifyPlanQty(row, -prevLocalAdj);
             }
 
             row.dataset.arrivalCascade = '[]';
-            row.dataset.arrivalSavedPlan = '';
+            row.dataset.arrivalLocalAdj = '0';
 
-            if (!arrivalQty) return;
+            // --- Шаг 2: если нет данных или приход = выход — разницы нет ---
+            if (!arrivalQty || !factoryQty || arrivalQty === factoryQty) return;
 
-            // --- Шаг 2: запоминаем текущий план и ставим план = приход ---
-            const planInput = row.querySelectorAll('input[type="text"]')[0];
-            if (!planInput) return;
+            // shortage > 0: пришло меньше чем уехало → вычитаем из текущей, прибавляем к следующим
+            // shortage < 0: пришло больше → прибавляем к текущей, вычитаем из следующих
+            const shortage = factoryQty - arrivalQty;
 
-            const currentPlan = parseNumberFromSpaces(planInput.value) || 0;
-            // Берём оригинальный план (до factory handler) или текущий
-            const origPlan = parseInt(row.dataset.originalPlan) || currentPlan;
+            // --- Шаг 3: корректируем план текущей строки ---
+            modifyPlanQty(row, -shortage);
+            row.dataset.arrivalLocalAdj = String(-shortage);
 
-            // Запоминаем план для отката
-            row.dataset.arrivalSavedPlan = String(currentPlan);
-
-            // Если приход = оригинальный план — просто ставим план = приход, без каскада
-            if (arrivalQty === origPlan) {
-                const wasDisabled = planInput.disabled;
-                if (wasDisabled) planInput.disabled = false;
-                planInput.value = formatNumberWithSpaces(arrivalQty);
-                if (wasDisabled) planInput.disabled = true;
-                onSupplyFieldChange(row);
-                return;
-            }
-
-            // Ставим план = приход
-            const wasDisabled = planInput.disabled;
-            if (wasDisabled) planInput.disabled = false;
-            planInput.value = formatNumberWithSpaces(arrivalQty);
-            if (wasDisabled) planInput.disabled = true;
-
-            // --- Шаг 3: каскадный перенос остатка на следующие строки ---
-            const remainder = origPlan - arrivalQty;
-            // remainder > 0: пришло меньше — вычитаем из следующих
-            // remainder < 0: пришло больше — прибавляем к следующим
-
+            // --- Шаг 4: каскадный перенос на следующие строки ---
             const cascade = [];
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
             const currentDate = data.exit_plan_date || '';
@@ -5637,7 +5609,6 @@ HTML_TEMPLATE = '''
                 return sel && (parseInt(sel.value) || 0) === data.sku;
             });
 
-            // Строки с более поздней датой, отсортированные
             const sorted = sameSku.map(r => {
                 const di = r.querySelectorAll('input[type="date"]');
                 return { row: r, date: di[0] ? di[0].value : '' };
@@ -5649,7 +5620,7 @@ HTML_TEMPLATE = '''
                 return 0;
             });
 
-            let remaining = remainder;
+            let remaining = shortage; // положит. = прибавить к следующим, отрицат. = вычесть
 
             for (const item of sorted) {
                 if (remaining === 0) break;
@@ -5659,23 +5630,22 @@ HTML_TEMPLATE = '''
                 const targetPlan = parseNumberFromSpaces(textInputs[0] ? textInputs[0].value : '0');
 
                 if (remaining > 0) {
-                    // Пришло меньше — вычитаем из следующих строк
-                    const canTake = Math.min(remaining, targetPlan);
+                    // Пришло меньше — прибавляем к следующим строкам
+                    modifyPlanQty(targetRow, remaining);
+                    cascade.push({ id: getRowId(targetRow), amount: remaining });
+                    remaining = 0;
+                } else {
+                    // Пришло больше — вычитаем из следующих строк (каскадно)
+                    const canTake = Math.min(Math.abs(remaining), targetPlan);
                     if (canTake > 0) {
                         modifyPlanQty(targetRow, -canTake);
                         cascade.push({ id: getRowId(targetRow), amount: -canTake });
-                        remaining -= canTake;
+                        remaining += canTake;
                     }
-                } else {
-                    // Пришло больше — прибавляем к следующей строке
-                    modifyPlanQty(targetRow, Math.abs(remaining));
-                    cascade.push({ id: getRowId(targetRow), amount: Math.abs(remaining) });
-                    remaining = 0;
                 }
             }
 
             row.dataset.arrivalCascade = JSON.stringify(cascade);
-            onSupplyFieldChange(row);
         }
 
         /**
