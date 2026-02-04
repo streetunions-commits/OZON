@@ -5153,7 +5153,7 @@ HTML_TEMPLATE = '''
             input.className = 'supply-input';
             input.dataset.field = fieldName || '';
             input.style.minWidth = '90px';
-            if (value !== null && value !== undefined && value !== '' && value !== 0) {
+            if (value !== null && value !== undefined && value !== '') {
                 input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
             }
             input.disabled = isLocked;
