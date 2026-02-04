@@ -5172,72 +5172,89 @@ HTML_TEMPLATE = '''
         /**
          * Перераспределение разницы "Кол-во выхода с фабрики" vs "Заказ кол-во ПЛАН".
          *
-         * Логика:
-         * 1. Вычисляем diff = факт - план
-         * 2. Если ранее уже был перенос — откатываем старый diff из той же строки-получателя
-         * 3. Применяем новый diff к строке-получателю
-         * 4. Запоминаем куда и сколько перенесли (dataset.redistTarget, dataset.redistDiff)
+         * Логика (на примере):
+         *   План = 1000, факт = 500
+         *   → План в ЭТОЙ строке становится 500 (= факт)
+         *   → Остаток 500 (= 1000 - 500) добавляется к плану следующей строки
          *
-         * Поиск строки-получателя:
-         *   a) Если ранее уже был перенос — используем ту же строку
-         *   b) Строка с тем же SKU и более поздней датой (ближайшая)
-         *   c) Любая строка с тем же SKU ниже текущей в таблице
-         *   d) Любая строка с тем же SKU
-         *   e) Создаём новую строку
+         *   Потом факт меняется на 600
+         *   → План в ЭТОЙ строке становится 600
+         *   → Откат: убираем старые +500 из следующей строки
+         *   → Новый остаток 400 (= 1000 - 600) добавляется к следующей строке
+         *
+         * Для этого запоминаем:
+         *   dataset.originalPlan — исходный план до первого ввода факта
+         *   dataset.redistTarget — ID строки-получателя
+         *   dataset.redistAmount — сколько было перенесено (для отката)
          */
         function handleExitFactoryQtyChange(row) {
             const data = getRowData(row);
             if (!data.sku) return;
 
-            const planQty = data.order_qty_plan;
             const factQty = data.exit_factory_qty || 0;
-            const newDiff = factQty - planQty;
 
-            // --- Шаг 1: откатываем предыдущий перенос, если он был ---
+            // Запоминаем исходный план при первом вводе факта
+            if (!row.dataset.originalPlan) {
+                row.dataset.originalPlan = String(data.order_qty_plan);
+            }
+            const originalPlan = parseInt(row.dataset.originalPlan) || 0;
+
+            // --- Шаг 1: откатываем предыдущий перенос ---
             const prevTargetId = row.dataset.redistTarget || '';
-            const prevDiff = parseInt(row.dataset.redistDiff) || 0;
+            const prevAmount = parseInt(row.dataset.redistAmount) || 0;
 
-            if (prevTargetId && prevDiff !== 0) {
+            if (prevTargetId && prevAmount !== 0) {
                 const prevTargetRow = findRowById(prevTargetId);
                 if (prevTargetRow) {
-                    // Возвращаем старую разницу обратно
-                    modifyPlanQty(prevTargetRow, prevDiff);
+                    modifyPlanQty(prevTargetRow, -prevAmount);
                 }
             }
-
-            // Очищаем память о предыдущем переносе
             row.dataset.redistTarget = '';
-            row.dataset.redistDiff = '0';
+            row.dataset.redistAmount = '0';
 
-            // --- Шаг 2: если новой разницы нет — больше ничего не делаем ---
-            if (newDiff === 0 || !factQty) return;
+            // --- Шаг 2: обновляем план в ЭТОЙ строке = факт ---
+            const planInput = row.querySelectorAll('input[type="text"]')[0];
+            if (planInput) {
+                const wasDisabled = planInput.disabled;
+                if (wasDisabled) planInput.disabled = false;
+                planInput.value = factQty ? formatNumberWithSpaces(factQty) : formatNumberWithSpaces(originalPlan);
+                if (wasDisabled) planInput.disabled = true;
+            }
 
-            // --- Шаг 3: ищем строку-получатель ---
+            // Если факт не введён — восстанавливаем исходный план, очищаем память
+            if (!factQty) {
+                row.dataset.originalPlan = '';
+                onSupplyFieldChange(row);
+                return;
+            }
+
+            // --- Шаг 3: считаем остаток и переносим ---
+            const remainder = originalPlan - factQty;
+            if (remainder === 0) {
+                onSupplyFieldChange(row);
+                return;
+            }
+
+            // Ищем строку-получатель
             let targetRow = null;
 
-            // a) Если ранее был перенос и строка ещё существует — используем её
             if (prevTargetId) {
                 targetRow = findRowById(prevTargetId);
             }
-
-            // b-d) Если нет — ищем другую строку с тем же SKU
             if (!targetRow) {
                 targetRow = findNextSameSkuRow(row, data);
             }
-
-            // e) Если вообще нет строк с этим товаром — создаём новую
             if (!targetRow) {
                 targetRow = createRedistributionRow(data);
             }
 
-            // --- Шаг 4: применяем новый diff ---
-            // diff > 0: фабрика дала больше → уменьшаем следующий заказ
-            // diff < 0: фабрика дала меньше → увеличиваем следующий заказ
-            modifyPlanQty(targetRow, -newDiff);
+            // Переносим остаток (remainder > 0 = недополучили, добавляем к следующему)
+            modifyPlanQty(targetRow, remainder);
 
-            // Запоминаем куда и сколько перенесли (для отката при повторном редактировании)
             row.dataset.redistTarget = getRowId(targetRow);
-            row.dataset.redistDiff = String(-newDiff);
+            row.dataset.redistAmount = String(remainder);
+
+            onSupplyFieldChange(row);
         }
 
         /**
