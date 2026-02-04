@@ -5246,6 +5246,22 @@ HTML_TEMPLATE = '''
                     }
                 }
 
+                // Валидация: итого выхода с фабрики не может быть меньше итого прихода на склад
+                if (fieldName === 'exit_factory_qty' && input.value.trim() !== '') {
+                    const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+                    let totalFactory = 0;
+                    let totalArrival = 0;
+                    allRows.forEach(r => {
+                        const ti = r.querySelectorAll('input[type="text"]');
+                        totalFactory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
+                        totalArrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
+                    });
+                    if (totalFactory < totalArrival) {
+                        alert('⚠️ Итого выхода с фабрики (' + formatNumberWithSpaces(totalFactory) + ') не может быть меньше итого прихода на склад (' + formatNumberWithSpaces(totalArrival) + ')');
+                        input.value = '';
+                    }
+                }
+
                 onSupplyFieldChange(row);
 
                 // Логика перераспределения для "Кол-во выхода с фабрики"
