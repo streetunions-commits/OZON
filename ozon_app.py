@@ -5904,126 +5904,107 @@ HTML_TEMPLATE = '''
         /**
          * Расчёт стоимости товара в пути.
          *
-         * Формула: (итого выход с фабрики - итого приход на склад) * средняя себестоимость +6%
-         * Учитывает фильтр по товару — считает только видимые строки.
+         * Логика: группируем строки по товару (SKU), для каждого товара считаем
+         * средние (себестоимость, цена ¥) и количества (план, фабрика, приход),
+         * потом умножаем и складываем итоги по всем товарам.
+         * Это даёт корректный результат когда показаны все товары сразу.
          */
         function updateGoodsInTransit() {
             const qtyEl = document.getElementById('goods-in-transit-qty');
             const costEl = document.getElementById('goods-in-transit-cost');
             const costNoLogEl = document.getElementById('goods-in-transit-cost-no-log');
+            const logInTransitEl = document.getElementById('logistics-in-transit');
             const planQtyEl = document.getElementById('plan-not-delivered-qty');
             const planCostEl = document.getElementById('plan-not-delivered-cost');
             const planCostNoLogEl = document.getElementById('plan-not-delivered-cost-no-log');
+            const logPlanEl = document.getElementById('logistics-plan');
 
             // Берём только видимые строки (с учётом фильтра по товару)
             const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
                 .filter(r => r.style.display !== 'none');
 
-            let totalPlan = 0;
-            let totalFactory = 0;
-            let totalArrival = 0;
-            let costSum = 0;
-            let costCount = 0;
-            let priceCnySum = 0;
-            let priceCnyCount = 0;
-
+            // Группируем строки по SKU товара
+            const byProduct = {};
             rows.forEach(row => {
-                const textInputs = row.querySelectorAll('input[type="text"]');
-                // textInputs: 0=plan, 1=exit_factory_qty, 2=arrival_warehouse_qty, 3=logistics, 4=price_cny
-                const planVal = textInputs[0] ? (parseNumberFromSpaces(textInputs[0].value) || 0) : 0;
-                const factoryVal = textInputs[1] ? (parseNumberFromSpaces(textInputs[1].value) || 0) : 0;
-                const arrivalVal = textInputs[2] ? (parseNumberFromSpaces(textInputs[2].value) || 0) : 0;
-                const priceCny = textInputs[4] ? (parseNumberFromSpaces(textInputs[4].value) || 0) : 0;
-                totalPlan += planVal;
-                totalFactory += factoryVal;
-                totalArrival += arrivalVal;
+                const sel = row.querySelector('select');
+                const sku = sel ? sel.value : 'unknown';
+                if (!byProduct[sku]) byProduct[sku] = [];
+                byProduct[sku].push(row);
+            });
 
-                // Средняя цена в юанях за единицу
-                if (priceCny) { priceCnySum += priceCny; priceCnyCount++; }
+            // Итоговые суммы по всем товарам
+            let totalInTransitQty = 0;
+            let totalInTransitCostFull = 0;
+            let totalInTransitCostNoLog = 0;
+            let totalPlanNotDeliveredQty = 0;
+            let totalPlanCostFull = 0;
+            let totalPlanCostNoLog = 0;
 
-                // Себестоимость +6% из span
-                const costSpan = row.querySelector('.supply-cost-auto');
-                if (costSpan && costSpan.textContent !== '—') {
-                    const cv = parseNumberFromSpaces(costSpan.textContent);
-                    if (cv) { costSum += cv; costCount++; }
+            // Считаем по каждому товару отдельно
+            Object.keys(byProduct).forEach(sku => {
+                const productRows = byProduct[sku];
+                let plan = 0, factory = 0, arrival = 0;
+                let costSum = 0, costCount = 0;
+                let cnySum = 0, cnyCount = 0;
+
+                productRows.forEach(row => {
+                    const ti = row.querySelectorAll('input[type="text"]');
+                    plan += ti[0] ? (parseNumberFromSpaces(ti[0].value) || 0) : 0;
+                    factory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
+                    arrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
+                    const priceCny = ti[4] ? (parseNumberFromSpaces(ti[4].value) || 0) : 0;
+                    if (priceCny) { cnySum += priceCny; cnyCount++; }
+
+                    const costSpan = row.querySelector('.supply-cost-auto');
+                    if (costSpan && costSpan.textContent !== '—') {
+                        const cv = parseNumberFromSpaces(costSpan.textContent);
+                        if (cv) { costSum += cv; costCount++; }
+                    }
+                });
+
+                // Средние по этому товару
+                const avgCost = costCount > 0 ? costSum / costCount : 0;
+                const avgCny = cnyCount > 0 ? cnySum / cnyCount : 0;
+                const avgCostNoLog = avgCny * currentCnyRate * 1.06;
+
+                // В пути по этому товару
+                const inTransit = factory - arrival;
+                if (inTransit > 0) {
+                    totalInTransitQty += inTransit;
+                    totalInTransitCostFull += inTransit * avgCost;
+                    totalInTransitCostNoLog += inTransit * avgCostNoLog;
+                }
+
+                // План не доставлен по этому товару
+                const planNotDel = plan - arrival;
+                if (planNotDel > 0) {
+                    totalPlanNotDeliveredQty += planNotDel;
+                    totalPlanCostFull += planNotDel * avgCost;
+                    totalPlanCostNoLog += planNotDel * avgCostNoLog;
                 }
             });
 
-            const avgCost = costCount > 0 ? costSum / costCount : 0;
-            const avgPriceCny = priceCnyCount > 0 ? priceCnySum / priceCnyCount : 0;
-            // Себестоимость без логистики = средняя цена ¥ × курс юаня × 1.06
-            const avgCostNoLog = avgPriceCny * currentCnyRate * 1.06;
-
-            // Вспомогательная функция для заполнения карточек
-            function fillCard(qtyElement, costElement, qty, cost) {
-                if (!qtyElement || !costElement) return;
-                if (qty > 0 && cost > 0) {
-                    qtyElement.textContent = formatNumberWithSpaces(qty);
-                    costElement.textContent = formatNumberWithSpaces(Math.round(cost));
-                } else if (qty === 0) {
-                    qtyElement.textContent = '0';
-                    costElement.textContent = '0';
+            // Вспомогательная функция для заполнения значения карточки
+            function fillVal(el, val) {
+                if (!el) return;
+                if (val > 0) {
+                    el.textContent = formatNumberWithSpaces(Math.round(val));
                 } else {
-                    qtyElement.textContent = '—';
-                    costElement.textContent = '—';
+                    el.textContent = val === 0 ? '0' : '—';
                 }
             }
 
-            // Товар в пути: выход с фабрики - приход на склад
-            const inTransitQty = totalFactory - totalArrival;
-            fillCard(qtyEl, costEl, inTransitQty, inTransitQty * avgCost);
-            // Себестоимость в пути без логистики
-            const inTransitCostFull = inTransitQty * avgCost;
-            const inTransitCostNoLog = inTransitQty * avgCostNoLog;
-            if (costNoLogEl) {
-                if (inTransitQty > 0 && avgCostNoLog > 0) {
-                    costNoLogEl.textContent = formatNumberWithSpaces(Math.round(inTransitCostNoLog));
-                } else if (inTransitQty === 0) {
-                    costNoLogEl.textContent = '0';
-                } else {
-                    costNoLogEl.textContent = '—';
-                }
-            }
-            // Логистика в пути = вся себестоимость в пути - себестоимость без логистики
-            const logInTransitEl = document.getElementById('logistics-in-transit');
-            if (logInTransitEl) {
-                const logVal = Math.round(inTransitCostFull - inTransitCostNoLog);
-                if (inTransitQty > 0 && logVal > 0) {
-                    logInTransitEl.textContent = formatNumberWithSpaces(logVal);
-                } else if (inTransitQty === 0) {
-                    logInTransitEl.textContent = '0';
-                } else {
-                    logInTransitEl.textContent = '—';
-                }
-            }
+            // Товар в пути
+            fillVal(qtyEl, totalInTransitQty);
+            fillVal(costEl, totalInTransitCostFull);
+            fillVal(costNoLogEl, totalInTransitCostNoLog);
+            fillVal(logInTransitEl, totalInTransitCostFull - totalInTransitCostNoLog);
 
-            // План не доставлен: план - приход на склад
-            const planNotDeliveredQty = totalPlan - totalArrival;
-            const planCostFull = planNotDeliveredQty * avgCost;
-            const planCostNoLogVal = planNotDeliveredQty * avgCostNoLog;
-            fillCard(planQtyEl, planCostEl, planNotDeliveredQty, planCostFull);
-            // Себестоимость плана без логистики
-            if (planCostNoLogEl) {
-                if (planNotDeliveredQty > 0 && avgCostNoLog > 0) {
-                    planCostNoLogEl.textContent = formatNumberWithSpaces(Math.round(planCostNoLogVal));
-                } else if (planNotDeliveredQty === 0) {
-                    planCostNoLogEl.textContent = '0';
-                } else {
-                    planCostNoLogEl.textContent = '—';
-                }
-            }
-            // Логистика план = вся себестоимость плана - себестоимость плана без логистики
-            const logPlanEl = document.getElementById('logistics-plan');
-            if (logPlanEl) {
-                const logPlanVal = Math.round(planCostFull - planCostNoLogVal);
-                if (planNotDeliveredQty > 0 && logPlanVal > 0) {
-                    logPlanEl.textContent = formatNumberWithSpaces(logPlanVal);
-                } else if (planNotDeliveredQty === 0) {
-                    logPlanEl.textContent = '0';
-                } else {
-                    logPlanEl.textContent = '—';
-                }
-            }
+            // План не доставлен
+            fillVal(planQtyEl, totalPlanNotDeliveredQty);
+            fillVal(planCostEl, totalPlanCostFull);
+            fillVal(planCostNoLogEl, totalPlanCostNoLog);
+            fillVal(logPlanEl, totalPlanCostFull - totalPlanCostNoLog);
         }
 
         // ============================================================
