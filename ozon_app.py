@@ -5516,23 +5516,15 @@ HTML_TEMPLATE = '''
          * Обработка "Кол-во прихода на склад".
          *
          * Сравниваем приход с планом (order_qty_plan):
-         *   - Приход > план: разницу прибавляем к плану текущей строки,
-         *     вычитаем из плана следующей строки (того же товара, по дате)
-         *   - Приход < план: разницу вычитаем из плана текущей строки,
-         *     прибавляем к плану следующей строки
-         *   - Приход = план: ничего не делаем
+         *   - Приход > план: прибавляем к текущей, вычитаем из следующих
+         *   - Приход < план: вычитаем из текущей, прибавляем к следующим
          *
-         * Пример (излишек):
-         *   План = 500, приход = 600, diff = +100
-         *   → Текущая строка: план += 100 (стало 600)
-         *   → Следующая строка: план -= 100
+         * Каскадная логика: если разница больше плана следующей строки,
+         * остаток переносится на строку за ней, и так далее.
          *
-         * Пример (недостача):
-         *   План = 500, приход = 400, diff = -100
-         *   → Текущая строка: план -= 100 (стало 400)
-         *   → Следующая строка: план += 100
-         *
-         * При повторном редактировании — откат предыдущих изменений.
+         * Пример: план=2000, приход=5000, diff=+3000
+         *   Следующая строка план=2000 → становится 0, остаток 1000
+         *   Строка за ней план=3000 → становится 2000
          */
         function handleArrivalQtyChange(row) {
             const data = getRowData(row);
@@ -5541,27 +5533,30 @@ HTML_TEMPLATE = '''
             const planQty = data.order_qty_plan || 0;
             const arrivalQty = data.arrival_warehouse_qty || 0;
 
-            // --- Шаг 1: откатываем предыдущие переносы ---
-            const prevTargetId = row.dataset.arrivalRedistTarget || '';
-            const prevAmount = parseInt(row.dataset.arrivalRedistAmount) || 0;
+            // --- Шаг 1: откатываем ВСЕ предыдущие переносы (каскадные) ---
+            const prevCascadeJson = row.dataset.arrivalCascade || '[]';
             const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
 
-            // Откат из следующей строки
-            if (prevTargetId && prevAmount !== 0) {
-                const prevTargetRow = findRowById(prevTargetId);
-                if (prevTargetRow) {
-                    modifyPlanQty(prevTargetRow, -prevAmount);
+            try {
+                const prevCascade = JSON.parse(prevCascadeJson);
+                for (const entry of prevCascade) {
+                    const targetRow = findRowById(entry.id);
+                    if (targetRow && entry.amount !== 0) {
+                        modifyPlanQty(targetRow, -entry.amount);
+                    }
                 }
-            }
+            } catch(e) {}
 
             // Откат из текущей строки
             if (prevLocalAdj !== 0) {
                 modifyPlanQty(row, -prevLocalAdj);
             }
 
+            row.dataset.arrivalCascade = '[]';
+            row.dataset.arrivalLocalAdj = '0';
+            // Совместимость со старым форматом
             row.dataset.arrivalRedistTarget = '';
             row.dataset.arrivalRedistAmount = '0';
-            row.dataset.arrivalLocalAdj = '0';
 
             // --- Шаг 2: если нет данных или приход = план — разницы нет ---
             if (!arrivalQty || !planQty || arrivalQty === planQty) return;
@@ -5570,28 +5565,58 @@ HTML_TEMPLATE = '''
             const diff = arrivalQty - planQty;
 
             // --- Шаг 3: корректируем план текущей строки ---
-            // Приход > план → прибавляем к плану (+diff)
-            // Приход < план → вычитаем из плана (+diff, т.к. diff отрицательный)
             modifyPlanQty(row, diff);
             row.dataset.arrivalLocalAdj = String(diff);
 
-            // --- Шаг 4: переносим разницу на следующую строку (обратный знак) ---
-            let targetRow = null;
+            // --- Шаг 4: каскадный перенос разницы на следующие строки ---
+            let remaining = -diff; // сколько нужно перенести (положит. = вычитать, отрицат. = прибавлять)
+            const cascade = [];
 
-            if (prevTargetId) {
-                targetRow = findRowById(prevTargetId);
+            // Собираем все строки с тем же SKU, отсортированные по дате после текущей
+            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+            const currentDate = data.exit_plan_date || '';
+            const sameSku = allRows.filter(r => {
+                if (r === row) return false;
+                const sel = r.querySelector('select');
+                return sel && (parseInt(sel.value) || 0) === data.sku;
+            });
+
+            // Сортируем по дате (ближайшая более поздняя сначала)
+            const sorted = sameSku.map(r => {
+                const di = r.querySelectorAll('input[type="date"]');
+                return { row: r, date: di[0] ? di[0].value : '' };
+            }).filter(item => {
+                if (!currentDate || !item.date) return true;
+                return item.date > currentDate;
+            }).sort((a, b) => {
+                if (a.date && b.date) return a.date.localeCompare(b.date);
+                return 0;
+            });
+
+            for (const item of sorted) {
+                if (remaining === 0) break;
+
+                const targetRow = item.row;
+                const textInputs = targetRow.querySelectorAll('input[type="text"]');
+                const targetPlan = parseNumberFromSpaces(textInputs[0] ? textInputs[0].value : '0');
+
+                if (remaining > 0) {
+                    // Нужно вычитать из плана следующих строк
+                    const canTake = Math.min(remaining, targetPlan);
+                    if (canTake > 0) {
+                        modifyPlanQty(targetRow, -canTake);
+                        cascade.push({ id: getRowId(targetRow), amount: -canTake });
+                        remaining -= canTake;
+                    }
+                } else {
+                    // remaining < 0: нужно прибавлять к плану следующей строки
+                    modifyPlanQty(targetRow, -remaining);
+                    cascade.push({ id: getRowId(targetRow), amount: -remaining });
+                    remaining = 0;
+                }
             }
-            if (!targetRow) {
-                targetRow = findNextSameSkuRow(row, data);
-            }
-            if (!targetRow) return;
 
-            // Приход > план → вычитаем из следующей (-diff)
-            // Приход < план → прибавляем к следующей (-diff, т.к. diff отрицательный)
-            modifyPlanQty(targetRow, -diff);
-
-            row.dataset.arrivalRedistTarget = getRowId(targetRow);
-            row.dataset.arrivalRedistAmount = String(-diff);
+            row.dataset.arrivalCascade = JSON.stringify(cascade);
         }
 
         /**
