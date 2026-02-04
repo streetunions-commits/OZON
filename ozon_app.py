@@ -5914,8 +5914,8 @@ HTML_TEMPLATE = '''
             let totalArrival = 0;
             let costSum = 0;
             let costCount = 0;
-            let logisticsSum = 0;
-            let logisticsCount = 0;
+            let priceCnySum = 0;
+            let priceCnyCount = 0;
 
             rows.forEach(row => {
                 const textInputs = row.querySelectorAll('input[type="text"]');
@@ -5923,13 +5923,13 @@ HTML_TEMPLATE = '''
                 const planVal = textInputs[0] ? (parseNumberFromSpaces(textInputs[0].value) || 0) : 0;
                 const factoryVal = textInputs[1] ? (parseNumberFromSpaces(textInputs[1].value) || 0) : 0;
                 const arrivalVal = textInputs[2] ? (parseNumberFromSpaces(textInputs[2].value) || 0) : 0;
-                const logVal = textInputs[3] ? (parseNumberFromSpaces(textInputs[3].value) || 0) : 0;
+                const priceCny = textInputs[4] ? (parseNumberFromSpaces(textInputs[4].value) || 0) : 0;
                 totalPlan += planVal;
                 totalFactory += factoryVal;
                 totalArrival += arrivalVal;
 
-                // Средняя логистика за единицу
-                if (logVal) { logisticsSum += logVal; logisticsCount++; }
+                // Средняя цена в юанях за единицу
+                if (priceCny) { priceCnySum += priceCny; priceCnyCount++; }
 
                 // Себестоимость +6% из span
                 const costSpan = row.querySelector('.supply-cost-auto');
@@ -5940,9 +5940,9 @@ HTML_TEMPLATE = '''
             });
 
             const avgCost = costCount > 0 ? costSum / costCount : 0;
-            const avgLogistics = logisticsCount > 0 ? logisticsSum / logisticsCount : 0;
-            // Себестоимость без логистики = средняя себестоимость - средняя логистика
-            const avgCostNoLog = Math.max(0, avgCost - avgLogistics);
+            const avgPriceCny = priceCnyCount > 0 ? priceCnySum / priceCnyCount : 0;
+            // Себестоимость без логистики = средняя цена ¥ × курс юаня × 1.06
+            const avgCostNoLog = avgPriceCny * currentCnyRate * 1.06;
 
             // Вспомогательная функция для заполнения карточек
             function fillCard(qtyElement, costElement, qty, cost) {
