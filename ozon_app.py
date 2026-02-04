@@ -5296,11 +5296,13 @@ HTML_TEMPLATE = '''
             row.dataset.arrivalRedistTarget = '';
             row.dataset.arrivalRedistAmount = '0';
 
-            // --- Шаг 2: если приход <= выход — излишка нет ---
-            if (!arrivalQty || !factoryQty || arrivalQty <= factoryQty) return;
+            // --- Шаг 2: если нет данных или приход = выход — разницы нет ---
+            if (!arrivalQty || !factoryQty || arrivalQty === factoryQty) return;
 
-            // --- Шаг 3: считаем излишек и вычитаем из следующей строки ---
-            const excess = arrivalQty - factoryQty;
+            // --- Шаг 3: считаем разницу и переносим на следующую строку ---
+            // diff > 0: приход > выход (излишек) → вычитаем из плана следующей строки
+            // diff < 0: приход < выход (нехватка) → добавляем к плану следующей строки
+            const diff = arrivalQty - factoryQty;
 
             // Ищем строку-получатель
             let targetRow = null;
@@ -5311,13 +5313,14 @@ HTML_TEMPLATE = '''
             if (!targetRow) {
                 targetRow = findNextSameSkuRow(row, data);
             }
-            if (!targetRow) return; // Нет следующей строки — не создаём новую, просто пропускаем
+            if (!targetRow) return;
 
-            // Вычитаем излишек из плана следующей строки
-            modifyPlanQty(targetRow, -excess);
+            // diff > 0 (излишек) → вычитаем: modifyPlanQty(target, -diff)
+            // diff < 0 (нехватка) → добавляем: modifyPlanQty(target, -diff) = +|diff|
+            modifyPlanQty(targetRow, -diff);
 
             row.dataset.arrivalRedistTarget = getRowId(targetRow);
-            row.dataset.arrivalRedistAmount = String(-excess);
+            row.dataset.arrivalRedistAmount = String(-diff);
         }
 
         /**
