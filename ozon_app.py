@@ -5207,9 +5207,9 @@ HTML_TEMPLATE = '''
                 pencilBtn = document.createElement('button');
                 pencilBtn.type = 'button';
                 pencilBtn.className = 'supply-plan-edit-btn';
-                pencilBtn.textContent = '\u270E';
+                pencilBtn.textContent = 'Ред.';
                 pencilBtn.title = 'Редактировать план';
-                pencilBtn.style.cssText = 'border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;margin-left:4px;display:none;vertical-align:middle;font-size:16px;color:#f59e0b;line-height:1;';
+                pencilBtn.style.cssText = 'border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 8px;margin-left:4px;display:none;vertical-align:middle;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;';
 
                 // Показываем карандаш если план заполнен (независимо от блокировки строки)
                 if (input.value.trim() !== '') {
