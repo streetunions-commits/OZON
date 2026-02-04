@@ -5539,26 +5539,27 @@ HTML_TEMPLATE = '''
         /**
          * Обработка "Кол-во прихода на склад".
          *
-         * Сравниваем приход с ОРИГИНАЛЬНЫМ планом (до изменений от выхода с фабрики):
-         *   - Приход > оригинальный план: прибавляем к текущей, вычитаем из следующих
-         *   - Приход < оригинальный план: вычитаем из текущей, прибавляем к следующим
-         *   - Приход = оригинальный план: ничего не делаем
+         * Логика: план текущей строки СТАНОВИТСЯ = приход.
+         * Остаток (оригинальный план - приход) каскадно вычитается
+         * из следующих строк того же товара по датам.
          *
-         * Каскадная логика: если разница больше плана следующей строки,
-         * остаток переносится на строку за ней, и так далее.
+         * Пример: оригинальный план=4000, приход=3000
+         *   → Текущая строка: план = 3000
+         *   → Остаток = 4000 - 3000 = 1000
+         *   → Следующая строка (план=3000): план -= 1000 → 2000
+         *   → Если остаток > плана следующей — каскад дальше
+         *
+         * При повторном редактировании — откат всех изменений.
          */
         function handleArrivalQtyChange(row) {
             const data = getRowData(row);
             if (!data.sku) return;
 
-            // Используем оригинальный план (до модификации handleExitFactoryQtyChange)
-            const originalPlan = parseInt(row.dataset.originalPlan) || 0;
-            const planQty = originalPlan || (data.order_qty_plan || 0);
             const arrivalQty = data.arrival_warehouse_qty || 0;
 
             // --- Шаг 1: откатываем ВСЕ предыдущие переносы (каскадные) ---
             const prevCascadeJson = row.dataset.arrivalCascade || '[]';
-            const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
+            const prevArrivalPlan = row.dataset.arrivalSavedPlan || '';
 
             try {
                 const prevCascade = JSON.parse(prevCascadeJson);
@@ -5570,41 +5571,65 @@ HTML_TEMPLATE = '''
                 }
             } catch(e) {}
 
-            // Откат из текущей строки
-            if (prevLocalAdj !== 0) {
-                modifyPlanQty(row, -prevLocalAdj);
+            // Откат плана текущей строки к значению до прихода
+            if (prevArrivalPlan !== '') {
+                const planInput = row.querySelectorAll('input[type="text"]')[0];
+                if (planInput) {
+                    const wasDisabled = planInput.disabled;
+                    if (wasDisabled) planInput.disabled = false;
+                    planInput.value = formatNumberWithSpaces(parseInt(prevArrivalPlan) || 0);
+                    if (wasDisabled) planInput.disabled = true;
+                }
             }
 
             row.dataset.arrivalCascade = '[]';
-            row.dataset.arrivalLocalAdj = '0';
-            // Совместимость со старым форматом
-            row.dataset.arrivalRedistTarget = '';
-            row.dataset.arrivalRedistAmount = '0';
+            row.dataset.arrivalSavedPlan = '';
 
-            // --- Шаг 2: если нет данных или приход = план — разницы нет ---
-            if (!arrivalQty || !planQty || arrivalQty === planQty) return;
+            if (!arrivalQty) return;
 
-            // diff > 0 = пришло больше плана, diff < 0 = пришло меньше
-            const diff = arrivalQty - planQty;
+            // --- Шаг 2: запоминаем текущий план и ставим план = приход ---
+            const planInput = row.querySelectorAll('input[type="text"]')[0];
+            if (!planInput) return;
 
-            // --- Шаг 3: корректируем план текущей строки ---
-            modifyPlanQty(row, diff);
-            row.dataset.arrivalLocalAdj = String(diff);
+            const currentPlan = parseNumberFromSpaces(planInput.value) || 0;
+            // Берём оригинальный план (до factory handler) или текущий
+            const origPlan = parseInt(row.dataset.originalPlan) || currentPlan;
 
-            // --- Шаг 4: каскадный перенос разницы на следующие строки ---
-            let remaining = -diff; // сколько нужно перенести (положит. = вычитать, отрицат. = прибавлять)
+            // Запоминаем план для отката
+            row.dataset.arrivalSavedPlan = String(currentPlan);
+
+            // Если приход = оригинальный план — просто ставим план = приход, без каскада
+            if (arrivalQty === origPlan) {
+                const wasDisabled = planInput.disabled;
+                if (wasDisabled) planInput.disabled = false;
+                planInput.value = formatNumberWithSpaces(arrivalQty);
+                if (wasDisabled) planInput.disabled = true;
+                onSupplyFieldChange(row);
+                return;
+            }
+
+            // Ставим план = приход
+            const wasDisabled = planInput.disabled;
+            if (wasDisabled) planInput.disabled = false;
+            planInput.value = formatNumberWithSpaces(arrivalQty);
+            if (wasDisabled) planInput.disabled = true;
+
+            // --- Шаг 3: каскадный перенос остатка на следующие строки ---
+            const remainder = origPlan - arrivalQty;
+            // remainder > 0: пришло меньше — вычитаем из следующих
+            // remainder < 0: пришло больше — прибавляем к следующим
+
             const cascade = [];
-
-            // Собираем все строки с тем же SKU, отсортированные по дате после текущей
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
             const currentDate = data.exit_plan_date || '';
+
             const sameSku = allRows.filter(r => {
                 if (r === row) return false;
                 const sel = r.querySelector('select');
                 return sel && (parseInt(sel.value) || 0) === data.sku;
             });
 
-            // Сортируем по дате (ближайшая более поздняя сначала)
+            // Строки с более поздней датой, отсортированные
             const sorted = sameSku.map(r => {
                 const di = r.querySelectorAll('input[type="date"]');
                 return { row: r, date: di[0] ? di[0].value : '' };
@@ -5616,6 +5641,8 @@ HTML_TEMPLATE = '''
                 return 0;
             });
 
+            let remaining = remainder;
+
             for (const item of sorted) {
                 if (remaining === 0) break;
 
@@ -5624,7 +5651,7 @@ HTML_TEMPLATE = '''
                 const targetPlan = parseNumberFromSpaces(textInputs[0] ? textInputs[0].value : '0');
 
                 if (remaining > 0) {
-                    // Нужно вычитать из плана следующих строк
+                    // Пришло меньше — вычитаем из следующих строк
                     const canTake = Math.min(remaining, targetPlan);
                     if (canTake > 0) {
                         modifyPlanQty(targetRow, -canTake);
@@ -5632,14 +5659,15 @@ HTML_TEMPLATE = '''
                         remaining -= canTake;
                     }
                 } else {
-                    // remaining < 0: нужно прибавлять к плану следующей строки
-                    modifyPlanQty(targetRow, -remaining);
-                    cascade.push({ id: getRowId(targetRow), amount: -remaining });
+                    // Пришло больше — прибавляем к следующей строке
+                    modifyPlanQty(targetRow, Math.abs(remaining));
+                    cascade.push({ id: getRowId(targetRow), amount: Math.abs(remaining) });
                     remaining = 0;
                 }
             }
 
             row.dataset.arrivalCascade = JSON.stringify(cascade);
+            onSupplyFieldChange(row);
         }
 
         /**
