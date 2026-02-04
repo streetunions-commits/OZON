@@ -5230,18 +5230,26 @@ HTML_TEMPLATE = '''
             };
 
             input.onblur = () => {
-                // Валидация: итого прихода не может превышать итого плана
+                // Валидации для прихода на склад
                 if (fieldName === 'arrival_warehouse_qty' && input.value.trim() !== '') {
                     const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
                     let totalPlan = 0;
+                    let totalFactory = 0;
                     let totalArrival = 0;
                     allRows.forEach(r => {
                         const ti = r.querySelectorAll('input[type="text"]');
                         totalPlan += ti[0] ? (parseNumberFromSpaces(ti[0].value) || 0) : 0;
+                        totalFactory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
                         totalArrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
                     });
+                    // Итого прихода не может быть больше итого плана
                     if (totalArrival > totalPlan) {
                         alert('⚠️ Итого прихода на склад (' + formatNumberWithSpaces(totalArrival) + ') не может быть больше итого плана (' + formatNumberWithSpaces(totalPlan) + ')');
+                        input.value = '';
+                    }
+                    // Итого прихода не может быть больше итого выхода с фабрики
+                    else if (totalArrival > totalFactory) {
+                        alert('⚠️ Итого прихода на склад (' + formatNumberWithSpaces(totalArrival) + ') не может быть больше итого выхода с фабрики (' + formatNumberWithSpaces(totalFactory) + ')');
                         input.value = '';
                     }
                 }
