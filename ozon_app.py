@@ -5145,61 +5145,105 @@ HTML_TEMPLATE = '''
 
             if (diff === 0) return; // Нет разницы — ничего не делаем
 
-            // Ищем следующую строку с тем же товаром по дате
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+            const currentIdx = allRows.indexOf(row);
             const currentDate = data.exit_plan_date || data.exit_factory_date || '';
+            const skuNum = data.sku;
 
             // Собираем все строки с тем же SKU, кроме текущей
             const sameSku = allRows.filter(r => {
                 if (r === row) return false;
-                const rd = getRowData(r);
-                return rd.sku === data.sku;
+                const sel = r.querySelector('select');
+                if (!sel) return false;
+                return (parseInt(sel.value) || 0) === skuNum;
             });
 
-            // Сортируем по дате "Выход с фабрики ПЛАН"
-            sameSku.sort((a, b) => {
-                const da = getRowData(a).exit_plan_date || '';
-                const db = getRowData(b).exit_plan_date || '';
-                return da.localeCompare(db);
-            });
-
-            // Ищем строку с датой позже текущей
-            let nextRow = sameSku.find(r => {
-                const rd = getRowData(r);
-                const d = rd.exit_plan_date || '';
-                return d > currentDate;
-            });
-
-            if (nextRow) {
-                // Добавляем/вычитаем разницу из "Заказ кол-во ПЛАН" следующей строки
-                const nextInputs = nextRow.querySelectorAll('input[type="text"]');
-                const nextPlanInput = nextInputs[0]; // order_qty_plan
-                if (nextPlanInput && !nextPlanInput.disabled) {
-                    const currentPlanVal = parseNumberFromSpaces(nextPlanInput.value);
-                    // diff отрицательный = фабрика дала меньше = добавляем нехватку к следующему заказу
-                    const newVal = currentPlanVal - diff;
-                    nextPlanInput.value = formatNumberWithSpaces(Math.max(0, newVal));
-                    onSupplyFieldChange(nextRow);
-                }
-            } else {
-                // Создаём новую строку с этим товаром и вписываем разницу
-                const tbody = document.getElementById('supplies-tbody');
-                const newRow = createSupplyRowElement(null);
-                tbody.appendChild(newRow);
-
-                // Устанавливаем товар
-                const newSelect = newRow.querySelector('select');
-                if (newSelect) newSelect.value = data.sku;
-
-                // Устанавливаем разницу в "Заказ кол-во ПЛАН"
-                const newTextInputs = newRow.querySelectorAll('input[type="text"]');
-                if (newTextInputs[0]) {
-                    // diff отрицательный = нехватка (нужно дозаказать)
-                    newTextInputs[0].value = formatNumberWithSpaces(Math.abs(diff));
-                }
-
-                onSupplyFieldChange(newRow);
+            if (sameSku.length === 0) {
+                // Нет других строк с этим товаром — создаём новую
+                createRedistributionRow(data, diff);
+                return;
             }
+
+            // Приоритет поиска:
+            // 1. Строка с датой позже текущей (ближайшая по дате)
+            // 2. Любая строка с тем же товаром ниже текущей в таблице
+            // 3. Любая строка с тем же товаром (первая найденная)
+            let targetRow = null;
+
+            // 1. Ищем строку с датой позже текущей
+            if (currentDate) {
+                const withLaterDate = sameSku
+                    .map(r => ({ row: r, date: getRowData(r).exit_plan_date || '' }))
+                    .filter(item => item.date && item.date > currentDate)
+                    .sort((a, b) => a.date.localeCompare(b.date));
+
+                if (withLaterDate.length > 0) {
+                    targetRow = withLaterDate[0].row;
+                }
+            }
+
+            // 2. Если не нашли по дате — берём следующую по порядку в таблице
+            if (!targetRow) {
+                targetRow = sameSku.find(r => allRows.indexOf(r) > currentIdx);
+            }
+
+            // 3. Если и так не нашли — берём первую с этим SKU
+            if (!targetRow) {
+                targetRow = sameSku[0];
+            }
+
+            // Применяем разницу
+            applyDiffToRow(targetRow, diff);
+        }
+
+        /**
+         * Применить разницу к полю "Заказ кол-во ПЛАН" целевой строки.
+         * diff > 0: фабрика дала больше (вычитаем из следующего заказа)
+         * diff < 0: фабрика дала меньше (добавляем к следующему заказу)
+         */
+        function applyDiffToRow(targetRow, diff) {
+            const textInputs = targetRow.querySelectorAll('input[type="text"]');
+            const planInput = textInputs[0]; // order_qty_plan
+            if (!planInput) return;
+
+            // Если строка заблокирована — разблокируем для изменения, потом блокируем обратно
+            const wasLocked = targetRow.classList.contains('locked-row');
+            if (wasLocked) {
+                planInput.disabled = false;
+            }
+
+            const currentVal = parseNumberFromSpaces(planInput.value);
+            // diff > 0 = фабрика выпустила больше = уменьшаем следующий заказ
+            // diff < 0 = фабрика выпустила меньше = увеличиваем следующий заказ
+            const newVal = Math.max(0, currentVal - diff);
+            planInput.value = formatNumberWithSpaces(newVal);
+
+            if (wasLocked) {
+                planInput.disabled = true;
+            }
+
+            onSupplyFieldChange(targetRow);
+        }
+
+        /**
+         * Создать новую строку для перераспределения разницы
+         */
+        function createRedistributionRow(sourceData, diff) {
+            const tbody = document.getElementById('supplies-tbody');
+            const newRow = createSupplyRowElement(null);
+            tbody.appendChild(newRow);
+
+            // Устанавливаем товар
+            const newSelect = newRow.querySelector('select');
+            if (newSelect) newSelect.value = sourceData.sku;
+
+            // Устанавливаем разницу в "Заказ кол-во ПЛАН"
+            const newTextInputs = newRow.querySelectorAll('input[type="text"]');
+            if (newTextInputs[0]) {
+                newTextInputs[0].value = formatNumberWithSpaces(Math.abs(diff));
+            }
+
+            onSupplyFieldChange(newRow);
         }
 
         /**
