@@ -5150,12 +5150,10 @@ HTML_TEMPLATE = '''
             cb.className = 'supply-checkbox';
             cb.checked = !!checked;
             cb.disabled = isLocked;
-            // При закрытом замке: чекбокс disabled, но визуально checked сохраняется
-            // onclick предотвращает изменение при disabled (доп. защита)
-            if (isLocked) {
-                cb.onclick = function(e) { e.preventDefault(); };
-            }
-            cb.onchange = () => onSupplyFieldChange(row);
+            cb.onchange = () => {
+                onSupplyFieldChange(row);
+                highlightEmptyCells(row);
+            };
             td.appendChild(cb);
             return td;
         }
@@ -5887,7 +5885,7 @@ HTML_TEMPLATE = '''
          * Подсветить незаполненные ячейки в строке бледно-красным
          */
         function highlightEmptyCells(row) {
-            // Все input и select в строке (кроме чекбоксов, замка, удалить)
+            // Все input и select в строке
             const inputs = row.querySelectorAll('.supply-input, .supply-select');
             inputs.forEach(el => {
                 const td = el.closest('td');
@@ -5903,6 +5901,18 @@ HTML_TEMPLATE = '''
                 }
 
                 if (isEmpty) {
+                    td.classList.add('supply-cell-empty');
+                } else {
+                    td.classList.remove('supply-cell-empty');
+                }
+            });
+
+            // Чекбоксы — незаполненные (unchecked) помечаем бледно-красным
+            const checkboxes = row.querySelectorAll('.supply-checkbox');
+            checkboxes.forEach(cb => {
+                const td = cb.closest('td');
+                if (!td) return;
+                if (!cb.checked) {
                     td.classList.add('supply-cell-empty');
                 } else {
                     td.classList.remove('supply-cell-empty');
