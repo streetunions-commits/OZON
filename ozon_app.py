@@ -5168,71 +5168,166 @@ HTML_TEMPLATE = '''
          * разница переносится на следующую по дате строку с тем же товаром.
          * Если такой строки нет — создаётся новая строка.
          */
+        /**
+         * Перераспределение разницы "Кол-во выхода с фабрики" vs "Заказ кол-во ПЛАН".
+         *
+         * Логика:
+         * 1. Вычисляем diff = факт - план
+         * 2. Если ранее уже был перенос — откатываем старый diff из той же строки-получателя
+         * 3. Применяем новый diff к строке-получателю
+         * 4. Запоминаем куда и сколько перенесли (dataset.redistTarget, dataset.redistDiff)
+         *
+         * Поиск строки-получателя:
+         *   a) Если ранее уже был перенос — используем ту же строку
+         *   b) Строка с тем же SKU и более поздней датой (ближайшая)
+         *   c) Любая строка с тем же SKU ниже текущей в таблице
+         *   d) Любая строка с тем же SKU
+         *   e) Создаём новую строку
+         */
         function handleExitFactoryQtyChange(row) {
             const data = getRowData(row);
-            if (!data.sku || !data.exit_factory_qty) return;
+            if (!data.sku) return;
 
             const planQty = data.order_qty_plan;
-            const factQty = data.exit_factory_qty;
-            const diff = factQty - planQty;
+            const factQty = data.exit_factory_qty || 0;
+            const newDiff = factQty - planQty;
 
-            if (diff === 0) return; // Нет разницы — ничего не делаем
+            // --- Шаг 1: откатываем предыдущий перенос, если он был ---
+            const prevTargetId = row.dataset.redistTarget || '';
+            const prevDiff = parseInt(row.dataset.redistDiff) || 0;
 
-            // Ищем следующую строку с тем же товаром по дате
+            if (prevTargetId && prevDiff !== 0) {
+                const prevTargetRow = findRowById(prevTargetId);
+                if (prevTargetRow) {
+                    // Возвращаем старую разницу обратно
+                    modifyPlanQty(prevTargetRow, prevDiff);
+                }
+            }
+
+            // Очищаем память о предыдущем переносе
+            row.dataset.redistTarget = '';
+            row.dataset.redistDiff = '0';
+
+            // --- Шаг 2: если новой разницы нет — больше ничего не делаем ---
+            if (newDiff === 0 || !factQty) return;
+
+            // --- Шаг 3: ищем строку-получатель ---
+            let targetRow = null;
+
+            // a) Если ранее был перенос и строка ещё существует — используем её
+            if (prevTargetId) {
+                targetRow = findRowById(prevTargetId);
+            }
+
+            // b-d) Если нет — ищем другую строку с тем же SKU
+            if (!targetRow) {
+                targetRow = findNextSameSkuRow(row, data);
+            }
+
+            // e) Если вообще нет строк с этим товаром — создаём новую
+            if (!targetRow) {
+                targetRow = createRedistributionRow(data);
+            }
+
+            // --- Шаг 4: применяем новый diff ---
+            // diff > 0: фабрика дала больше → уменьшаем следующий заказ
+            // diff < 0: фабрика дала меньше → увеличиваем следующий заказ
+            modifyPlanQty(targetRow, -newDiff);
+
+            // Запоминаем куда и сколько перенесли (для отката при повторном редактировании)
+            row.dataset.redistTarget = getRowId(targetRow);
+            row.dataset.redistDiff = String(-newDiff);
+        }
+
+        /**
+         * Найти строку таблицы по supply ID
+         */
+        function findRowById(id) {
+            if (!id) return null;
+            return document.querySelector('#supplies-tbody tr[data-supply-id="' + id + '"]');
+        }
+
+        /**
+         * Получить ID строки (dataset.supplyId)
+         */
+        function getRowId(row) {
+            return row.dataset.supplyId || '';
+        }
+
+        /**
+         * Найти следующую строку с тем же SKU для переноса разницы.
+         * Приоритет: по дате > ниже в таблице > любая.
+         */
+        function findNextSameSkuRow(currentRow, data) {
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+            const currentIdx = allRows.indexOf(currentRow);
             const currentDate = data.exit_plan_date || data.exit_factory_date || '';
+            const skuNum = data.sku;
 
             // Собираем все строки с тем же SKU, кроме текущей
             const sameSku = allRows.filter(r => {
-                if (r === row) return false;
-                const rd = getRowData(r);
-                return rd.sku === data.sku;
+                if (r === currentRow) return false;
+                const sel = r.querySelector('select');
+                return sel && (parseInt(sel.value) || 0) === skuNum;
             });
 
-            // Сортируем по дате "Выход с фабрики ПЛАН"
-            sameSku.sort((a, b) => {
-                const da = getRowData(a).exit_plan_date || '';
-                const db = getRowData(b).exit_plan_date || '';
-                return da.localeCompare(db);
-            });
+            if (sameSku.length === 0) return null;
 
-            // Ищем строку с датой позже текущей
-            let nextRow = sameSku.find(r => {
-                const rd = getRowData(r);
-                const d = rd.exit_plan_date || '';
-                return d > currentDate;
-            });
+            // a) Строка с более поздней датой (ближайшая)
+            if (currentDate) {
+                const withLaterDate = sameSku
+                    .map(r => {
+                        const dateInputs = r.querySelectorAll('input[type="date"]');
+                        return { row: r, date: dateInputs[0] ? dateInputs[0].value : '' };
+                    })
+                    .filter(item => item.date && item.date > currentDate)
+                    .sort((a, b) => a.date.localeCompare(b.date));
 
-            if (nextRow) {
-                // Добавляем/вычитаем разницу из "Заказ кол-во ПЛАН" следующей строки
-                const nextInputs = nextRow.querySelectorAll('input[type="text"]');
-                const nextPlanInput = nextInputs[0]; // order_qty_plan
-                if (nextPlanInput && !nextPlanInput.disabled) {
-                    const currentPlanVal = parseNumberFromSpaces(nextPlanInput.value);
-                    // diff отрицательный = фабрика дала меньше = добавляем нехватку к следующему заказу
-                    const newVal = currentPlanVal - diff;
-                    nextPlanInput.value = formatNumberWithSpaces(Math.max(0, newVal));
-                    onSupplyFieldChange(nextRow);
-                }
-            } else {
-                // Создаём новую строку с этим товаром и вписываем разницу
-                const tbody = document.getElementById('supplies-tbody');
-                const newRow = createSupplyRowElement(null);
-                tbody.appendChild(newRow);
-
-                // Устанавливаем товар
-                const newSelect = newRow.querySelector('select');
-                if (newSelect) newSelect.value = data.sku;
-
-                // Устанавливаем разницу в "Заказ кол-во ПЛАН"
-                const newTextInputs = newRow.querySelectorAll('input[type="text"]');
-                if (newTextInputs[0]) {
-                    // diff отрицательный = нехватка (нужно дозаказать)
-                    newTextInputs[0].value = formatNumberWithSpaces(Math.abs(diff));
-                }
-
-                onSupplyFieldChange(newRow);
+                if (withLaterDate.length > 0) return withLaterDate[0].row;
             }
+
+            // b) Следующая по порядку в таблице
+            const below = sameSku.find(r => allRows.indexOf(r) > currentIdx);
+            if (below) return below;
+
+            // c) Любая
+            return sameSku[0];
+        }
+
+        /**
+         * Изменить "Заказ кол-во ПЛАН" в строке на указанную дельту.
+         * Работает даже с заблокированными строками.
+         */
+        function modifyPlanQty(targetRow, delta) {
+            const textInputs = targetRow.querySelectorAll('input[type="text"]');
+            const planInput = textInputs[0]; // order_qty_plan
+            if (!planInput) return;
+
+            const wasDisabled = planInput.disabled;
+            if (wasDisabled) planInput.disabled = false;
+
+            const currentVal = parseNumberFromSpaces(planInput.value);
+            const newVal = Math.max(0, currentVal + delta);
+            planInput.value = formatNumberWithSpaces(newVal);
+
+            if (wasDisabled) planInput.disabled = true;
+
+            onSupplyFieldChange(targetRow);
+        }
+
+        /**
+         * Создать новую строку для перераспределения остатка.
+         * Возвращает созданную строку (план пока 0 — вызывающий код сам впишет).
+         */
+        function createRedistributionRow(sourceData) {
+            const tbody = document.getElementById('supplies-tbody');
+            const newRow = createSupplyRowElement(null);
+            tbody.appendChild(newRow);
+
+            const newSelect = newRow.querySelector('select');
+            if (newSelect) newSelect.value = sourceData.sku;
+
+            return newRow;
         }
 
         /**
