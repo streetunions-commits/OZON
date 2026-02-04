@@ -351,8 +351,156 @@ def init_database():
         )
     ''')
 
+    # ============================================================================
+    # ТАБЛИЦА ПОСТАВОК — для вкладки "ПОСТАВКИ"
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS supplies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku INTEGER NOT NULL,
+            product_name TEXT,
+            exit_plan_date TEXT,
+            order_qty_plan INTEGER DEFAULT 0,
+            exit_factory_date TEXT,
+            exit_factory_qty INTEGER DEFAULT 0,
+            arrival_warehouse_date TEXT,
+            arrival_warehouse_qty INTEGER DEFAULT 0,
+            logistics_cost_per_unit REAL DEFAULT 0,
+            price_cny REAL DEFAULT 0,
+            cost_plus_6 REAL DEFAULT 0,
+            add_to_marketing INTEGER DEFAULT 0,
+            add_to_debts INTEGER DEFAULT 0,
+            plan_fbo INTEGER DEFAULT 0,
+            is_locked INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # ============================================================================
+    # ТАБЛИЦА КУРСОВ ВАЛЮТ — кэш курсов ЦБ РФ
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS currency_rates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            currency_code TEXT NOT NULL,
+            rate REAL NOT NULL,
+            fetch_date DATE NOT NULL,
+            UNIQUE(currency_code, fetch_date)
+        )
+    ''')
+
     conn.commit()
     conn.close()
+
+
+# ============================================================================
+# КУРСЫ ВАЛЮТ ЦБ РФ
+# ============================================================================
+
+# Кэш курсов валют (обновляется раз в день)
+_currency_cache = {
+    'rates': {},
+    'date': None
+}
+
+def fetch_cbr_rates():
+    """
+    Получить курсы валют с сайта ЦБ РФ (XML API).
+
+    Возвращает словарь с курсами: {'CNY': 12.34, 'USD': 89.56, 'EUR': 97.12}
+    Кэширует результат на весь день.
+    """
+    today = get_snapshot_date()
+
+    # Проверяем кэш в памяти
+    if _currency_cache['date'] == today and _currency_cache['rates']:
+        return _currency_cache['rates']
+
+    # Проверяем кэш в базе данных
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT currency_code, rate FROM currency_rates
+            WHERE fetch_date = ?
+        ''', (today,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        if rows:
+            rates = {row[0]: row[1] for row in rows}
+            if 'CNY' in rates and 'USD' in rates and 'EUR' in rates:
+                _currency_cache['rates'] = rates
+                _currency_cache['date'] = today
+                return rates
+    except Exception as e:
+        print(f"⚠️ Ошибка чтения кэша курсов: {e}")
+
+    # Запрашиваем с ЦБ РФ
+    try:
+        url = "https://www.cbr.ru/scripts/XML_daily.asp"
+        response = requests.get(url, timeout=10)
+        response.encoding = 'windows-1251'
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Коды валют которые нам нужны
+        target_codes = {'CNY': None, 'USD': None, 'EUR': None}
+
+        for valute in soup.find_all('valute'):
+            char_code = valute.find('charcode').text
+            if char_code in target_codes:
+                # ЦБ РФ возвращает курс через запятую и с номиналом
+                nominal = int(valute.find('nominal').text)
+                value_str = valute.find('value').text.replace(',', '.')
+                rate = float(value_str) / nominal
+                target_codes[char_code] = round(rate, 4)
+
+        rates = {k: v for k, v in target_codes.items() if v is not None}
+
+        if rates:
+            # Сохраняем в базу
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                for code, rate in rates.items():
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO currency_rates (currency_code, rate, fetch_date)
+                        VALUES (?, ?, ?)
+                    ''', (code, rate, today))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"⚠️ Ошибка сохранения курсов: {e}")
+
+            _currency_cache['rates'] = rates
+            _currency_cache['date'] = today
+            print(f"✅ Курсы ЦБ РФ загружены: CNY={rates.get('CNY')}, USD={rates.get('USD')}, EUR={rates.get('EUR')}")
+            return rates
+
+    except Exception as e:
+        print(f"❌ Ошибка загрузки курсов ЦБ РФ: {e}")
+
+    # Фоллбэк — последние известные курсы из базы
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT currency_code, rate FROM currency_rates
+            WHERE fetch_date = (SELECT MAX(fetch_date) FROM currency_rates)
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        if rows:
+            rates = {row[0]: row[1] for row in rows}
+            _currency_cache['rates'] = rates
+            _currency_cache['date'] = today
+            return rates
+    except Exception:
+        pass
+
+    return {'CNY': 0, 'USD': 0, 'EUR': 0}
 
 
 def get_ozon_headers():
@@ -3328,6 +3476,244 @@ HTML_TEMPLATE = '''
         .fbo-stock-zero {
             color: #ccc;
         }
+
+        /* ============================================================ */
+        /* ВКЛАДКА ПОСТАВКИ                                             */
+        /* ============================================================ */
+
+        .currency-rates-panel {
+            background: #f8f9fb;
+            border-radius: 12px;
+            padding: 16px 24px;
+            margin-bottom: 20px;
+        }
+
+        .currency-rates-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .currency-rates-row {
+            display: flex;
+            gap: 16px;
+        }
+
+        .currency-rate-card {
+            background: #fff;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .currency-label {
+            font-size: 13px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .currency-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .currency-rub {
+            font-size: 14px;
+            color: #999;
+        }
+
+        .supplies-table-wrapper {
+            position: relative;
+        }
+
+        .supplies-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .supplies-table thead th {
+            background: #f1f3f5;
+            padding: 10px 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 12px;
+            color: #444;
+            border: 1px solid #dee2e6;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .supplies-table tbody td {
+            padding: 6px 8px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .supplies-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .supplies-table tbody tr.locked-row td {
+            background: #fafafa;
+            color: #888;
+        }
+
+        .supply-input {
+            width: 100%;
+            border: 1px solid transparent;
+            background: transparent;
+            padding: 4px 6px;
+            font-size: 13px;
+            text-align: center;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .supply-input:hover:not([disabled]) {
+            border-color: #dee2e6;
+        }
+
+        .supply-input:focus:not([disabled]) {
+            border-color: #667eea;
+            background: #fff;
+        }
+
+        .supply-input[disabled] {
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .supply-select {
+            width: 100%;
+            min-width: 180px;
+            border: 1px solid transparent;
+            background: transparent;
+            padding: 4px 6px;
+            font-size: 13px;
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .supply-select:hover:not([disabled]) {
+            border-color: #dee2e6;
+        }
+
+        .supply-select:focus:not([disabled]) {
+            border-color: #667eea;
+            background: #fff;
+        }
+
+        .supply-select[disabled] {
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .supply-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .supply-checkbox[disabled] {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .supply-cost-auto {
+            font-weight: 600;
+            color: #333;
+            background: #f0f7ff;
+            padding: 4px 6px;
+            border-radius: 4px;
+        }
+
+        .supplies-add-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 10px;
+            margin-top: 8px;
+            border: 2px dashed #dee2e6;
+            background: transparent;
+            color: #667eea;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .supplies-add-btn:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        /* Модальное окно подтверждения редактирования */
+        .supply-edit-confirm {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .supply-edit-confirm-box {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px 32px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .supply-edit-confirm-box h3 {
+            margin-bottom: 12px;
+            color: #333;
+        }
+
+        .supply-edit-confirm-box p {
+            margin-bottom: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .supply-edit-confirm-box button {
+            padding: 8px 24px;
+            border-radius: 6px;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            margin: 0 6px;
+        }
+
+        .supply-confirm-yes {
+            background: #667eea;
+            color: #fff;
+        }
+
+        .supply-confirm-no {
+            background: #f1f3f5;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -3344,7 +3730,7 @@ HTML_TEMPLATE = '''
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">Аналитика FBO</button>
-                <button class="tab-button" onclick="switchTab(event, 'wb')">WB</button>
+                <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
             </div>
 
             <!-- ТАБ: История товара -->
@@ -3373,11 +3759,58 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
-            <!-- ТАБ: Wildberries -->
-            <div id="wb" class="tab-content">
-                <div style="padding: 40px; text-align: center; color: #666;">
-                    <h2>Wildberries</h2>
-                    <p>Раздел в разработке</p>
+            <!-- ТАБ: Поставки -->
+            <div id="supplies" class="tab-content">
+                <!-- Курсы валют ЦБ РФ -->
+                <div class="currency-rates-panel">
+                    <div class="currency-rates-title">Курсы ЦБ РФ</div>
+                    <div class="currency-rates-row">
+                        <div class="currency-rate-card">
+                            <span class="currency-label">¥ Юань (CNY)</span>
+                            <span class="currency-value" id="rate-cny">—</span>
+                            <span class="currency-rub">₽</span>
+                        </div>
+                        <div class="currency-rate-card">
+                            <span class="currency-label">$ Доллар (USD)</span>
+                            <span class="currency-value" id="rate-usd">—</span>
+                            <span class="currency-rub">₽</span>
+                        </div>
+                        <div class="currency-rate-card">
+                            <span class="currency-label">€ Евро (EUR)</span>
+                            <span class="currency-value" id="rate-eur">—</span>
+                            <span class="currency-rub">₽</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Таблица поставок -->
+                <div class="supplies-table-wrapper">
+                    <div style="overflow-x: auto;">
+                        <table class="supplies-table" id="supplies-table">
+                            <thead>
+                                <tr>
+                                    <th>Товар</th>
+                                    <th>Выход с фабрики<br>ПЛАН</th>
+                                    <th>Заказ кол-во<br>ПЛАН</th>
+                                    <th>Дата выхода<br>с фабрики</th>
+                                    <th>Кол-во выхода<br>с фабрики</th>
+                                    <th>Дата прихода<br>на склад</th>
+                                    <th>Кол-во прихода<br>на склад</th>
+                                    <th>Стоимость логистики<br>за единицу, ₽</th>
+                                    <th>Цена товара<br>единица, ¥</th>
+                                    <th>Себестоимость<br>товара +6%, ₽</th>
+                                    <th>Добавить<br>в маркетинг</th>
+                                    <th>Внести<br>в долги</th>
+                                    <th>План<br>на FBO</th>
+                                </tr>
+                            </thead>
+                            <tbody id="supplies-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <button class="supplies-add-btn" onclick="addSupplyRow()" title="Добавить строку">
+                        <span style="font-size: 20px; line-height: 1;">+</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -3466,6 +3899,10 @@ HTML_TEMPLATE = '''
             // Если открыли FBO аналитику - загружаем данные
             if (tab === 'fbo') {
                 loadFboAnalytics();
+            }
+            // Если открыли поставки - загружаем данные
+            if (tab === 'supplies') {
+                loadSupplies();
             }
         }
 
@@ -4310,6 +4747,529 @@ HTML_TEMPLATE = '''
                 });
             });
         }
+        // ============================================================
+        // ПОСТАВКИ — ЛОГИКА ВКЛАДКИ
+        // ============================================================
+
+        let suppliesLoaded = false;
+        let suppliesProducts = [];  // Все товары для выпадающего списка
+        let currentCnyRate = 0;     // Текущий курс юаня
+
+        /**
+         * Загрузка данных вкладки "Поставки":
+         * 1. Курсы валют ЦБ РФ
+         * 2. Список товаров для выпадающего списка
+         * 3. Существующие строки поставок из базы
+         */
+        function loadSupplies() {
+            // Загружаем курсы валют
+            fetch('/api/currency-rates')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const rates = data.rates;
+                        currentCnyRate = rates.CNY || 0;
+                        document.getElementById('rate-cny').textContent = formatCurrencyRate(rates.CNY);
+                        document.getElementById('rate-usd').textContent = formatCurrencyRate(rates.USD);
+                        document.getElementById('rate-eur').textContent = formatCurrencyRate(rates.EUR);
+
+                        // Пересчитываем себестоимости при обновлении курса
+                        recalcAllCosts();
+                    }
+                });
+
+            // Загружаем список товаров для dropdown
+            fetch('/api/products/list')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        suppliesProducts = data.products;
+                    }
+                });
+
+            // Загружаем существующие поставки
+            fetch('/api/supplies')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        renderSuppliesTable(data.supplies);
+                    }
+                });
+
+            suppliesLoaded = true;
+        }
+
+        /**
+         * Форматирование курса валюты для отображения
+         */
+        function formatCurrencyRate(rate) {
+            if (!rate) return '—';
+            return rate.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');
+        }
+
+        /**
+         * Форматирование числа с пробелами между тысячными
+         */
+        function formatNumberWithSpaces(num) {
+            if (num === null || num === undefined || num === '') return '';
+            const n = parseInt(num);
+            if (isNaN(n)) return '';
+            return n.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');
+        }
+
+        /**
+         * Парсинг числа из строки с пробелами
+         */
+        function parseNumberFromSpaces(str) {
+            if (!str) return 0;
+            return parseInt(str.replace(/\\s/g, '')) || 0;
+        }
+
+        /**
+         * Форматирование даты без года (ДД.ММ)
+         */
+        function formatDateNoYear(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) return parts[2] + '.' + parts[1];
+            if (parts.length === 2) return parts[1] + '.' + parts[0];
+            return dateStr;
+        }
+
+        /**
+         * Отрисовка таблицы поставок из данных базы
+         */
+        function renderSuppliesTable(supplies) {
+            const tbody = document.getElementById('supplies-tbody');
+            tbody.innerHTML = '';
+
+            supplies.forEach(s => {
+                const row = createSupplyRowElement(s);
+                tbody.appendChild(row);
+                // Если строка заблокирована — добавляем обработчик двойного клика
+                if (s.is_locked) {
+                    row.ondblclick = function() {
+                        showEditConfirm(row, (confirmed) => {
+                            if (confirmed) {
+                                unlockSupplyRow(row);
+                                // Разблокируем на сервере
+                                fetch('/api/supplies/unlock', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: row.dataset.supplyId })
+                                });
+                            }
+                        });
+                    };
+                }
+            });
+        }
+
+        /**
+         * Создание HTML-элемента строки таблицы поставок
+         *
+         * Параметры:
+         *   data — объект с данными поставки (из базы) или null для новой строки
+         */
+        function createSupplyRowElement(data) {
+            const row = document.createElement('tr');
+            const isLocked = data && data.is_locked;
+            const rowId = data ? data.id : 'new_' + Date.now();
+            row.dataset.supplyId = rowId;
+            if (isLocked) row.classList.add('locked-row');
+
+            // 1. Товар (выпадающий список)
+            const tdProduct = document.createElement('td');
+            const selectProduct = document.createElement('select');
+            selectProduct.className = 'supply-select';
+            selectProduct.disabled = isLocked;
+            selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
+            suppliesProducts.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.sku;
+                opt.textContent = (p.offer_id ? p.offer_id + ' — ' : '') + p.name;
+                if (data && data.sku == p.sku) opt.selected = true;
+                selectProduct.appendChild(opt);
+            });
+            selectProduct.onchange = () => onSupplyFieldChange(row);
+            tdProduct.appendChild(selectProduct);
+            row.appendChild(tdProduct);
+
+            // 2. Выход с фабрики ПЛАН (дата без года)
+            row.appendChild(createDateCell(data ? data.exit_plan_date : '', isLocked, row));
+
+            // 3. Заказ кол-во ПЛАН (число)
+            row.appendChild(createNumberCell(data ? data.order_qty_plan : '', isLocked, row, 'order_qty_plan'));
+
+            // 4. Дата выхода с фабрики (дата)
+            row.appendChild(createDateCell(data ? data.exit_factory_date : '', isLocked, row));
+
+            // 5. Кол-во выхода с фабрики (число) — с логикой перераспределения
+            row.appendChild(createNumberCell(data ? data.exit_factory_qty : '', isLocked, row, 'exit_factory_qty'));
+
+            // 6. Дата прихода на склад (дата)
+            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', isLocked, row));
+
+            // 7. Кол-во прихода на склад (число)
+            row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', isLocked, row, 'arrival_warehouse_qty'));
+
+            // 8. Стоимость логистики за единицу (руб)
+            row.appendChild(createNumberCell(data ? data.logistics_cost_per_unit : '', isLocked, row, 'logistics_cost'));
+
+            // 9. Цена товара единица (юани)
+            row.appendChild(createNumberCell(data ? data.price_cny : '', isLocked, row, 'price_cny'));
+
+            // 10. Себестоимость товара +6% (рассчитывается автоматически)
+            const tdCost = document.createElement('td');
+            const costSpan = document.createElement('span');
+            costSpan.className = 'supply-cost-auto';
+            if (data && data.cost_plus_6) {
+                costSpan.textContent = formatNumberWithSpaces(Math.round(data.cost_plus_6));
+            } else {
+                costSpan.textContent = '—';
+            }
+            tdCost.appendChild(costSpan);
+            row.appendChild(tdCost);
+
+            // 11. Добавить в маркетинг (чекбокс)
+            row.appendChild(createCheckboxCell(data ? data.add_to_marketing : false, isLocked, row));
+
+            // 12. Внести в долги (чекбокс)
+            row.appendChild(createCheckboxCell(data ? data.add_to_debts : false, isLocked, row));
+
+            // 13. План на FBO (чекбокс)
+            row.appendChild(createCheckboxCell(data ? data.plan_fbo : false, isLocked, row));
+
+            return row;
+        }
+
+        /**
+         * Создание ячейки с полем даты (без года — отображается ДД.ММ)
+         */
+        function createDateCell(value, isLocked, row) {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'date';
+            input.className = 'supply-input';
+            input.style.minWidth = '110px';
+            if (value) input.value = value;
+            input.disabled = isLocked;
+            input.onchange = () => onSupplyFieldChange(row);
+            td.appendChild(input);
+            return td;
+        }
+
+        /**
+         * Создание ячейки с числовым полем (пробелы в тысячных)
+         */
+        function createNumberCell(value, isLocked, row, fieldName) {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'supply-input';
+            input.dataset.field = fieldName || '';
+            input.style.minWidth = '90px';
+            if (value !== null && value !== undefined && value !== '' && value !== 0) {
+                input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
+            }
+            input.disabled = isLocked;
+
+            // Форматирование при вводе — только цифры и пробелы
+            input.oninput = function() {
+                const raw = this.value.replace(/[^\\d]/g, '');
+                this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : '';
+            };
+
+            input.onblur = () => {
+                onSupplyFieldChange(row);
+
+                // Логика перераспределения для "Кол-во выхода с фабрики"
+                if (fieldName === 'exit_factory_qty') {
+                    handleExitFactoryQtyChange(row);
+                }
+            };
+
+            td.appendChild(input);
+            return td;
+        }
+
+        /**
+         * Создание ячейки с чекбоксом
+         */
+        function createCheckboxCell(checked, isLocked, row) {
+            const td = document.createElement('td');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'supply-checkbox';
+            cb.checked = !!checked;
+            cb.disabled = isLocked;
+            cb.onchange = () => onSupplyFieldChange(row);
+            td.appendChild(cb);
+            return td;
+        }
+
+        /**
+         * Добавить новую строку в таблицу поставок
+         */
+        function addSupplyRow() {
+            const tbody = document.getElementById('supplies-tbody');
+            const row = createSupplyRowElement(null);
+            tbody.appendChild(row);
+        }
+
+        /**
+         * Извлечь данные из строки таблицы в объект для отправки на сервер
+         */
+        function getRowData(row) {
+            const cells = row.querySelectorAll('td');
+            const select = cells[0].querySelector('select');
+            const inputs = row.querySelectorAll('input');
+
+            // Все input-ы по порядку:
+            // 0: exit_plan_date, 1: order_qty_plan, 2: exit_factory_date,
+            // 3: exit_factory_qty, 4: arrival_warehouse_date, 5: arrival_warehouse_qty,
+            // 6: logistics_cost, 7: price_cny
+            // Чекбоксы: 8: marketing, 9: debts, 10: fbo
+
+            const dateInputs = row.querySelectorAll('input[type="date"]');
+            const textInputs = row.querySelectorAll('input[type="text"]');
+            const checkboxes = row.querySelectorAll('input[type="checkbox"]');
+
+            return {
+                id: row.dataset.supplyId,
+                sku: select ? parseInt(select.value) || 0 : 0,
+                product_name: select ? select.options[select.selectedIndex]?.text || '' : '',
+                exit_plan_date: dateInputs[0] ? dateInputs[0].value : '',
+                order_qty_plan: textInputs[0] ? parseNumberFromSpaces(textInputs[0].value) : 0,
+                exit_factory_date: dateInputs[1] ? dateInputs[1].value : '',
+                exit_factory_qty: textInputs[1] ? parseNumberFromSpaces(textInputs[1].value) : 0,
+                arrival_warehouse_date: dateInputs[2] ? dateInputs[2].value : '',
+                arrival_warehouse_qty: textInputs[2] ? parseNumberFromSpaces(textInputs[2].value) : 0,
+                logistics_cost_per_unit: textInputs[3] ? parseNumberFromSpaces(textInputs[3].value) : 0,
+                price_cny: textInputs[4] ? parseNumberFromSpaces(textInputs[4].value) : 0,
+                add_to_marketing: checkboxes[0] ? checkboxes[0].checked : false,
+                add_to_debts: checkboxes[1] ? checkboxes[1].checked : false,
+                plan_fbo: checkboxes[2] ? checkboxes[2].checked : false
+            };
+        }
+
+        /**
+         * Пересчёт себестоимости товара +6%
+         * Формула: (логистика_за_единицу + цена_юань * курс_юаня) * 1.06
+         */
+        function recalcCost(row) {
+            const data = getRowData(row);
+            const costSpan = row.querySelector('.supply-cost-auto');
+            if (!costSpan) return;
+
+            const logistics = data.logistics_cost_per_unit || 0;
+            const priceCny = data.price_cny || 0;
+
+            if (logistics > 0 || priceCny > 0) {
+                const cost = (logistics + priceCny * currentCnyRate) * 1.06;
+                costSpan.textContent = formatNumberWithSpaces(Math.round(cost));
+            } else {
+                costSpan.textContent = '—';
+            }
+        }
+
+        /**
+         * Пересчёт всех строк (при обновлении курса)
+         */
+        function recalcAllCosts() {
+            const rows = document.querySelectorAll('#supplies-tbody tr');
+            rows.forEach(row => recalcCost(row));
+        }
+
+        /**
+         * Обработчик изменения любого поля в строке поставки.
+         * Пересчитывает себестоимость и автосохраняет строку.
+         */
+        function onSupplyFieldChange(row) {
+            recalcCost(row);
+            autoSaveSupplyRow(row);
+        }
+
+        /**
+         * Автосохранение строки поставки на сервер
+         */
+        function autoSaveSupplyRow(row) {
+            const data = getRowData(row);
+            if (!data.sku) return; // Не сохраняем пустые строки
+
+            // Рассчитываем себестоимость
+            const logistics = data.logistics_cost_per_unit || 0;
+            const priceCny = data.price_cny || 0;
+            data.cost_plus_6 = (logistics + priceCny * currentCnyRate) * 1.06;
+
+            fetch('/api/supplies/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success && result.id) {
+                    // Обновляем ID строки (если была новая)
+                    row.dataset.supplyId = result.id;
+
+                    // Проверяем — если все ключевые поля заполнены, блокируем строку
+                    if (isRowComplete(data)) {
+                        lockSupplyRow(row);
+                        // Блокируем на сервере
+                        fetch('/api/supplies/lock', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: result.id })
+                        });
+                    }
+                }
+            });
+        }
+
+        /**
+         * Проверка — заполнены ли все ключевые поля строки.
+         * Строка считается завершённой когда: товар + дата выхода план + кол-во план заполнены.
+         */
+        function isRowComplete(data) {
+            return data.sku > 0
+                && data.exit_plan_date
+                && data.order_qty_plan > 0;
+        }
+
+        /**
+         * Логика перераспределения разницы "Кол-во выхода с фабрики" vs "Заказ кол-во ПЛАН"
+         *
+         * Если "Кол-во выхода с фабрики" отличается от "Заказ кол-во ПЛАН",
+         * разница переносится на следующую по дате строку с тем же товаром.
+         * Если такой строки нет — создаётся новая строка.
+         */
+        function handleExitFactoryQtyChange(row) {
+            const data = getRowData(row);
+            if (!data.sku || !data.exit_factory_qty) return;
+
+            const planQty = data.order_qty_plan;
+            const factQty = data.exit_factory_qty;
+            const diff = factQty - planQty;
+
+            if (diff === 0) return; // Нет разницы — ничего не делаем
+
+            // Ищем следующую строку с тем же товаром по дате
+            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+            const currentDate = data.exit_plan_date || data.exit_factory_date || '';
+
+            // Собираем все строки с тем же SKU, кроме текущей
+            const sameSku = allRows.filter(r => {
+                if (r === row) return false;
+                const rd = getRowData(r);
+                return rd.sku === data.sku;
+            });
+
+            // Сортируем по дате "Выход с фабрики ПЛАН"
+            sameSku.sort((a, b) => {
+                const da = getRowData(a).exit_plan_date || '';
+                const db = getRowData(b).exit_plan_date || '';
+                return da.localeCompare(db);
+            });
+
+            // Ищем строку с датой позже текущей
+            let nextRow = sameSku.find(r => {
+                const rd = getRowData(r);
+                const d = rd.exit_plan_date || '';
+                return d > currentDate;
+            });
+
+            if (nextRow) {
+                // Добавляем/вычитаем разницу из "Заказ кол-во ПЛАН" следующей строки
+                const nextInputs = nextRow.querySelectorAll('input[type="text"]');
+                const nextPlanInput = nextInputs[0]; // order_qty_plan
+                if (nextPlanInput && !nextPlanInput.disabled) {
+                    const currentPlanVal = parseNumberFromSpaces(nextPlanInput.value);
+                    // diff отрицательный = фабрика дала меньше = добавляем нехватку к следующему заказу
+                    const newVal = currentPlanVal - diff;
+                    nextPlanInput.value = formatNumberWithSpaces(Math.max(0, newVal));
+                    onSupplyFieldChange(nextRow);
+                }
+            } else {
+                // Создаём новую строку с этим товаром и вписываем разницу
+                const tbody = document.getElementById('supplies-tbody');
+                const newRow = createSupplyRowElement(null);
+                tbody.appendChild(newRow);
+
+                // Устанавливаем товар
+                const newSelect = newRow.querySelector('select');
+                if (newSelect) newSelect.value = data.sku;
+
+                // Устанавливаем разницу в "Заказ кол-во ПЛАН"
+                const newTextInputs = newRow.querySelectorAll('input[type="text"]');
+                if (newTextInputs[0]) {
+                    // diff отрицательный = нехватка (нужно дозаказать)
+                    newTextInputs[0].value = formatNumberWithSpaces(Math.abs(diff));
+                }
+
+                onSupplyFieldChange(newRow);
+            }
+        }
+
+        /**
+         * Показать диалог подтверждения для редактирования заблокированного поля
+         */
+        function showEditConfirm(row, callback) {
+            const overlay = document.createElement('div');
+            overlay.className = 'supply-edit-confirm';
+            overlay.innerHTML = `
+                <div class="supply-edit-confirm-box">
+                    <h3>Подтверждение</h3>
+                    <p>Эта строка уже заполнена. Вы уверены, что хотите редактировать?</p>
+                    <button class="supply-confirm-yes" onclick="this.closest('.supply-edit-confirm').dataset.result='yes'; this.closest('.supply-edit-confirm').remove();">Да, редактировать</button>
+                    <button class="supply-confirm-no" onclick="this.closest('.supply-edit-confirm').remove();">Отмена</button>
+                </div>
+            `;
+
+            // Обработка кнопки "Да"
+            overlay.querySelector('.supply-confirm-yes').onclick = () => {
+                overlay.remove();
+                callback(true);
+            };
+            overlay.querySelector('.supply-confirm-no').onclick = () => {
+                overlay.remove();
+                callback(false);
+            };
+
+            document.body.appendChild(overlay);
+        }
+
+        /**
+         * Блокировка строки после заполнения (защита от случайного редактирования)
+         */
+        function lockSupplyRow(row) {
+            const inputs = row.querySelectorAll('input, select');
+            inputs.forEach(el => el.disabled = true);
+            row.classList.add('locked-row');
+
+            // Добавляем обработчик двойного клика для разблокировки
+            row.ondblclick = function() {
+                showEditConfirm(row, (confirmed) => {
+                    if (confirmed) {
+                        unlockSupplyRow(row);
+                    }
+                });
+            };
+        }
+
+        /**
+         * Разблокировка строки для редактирования
+         */
+        function unlockSupplyRow(row) {
+            const inputs = row.querySelectorAll('input, select');
+            inputs.forEach(el => el.disabled = false);
+            row.classList.remove('locked-row');
+
+            // Себестоимость всегда read-only (вычисляется)
+            // Убираем ondblclick
+            row.ondblclick = null;
+        }
+
     </script>
 </body>
 </html>
@@ -5031,6 +5991,183 @@ def get_fbo_analytics():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e), 'products': []})
+
+
+# ============================================================================
+# API ПОСТАВОК
+# ============================================================================
+
+@app.route('/api/currency-rates')
+def get_currency_rates():
+    """
+    Получить текущие курсы валют ЦБ РФ (CNY, USD, EUR).
+
+    Курсы кэшируются на весь день. При первом запросе за день
+    загружаются с сайта ЦБ РФ.
+    """
+    try:
+        rates = fetch_cbr_rates()
+        return jsonify({
+            'success': True,
+            'rates': rates,
+            'date': get_snapshot_date()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'rates': {}})
+
+
+@app.route('/api/supplies')
+def get_supplies():
+    """
+    Получить все строки поставок из базы данных.
+
+    Возвращает список поставок, отсортированных по дате создания.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM supplies
+            ORDER BY created_at DESC
+        ''')
+
+        supplies = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'supplies': supplies
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'supplies': []})
+
+
+@app.route('/api/supplies/save', methods=['POST'])
+def save_supply():
+    """
+    Сохранить или обновить строку поставки.
+
+    Если id начинается с 'new_' — создаёт новую запись.
+    Иначе — обновляет существующую.
+    """
+    try:
+        data = request.json
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        supply_id = data.get('id', '')
+        is_new = str(supply_id).startswith('new_') or not supply_id
+
+        if is_new:
+            cursor.execute('''
+                INSERT INTO supplies (
+                    sku, product_name, exit_plan_date, order_qty_plan,
+                    exit_factory_date, exit_factory_qty,
+                    arrival_warehouse_date, arrival_warehouse_qty,
+                    logistics_cost_per_unit, price_cny, cost_plus_6,
+                    add_to_marketing, add_to_debts, plan_fbo,
+                    is_locked, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+            ''', (
+                data.get('sku', 0),
+                data.get('product_name', ''),
+                data.get('exit_plan_date', ''),
+                data.get('order_qty_plan', 0),
+                data.get('exit_factory_date', ''),
+                data.get('exit_factory_qty', 0),
+                data.get('arrival_warehouse_date', ''),
+                data.get('arrival_warehouse_qty', 0),
+                data.get('logistics_cost_per_unit', 0),
+                data.get('price_cny', 0),
+                data.get('cost_plus_6', 0),
+                1 if data.get('add_to_marketing') else 0,
+                1 if data.get('add_to_debts') else 0,
+                1 if data.get('plan_fbo') else 0
+            ))
+            new_id = cursor.lastrowid
+        else:
+            cursor.execute('''
+                UPDATE supplies SET
+                    sku = ?, product_name = ?, exit_plan_date = ?, order_qty_plan = ?,
+                    exit_factory_date = ?, exit_factory_qty = ?,
+                    arrival_warehouse_date = ?, arrival_warehouse_qty = ?,
+                    logistics_cost_per_unit = ?, price_cny = ?, cost_plus_6 = ?,
+                    add_to_marketing = ?, add_to_debts = ?, plan_fbo = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (
+                data.get('sku', 0),
+                data.get('product_name', ''),
+                data.get('exit_plan_date', ''),
+                data.get('order_qty_plan', 0),
+                data.get('exit_factory_date', ''),
+                data.get('exit_factory_qty', 0),
+                data.get('arrival_warehouse_date', ''),
+                data.get('arrival_warehouse_qty', 0),
+                data.get('logistics_cost_per_unit', 0),
+                data.get('price_cny', 0),
+                data.get('cost_plus_6', 0),
+                1 if data.get('add_to_marketing') else 0,
+                1 if data.get('add_to_debts') else 0,
+                1 if data.get('plan_fbo') else 0,
+                int(supply_id)
+            ))
+            new_id = int(supply_id)
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'id': new_id,
+            'message': 'Поставка сохранена'
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/supplies/lock', methods=['POST'])
+def lock_supply():
+    """
+    Заблокировать строку поставки (защита от редактирования).
+    """
+    try:
+        data = request.json
+        supply_id = data.get('id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE supplies SET is_locked = 1 WHERE id = ?', (supply_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/supplies/unlock', methods=['POST'])
+def unlock_supply():
+    """
+    Разблокировать строку поставки для редактирования.
+    """
+    try:
+        data = request.json
+        supply_id = data.get('id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE supplies SET is_locked = 0 WHERE id = ?', (supply_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 # ============================================================================
