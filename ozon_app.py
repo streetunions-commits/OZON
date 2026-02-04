@@ -4974,7 +4974,15 @@ HTML_TEMPLATE = '''
         function createSupplyRowElement(data) {
             const row = document.createElement('tr');
             // По умолчанию все существующие строки заблокированы
-            const isLocked = data ? true : false;
+            // Проверяем: если строка была разблокирована менее 30 минут назад — оставляем открытой
+            let isLocked = data ? true : false;
+            if (isLocked && data && data.id) {
+                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
+                const unlockTime = unlocks[data.id];
+                if (unlockTime && (Date.now() - unlockTime) < 30 * 60 * 1000) {
+                    isLocked = false; // разблокирована менее 30 мин назад
+                }
+            }
             const rowId = data ? data.id : 'new_' + Date.now();
             row.dataset.supplyId = rowId;
             if (isLocked) row.classList.add('locked-row');
@@ -5816,8 +5824,15 @@ HTML_TEMPLATE = '''
                 showEditConfirm(row);
             };
 
-            // Блокируем на сервере
+            // Убираем из списка разблокированных
             const supplyId = row.dataset.supplyId;
+            if (supplyId) {
+                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
+                delete unlocks[supplyId];
+                localStorage.setItem('supply_unlocks', JSON.stringify(unlocks));
+            }
+
+            // Блокируем на сервере
             if (supplyId && !String(supplyId).startsWith('new_')) {
                 fetch('/api/supplies/lock', {
                     method: 'POST',
@@ -5841,6 +5856,14 @@ HTML_TEMPLATE = '''
             if (lockBtn) {
                 lockBtn.textContent = '🔓';
                 lockBtn.title = 'Нажмите чтобы заблокировать';
+            }
+
+            // Запоминаем время разблокировки (сохраняется 30 минут)
+            const supplyId = row.dataset.supplyId;
+            if (supplyId) {
+                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
+                unlocks[supplyId] = Date.now();
+                localStorage.setItem('supply_unlocks', JSON.stringify(unlocks));
             }
         }
 
