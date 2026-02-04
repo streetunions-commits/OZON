@@ -3802,6 +3802,7 @@ HTML_TEMPLATE = '''
                                     <th>Добавить<br>в маркетинг</th>
                                     <th>Внести<br>в долги</th>
                                     <th>План<br>на FBO</th>
+                                    <th style="width: 40px;">🔒</th>
                                 </tr>
                             </thead>
                             <tbody id="supplies-tbody">
@@ -4846,22 +4847,6 @@ HTML_TEMPLATE = '''
             supplies.forEach(s => {
                 const row = createSupplyRowElement(s);
                 tbody.appendChild(row);
-                // Если строка заблокирована — добавляем обработчик двойного клика
-                if (s.is_locked) {
-                    row.ondblclick = function() {
-                        showEditConfirm(row, (confirmed) => {
-                            if (confirmed) {
-                                unlockSupplyRow(row);
-                                // Разблокируем на сервере
-                                fetch('/api/supplies/unlock', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: row.dataset.supplyId })
-                                });
-                            }
-                        });
-                    };
-                }
             });
         }
 
@@ -4939,6 +4924,31 @@ HTML_TEMPLATE = '''
 
             // 13. План на FBO (чекбокс)
             row.appendChild(createCheckboxCell(data ? data.plan_fbo : false, isLocked, row));
+
+            // 14. Кнопка блокировки/разблокировки
+            const tdLock = document.createElement('td');
+            const lockBtn = document.createElement('button');
+            lockBtn.className = 'supply-lock-btn';
+            lockBtn.style.cssText = 'background:none; border:none; cursor:pointer; font-size:16px; padding:4px;';
+            lockBtn.textContent = isLocked ? '🔒' : '🔓';
+            lockBtn.title = isLocked ? 'Дважды кликните строку для разблокировки' : 'Нажмите чтобы заблокировать';
+            lockBtn.onclick = function(e) {
+                e.stopPropagation();
+                if (row.classList.contains('locked-row')) {
+                    showEditConfirm(row);
+                } else {
+                    lockSupplyRow(row);
+                }
+            };
+            tdLock.appendChild(lockBtn);
+            row.appendChild(tdLock);
+
+            // Если строка заблокирована — ставим обработчик двойного клика
+            if (isLocked) {
+                row.ondblclick = function() {
+                    showEditConfirm(row);
+                };
+            }
 
             return row;
         }
@@ -5097,6 +5107,9 @@ HTML_TEMPLATE = '''
             const data = getRowData(row);
             if (!data.sku) return; // Не сохраняем пустые строки
 
+            // Если строка в режиме редактирования — не блокируем
+            const isEditing = row.dataset.editing === 'true';
+
             // Рассчитываем себестоимость
             const logistics = data.logistics_cost_per_unit || 0;
             const priceCny = data.price_cny || 0;
@@ -5110,31 +5123,9 @@ HTML_TEMPLATE = '''
             .then(r => r.json())
             .then(result => {
                 if (result.success && result.id) {
-                    // Обновляем ID строки (если была новая)
                     row.dataset.supplyId = result.id;
-
-                    // Проверяем — если все ключевые поля заполнены, блокируем строку
-                    if (isRowComplete(data)) {
-                        lockSupplyRow(row);
-                        // Блокируем на сервере
-                        fetch('/api/supplies/lock', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ id: result.id })
-                        });
-                    }
                 }
             });
-        }
-
-        /**
-         * Проверка — заполнены ли все ключевые поля строки.
-         * Строка считается завершённой когда: товар + дата выхода план + кол-во план заполнены.
-         */
-        function isRowComplete(data) {
-            return data.sku > 0
-                && data.exit_plan_date
-                && data.order_qty_plan > 0;
         }
 
         /**
@@ -5212,62 +5203,86 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Показать диалог подтверждения для редактирования заблокированного поля
+         * Показать диалог подтверждения для редактирования заблокированного поля.
+         * При нажатии "Да" — разблокирует строку, при "Отмена" — ничего не делает.
          */
-        function showEditConfirm(row, callback) {
+        function showEditConfirm(row) {
             const overlay = document.createElement('div');
             overlay.className = 'supply-edit-confirm';
             overlay.innerHTML = `
                 <div class="supply-edit-confirm-box">
                     <h3>Подтверждение</h3>
-                    <p>Эта строка уже заполнена. Вы уверены, что хотите редактировать?</p>
-                    <button class="supply-confirm-yes" onclick="this.closest('.supply-edit-confirm').dataset.result='yes'; this.closest('.supply-edit-confirm').remove();">Да, редактировать</button>
-                    <button class="supply-confirm-no" onclick="this.closest('.supply-edit-confirm').remove();">Отмена</button>
+                    <p>Эта строка заблокирована. Разрешить редактирование?</p>
+                    <button class="supply-confirm-yes">Да, редактировать</button>
+                    <button class="supply-confirm-no">Отмена</button>
                 </div>
             `;
 
-            // Обработка кнопки "Да"
             overlay.querySelector('.supply-confirm-yes').onclick = () => {
                 overlay.remove();
-                callback(true);
+                unlockSupplyRow(row);
+                // Разблокируем на сервере
+                fetch('/api/supplies/unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: row.dataset.supplyId })
+                });
             };
             overlay.querySelector('.supply-confirm-no').onclick = () => {
                 overlay.remove();
-                callback(false);
             };
 
             document.body.appendChild(overlay);
         }
 
         /**
-         * Блокировка строки после заполнения (защита от случайного редактирования)
+         * Блокировка строки (защита от случайного редактирования).
+         * Вызывается по нажатию кнопки-замка в строке.
          */
         function lockSupplyRow(row) {
-            const inputs = row.querySelectorAll('input, select');
+            const inputs = row.querySelectorAll('.supply-input, .supply-select, .supply-checkbox');
             inputs.forEach(el => el.disabled = true);
             row.classList.add('locked-row');
 
-            // Добавляем обработчик двойного клика для разблокировки
-            row.ondblclick = function() {
-                showEditConfirm(row, (confirmed) => {
-                    if (confirmed) {
-                        unlockSupplyRow(row);
-                    }
-                });
+            // Обновляем иконку замка
+            const lockBtn = row.querySelector('.supply-lock-btn');
+            if (lockBtn) {
+                lockBtn.textContent = '🔒';
+                lockBtn.title = 'Дважды кликните для разблокировки';
+            }
+
+            // Двойной клик — разблокировка с подтверждением
+            row.ondblclick = function(e) {
+                // Не срабатывает на кнопке замка (у неё свой обработчик)
+                showEditConfirm(row);
             };
+
+            // Блокируем на сервере
+            const supplyId = row.dataset.supplyId;
+            if (supplyId && !String(supplyId).startsWith('new_')) {
+                fetch('/api/supplies/lock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: supplyId })
+                });
+            }
         }
 
         /**
          * Разблокировка строки для редактирования
          */
         function unlockSupplyRow(row) {
-            const inputs = row.querySelectorAll('input, select');
+            const inputs = row.querySelectorAll('.supply-input, .supply-select, .supply-checkbox');
             inputs.forEach(el => el.disabled = false);
             row.classList.remove('locked-row');
-
-            // Себестоимость всегда read-only (вычисляется)
-            // Убираем ondblclick
             row.ondblclick = null;
+
+            // Обновляем иконку замка
+            const lockBtn = row.querySelector('.supply-lock-btn');
+            if (lockBtn) {
+                lockBtn.textContent = '🔓';
+                lockBtn.title = 'Нажмите чтобы заблокировать';
+            }
         }
 
     </script>
