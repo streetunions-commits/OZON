@@ -5401,6 +5401,21 @@ HTML_TEMPLATE = '''
          *
          * Запоминаем: dataset.arrivalRedistTarget, dataset.arrivalRedistAmount
          */
+        /**
+         * Обработка "Кол-во прихода на склад".
+         *
+         * Если приход != выход с фабрики:
+         *   - Излишек (приход > выход): вычитаем из плана ТЕКУЩЕЙ строки
+         *     И вычитаем из плана СЛЕДУЮЩЕЙ строки
+         *   - Нехватка (приход < выход): добавляем к плану следующей строки
+         *
+         * Пример (излишек):
+         *   Выход = 500, приход = 600, излишек = 100
+         *   → Текущая строка: план -= 100
+         *   → Следующая строка: план -= 100
+         *
+         * При повторном редактировании — откат предыдущих изменений.
+         */
         function handleArrivalQtyChange(row) {
             const data = getRowData(row);
             if (!data.sku) return;
@@ -5408,28 +5423,40 @@ HTML_TEMPLATE = '''
             const factoryQty = data.exit_factory_qty || 0;
             const arrivalQty = data.arrival_warehouse_qty || 0;
 
-            // --- Шаг 1: откатываем предыдущий перенос ---
+            // --- Шаг 1: откатываем предыдущие переносы ---
             const prevTargetId = row.dataset.arrivalRedistTarget || '';
             const prevAmount = parseInt(row.dataset.arrivalRedistAmount) || 0;
+            const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
 
+            // Откат из следующей строки
             if (prevTargetId && prevAmount !== 0) {
                 const prevTargetRow = findRowById(prevTargetId);
                 if (prevTargetRow) {
                     modifyPlanQty(prevTargetRow, -prevAmount);
                 }
             }
+
+            // Откат из текущей строки
+            if (prevLocalAdj !== 0) {
+                modifyPlanQty(row, -prevLocalAdj);
+            }
+
             row.dataset.arrivalRedistTarget = '';
             row.dataset.arrivalRedistAmount = '0';
+            row.dataset.arrivalLocalAdj = '0';
 
             // --- Шаг 2: если нет данных или приход = выход — разницы нет ---
             if (!arrivalQty || !factoryQty || arrivalQty === factoryQty) return;
 
-            // --- Шаг 3: считаем разницу и переносим на следующую строку ---
-            // diff > 0: приход > выход (излишек) → вычитаем из плана следующей строки
-            // diff < 0: приход < выход (нехватка) → добавляем к плану следующей строки
             const diff = arrivalQty - factoryQty;
 
-            // Ищем строку-получатель
+            // --- Шаг 3: если излишек (приход > выход) — вычитаем из текущей строки ---
+            if (diff > 0) {
+                modifyPlanQty(row, -diff);
+                row.dataset.arrivalLocalAdj = String(-diff);
+            }
+
+            // --- Шаг 4: переносим разницу на следующую строку ---
             let targetRow = null;
 
             if (prevTargetId) {
@@ -5440,8 +5467,7 @@ HTML_TEMPLATE = '''
             }
             if (!targetRow) return;
 
-            // diff > 0 (излишек) → вычитаем: modifyPlanQty(target, -diff)
-            // diff < 0 (нехватка) → добавляем: modifyPlanQty(target, -diff) = +|diff|
+            // Излишек → вычитаем из следующей, нехватка → добавляем к следующей
             modifyPlanQty(targetRow, -diff);
 
             row.dataset.arrivalRedistTarget = getRowId(targetRow);
