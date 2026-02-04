@@ -3725,9 +3725,9 @@ HTML_TEMPLATE = '''
             color: #333;
         }
 
-        .supplies-table tfoot {
+        .supplies-totals-row td {
             position: sticky;
-            bottom: 0;
+            top: 36px;
             z-index: 2;
         }
 
@@ -3879,12 +3879,10 @@ HTML_TEMPLATE = '''
                                     <th style="width: 40px;">🔒</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
+                                <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
                             </thead>
                             <tbody id="supplies-tbody">
                             </tbody>
-                            <tfoot id="supplies-tfoot">
-                                <tr class="supplies-totals-row"></tr>
-                            </tfoot>
                         </table>
                     </div>
                     <button class="supplies-add-btn" onclick="addSupplyRow()" title="Добавить строку">
@@ -4990,7 +4988,7 @@ HTML_TEMPLATE = '''
             suppliesProducts.forEach(p => {
                 const opt = document.createElement('option');
                 opt.value = p.sku;
-                opt.textContent = (p.offer_id ? p.offer_id + ' — ' : '') + p.name;
+                opt.textContent = p.offer_id || p.sku;
                 if (data && data.sku == p.sku) opt.selected = true;
                 selectProduct.appendChild(opt);
             });
@@ -5166,11 +5164,28 @@ HTML_TEMPLATE = '''
          * Добавить новую строку в таблицу поставок
          */
         function addSupplyRow() {
-            const tbody = document.getElementById('supplies-tbody');
-            const row = createSupplyRowElement(null);
-            tbody.appendChild(row);
-            highlightEmptyCells(row);
-            updateSupplyTotals();
+            const overlay = document.createElement('div');
+            overlay.className = 'supply-edit-confirm';
+            overlay.innerHTML = `
+                <div class="supply-edit-confirm-box">
+                    <h3>Новая строка</h3>
+                    <p>Создать новую строку поставки?</p>
+                    <button class="supply-confirm-yes">Да, создать</button>
+                    <button class="supply-confirm-no">Отмена</button>
+                </div>
+            `;
+            overlay.querySelector('.supply-confirm-yes').onclick = () => {
+                overlay.remove();
+                const tbody = document.getElementById('supplies-tbody');
+                const row = createSupplyRowElement(null);
+                tbody.appendChild(row);
+                highlightEmptyCells(row);
+                updateSupplyTotals();
+            };
+            overlay.querySelector('.supply-confirm-no').onclick = () => {
+                overlay.remove();
+            };
+            document.body.appendChild(overlay);
         }
 
         /**
@@ -5759,7 +5774,7 @@ HTML_TEMPLATE = '''
          * Валютные столбцы (логистика, цена ¥, себестоимость) — среднее.
          */
         function updateSupplyTotals() {
-            const tfoot = document.querySelector('#supplies-tfoot tr');
+            const tfoot = document.getElementById('supplies-tfoot-row');
             if (!tfoot) return;
 
             // Видимые строки
