@@ -5255,18 +5255,24 @@ HTML_TEMPLATE = '''
             const textInputs = row.querySelectorAll('input[type="text"]');
             const checkboxes = row.querySelectorAll('input[type="checkbox"]');
 
+            // Вспомогательная функция: пустое поле → null, иначе число
+            function numOrNull(input) {
+                if (!input || input.value.trim() === '') return null;
+                return parseNumberFromSpaces(input.value);
+            }
+
             return {
                 id: row.dataset.supplyId,
                 sku: select ? parseInt(select.value) || 0 : 0,
                 product_name: select ? select.options[select.selectedIndex]?.text || '' : '',
                 exit_plan_date: dateInputs[0] ? dateInputs[0].value : '',
-                order_qty_plan: textInputs[0] ? parseNumberFromSpaces(textInputs[0].value) : 0,
+                order_qty_plan: numOrNull(textInputs[0]),
                 exit_factory_date: dateInputs[1] ? dateInputs[1].value : '',
-                exit_factory_qty: textInputs[1] ? parseNumberFromSpaces(textInputs[1].value) : 0,
+                exit_factory_qty: numOrNull(textInputs[1]),
                 arrival_warehouse_date: dateInputs[2] ? dateInputs[2].value : '',
-                arrival_warehouse_qty: textInputs[2] ? parseNumberFromSpaces(textInputs[2].value) : 0,
-                logistics_cost_per_unit: textInputs[3] ? parseNumberFromSpaces(textInputs[3].value) : 0,
-                price_cny: textInputs[4] ? parseNumberFromSpaces(textInputs[4].value) : 0,
+                arrival_warehouse_qty: numOrNull(textInputs[2]),
+                logistics_cost_per_unit: numOrNull(textInputs[3]),
+                price_cny: numOrNull(textInputs[4]),
                 add_to_marketing: checkboxes[0] ? checkboxes[0].checked : false,
                 add_to_debts: checkboxes[1] ? checkboxes[1].checked : false,
                 plan_fbo: checkboxes[2] ? checkboxes[2].checked : false
@@ -6783,14 +6789,14 @@ def save_supply():
                 data.get('sku', 0),
                 data.get('product_name', ''),
                 data.get('exit_plan_date', ''),
-                data.get('order_qty_plan', 0),
+                data.get('order_qty_plan'),
                 data.get('exit_factory_date', ''),
-                data.get('exit_factory_qty', 0),
+                data.get('exit_factory_qty'),
                 data.get('arrival_warehouse_date', ''),
-                data.get('arrival_warehouse_qty', 0),
-                data.get('logistics_cost_per_unit', 0),
-                data.get('price_cny', 0),
-                data.get('cost_plus_6', 0),
+                data.get('arrival_warehouse_qty'),
+                data.get('logistics_cost_per_unit'),
+                data.get('price_cny'),
+                data.get('cost_plus_6'),
                 1 if data.get('add_to_marketing') else 0,
                 1 if data.get('add_to_debts') else 0,
                 1 if data.get('plan_fbo') else 0
@@ -6810,14 +6816,14 @@ def save_supply():
                 data.get('sku', 0),
                 data.get('product_name', ''),
                 data.get('exit_plan_date', ''),
-                data.get('order_qty_plan', 0),
+                data.get('order_qty_plan'),
                 data.get('exit_factory_date', ''),
-                data.get('exit_factory_qty', 0),
+                data.get('exit_factory_qty'),
                 data.get('arrival_warehouse_date', ''),
-                data.get('arrival_warehouse_qty', 0),
-                data.get('logistics_cost_per_unit', 0),
-                data.get('price_cny', 0),
-                data.get('cost_plus_6', 0),
+                data.get('arrival_warehouse_qty'),
+                data.get('logistics_cost_per_unit'),
+                data.get('price_cny'),
+                data.get('cost_plus_6'),
                 1 if data.get('add_to_marketing') else 0,
                 1 if data.get('add_to_debts') else 0,
                 1 if data.get('plan_fbo') else 0,
