@@ -3865,7 +3865,7 @@ HTML_TEMPLATE = '''
                                 <tr>
                                     <th>Товар</th>
                                     <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Выход с фабрики<br>ПЛАН <span class="sort-arrow"></span></th>
-                                    <th>Заказ кол-во<br>ПЛАН</th>
+                                    <th style="min-width: 130px;">Заказ кол-во<br>ПЛАН</th>
                                     <th class="sortable-date" data-col="3" onclick="sortSuppliesByDate(3)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
                                     <th class="sortable-date" data-col="5" onclick="sortSuppliesByDate(5)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
@@ -3873,7 +3873,6 @@ HTML_TEMPLATE = '''
                                     <th>Стоимость логистики<br>за единицу, ₽</th>
                                     <th>Цена товара<br>единица, ¥</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
-                                    <th>Добавить<br>в маркетинг</th>
                                     <th>Внести<br>в долги</th>
                                     <th>План<br>на FBO</th>
                                     <th style="width: 40px;">🔒</th>
@@ -5040,10 +5039,7 @@ HTML_TEMPLATE = '''
             tdCost.appendChild(costSpan);
             row.appendChild(tdCost);
 
-            // 11. Добавить в маркетинг (чекбокс)
-            row.appendChild(createCheckboxCell(data ? data.add_to_marketing : false, isLocked, row));
-
-            // 12. Внести в долги (чекбокс)
+            // 11. Внести в долги (чекбокс)
             row.appendChild(createCheckboxCell(data ? data.add_to_debts : false, isLocked, row));
 
             // 13. План на FBO (чекбокс)
@@ -5415,9 +5411,9 @@ HTML_TEMPLATE = '''
                 arrival_warehouse_qty: numOrNull(textInputs[2]),
                 logistics_cost_per_unit: numOrNull(textInputs[3]),
                 price_cny: numOrNull(textInputs[4]),
-                add_to_marketing: checkboxes[0] ? checkboxes[0].checked : false,
-                add_to_debts: checkboxes[1] ? checkboxes[1].checked : false,
-                plan_fbo: checkboxes[2] ? checkboxes[2].checked : false
+                add_to_marketing: false,
+                add_to_debts: checkboxes[0] ? checkboxes[0].checked : false,
+                plan_fbo: checkboxes[1] ? checkboxes[1].checked : false
             };
         }
 
@@ -5782,7 +5778,7 @@ HTML_TEMPLATE = '''
             // Индексы столбцов (0-based):
             // 0:товар, 1:дата план, 2:заказ план, 3:дата выхода, 4:кол выхода,
             // 5:дата прихода, 6:кол прихода, 7:логистика₽, 8:цена¥, 9:себестоимость,
-            // 10:маркетинг, 11:долги, 12:FBO, 13:замок, 14:удалить
+            // 10:долги, 11:FBO, 12:замок, 13:удалить
 
             // Столбцы с суммами (числа, не валюты)
             const sumCols = [2, 4, 6];
@@ -5845,7 +5841,7 @@ HTML_TEMPLATE = '''
             // Себестоимость (среднее)
             html += '<td>' + (counts[9] ? formatNumberWithSpaces(Math.round(avgs[9] / counts[9])) : '') + '</td>';
 
-            html += '<td></td><td></td><td></td>'; // чекбоксы
+            html += '<td></td><td></td>'; // чекбоксы (долги, FBO)
             html += '<td></td><td></td>'; // замок, удалить
 
             tfoot.innerHTML = html;
