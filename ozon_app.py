@@ -3848,26 +3848,38 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
                     <!-- Стоимость товара в пути -->
-                    <div class="currency-rates-row" style="margin-top: 12px;">
+                    <div class="currency-rates-row" style="margin-top: 12px; flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
                             <span class="currency-label">Товар в пути</span>
                             <span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">шт.</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Стоимость в пути</span>
+                            <span class="currency-label">Вся себестоимость в пути</span>
                             <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">₽</span>
                         </div>
+                        <div class="currency-rate-card" style="background:#fefce8; border-color:#ca8a04;">
+                            <span class="currency-label">Себестоимость в пути без логистики</span>
+                            <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#ca8a04;">—</span>
+                            <span class="currency-rub" style="color:#713f12;">₽</span>
+                        </div>
+                    </div>
+                    <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
                             <span class="currency-label">План не доставлен</span>
                             <span class="currency-value" id="plan-not-delivered-qty" style="color:#2563eb;">—</span>
                             <span class="currency-rub" style="color:#1e40af;">шт.</span>
                         </div>
                         <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">Стоимость плана</span>
+                            <span class="currency-label">Вся себестоимость плана</span>
                             <span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span>
                             <span class="currency-rub" style="color:#1e40af;">₽</span>
+                        </div>
+                        <div class="currency-rate-card" style="background:#eef2ff; border-color:#6366f1;">
+                            <span class="currency-label">Себестоимость плана без логистики</span>
+                            <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#4f46e5;">—</span>
+                            <span class="currency-rub" style="color:#312e81;">₽</span>
                         </div>
                     </div>
                 </div>
@@ -5888,8 +5900,10 @@ HTML_TEMPLATE = '''
         function updateGoodsInTransit() {
             const qtyEl = document.getElementById('goods-in-transit-qty');
             const costEl = document.getElementById('goods-in-transit-cost');
+            const costNoLogEl = document.getElementById('goods-in-transit-cost-no-log');
             const planQtyEl = document.getElementById('plan-not-delivered-qty');
             const planCostEl = document.getElementById('plan-not-delivered-cost');
+            const planCostNoLogEl = document.getElementById('plan-not-delivered-cost-no-log');
 
             // Берём только видимые строки (с учётом фильтра по товару)
             const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
@@ -5900,16 +5914,22 @@ HTML_TEMPLATE = '''
             let totalArrival = 0;
             let costSum = 0;
             let costCount = 0;
+            let logisticsSum = 0;
+            let logisticsCount = 0;
 
             rows.forEach(row => {
                 const textInputs = row.querySelectorAll('input[type="text"]');
-                // textInputs: 0=plan, 1=exit_factory_qty, 2=arrival_warehouse_qty
+                // textInputs: 0=plan, 1=exit_factory_qty, 2=arrival_warehouse_qty, 3=logistics, 4=price_cny
                 const planVal = textInputs[0] ? (parseNumberFromSpaces(textInputs[0].value) || 0) : 0;
                 const factoryVal = textInputs[1] ? (parseNumberFromSpaces(textInputs[1].value) || 0) : 0;
                 const arrivalVal = textInputs[2] ? (parseNumberFromSpaces(textInputs[2].value) || 0) : 0;
+                const logVal = textInputs[3] ? (parseNumberFromSpaces(textInputs[3].value) || 0) : 0;
                 totalPlan += planVal;
                 totalFactory += factoryVal;
                 totalArrival += arrivalVal;
+
+                // Средняя логистика за единицу
+                if (logVal) { logisticsSum += logVal; logisticsCount++; }
 
                 // Себестоимость +6% из span
                 const costSpan = row.querySelector('.supply-cost-auto');
@@ -5920,38 +5940,50 @@ HTML_TEMPLATE = '''
             });
 
             const avgCost = costCount > 0 ? costSum / costCount : 0;
+            const avgLogistics = logisticsCount > 0 ? logisticsSum / logisticsCount : 0;
+            // Себестоимость без логистики = средняя себестоимость - средняя логистика
+            const avgCostNoLog = Math.max(0, avgCost - avgLogistics);
+
+            // Вспомогательная функция для заполнения карточек
+            function fillCard(qtyElement, costElement, qty, cost) {
+                if (!qtyElement || !costElement) return;
+                if (qty > 0 && cost > 0) {
+                    qtyElement.textContent = formatNumberWithSpaces(qty);
+                    costElement.textContent = formatNumberWithSpaces(Math.round(cost));
+                } else if (qty === 0) {
+                    qtyElement.textContent = '0';
+                    costElement.textContent = '0';
+                } else {
+                    qtyElement.textContent = '—';
+                    costElement.textContent = '—';
+                }
+            }
 
             // Товар в пути: выход с фабрики - приход на склад
             const inTransitQty = totalFactory - totalArrival;
-            const inTransitCost = inTransitQty * avgCost;
-
-            if (qtyEl && costEl) {
-                if (inTransitQty > 0 && avgCost > 0) {
-                    qtyEl.textContent = formatNumberWithSpaces(inTransitQty);
-                    costEl.textContent = formatNumberWithSpaces(Math.round(inTransitCost));
+            fillCard(qtyEl, costEl, inTransitQty, inTransitQty * avgCost);
+            // Себестоимость в пути без логистики
+            if (costNoLogEl) {
+                if (inTransitQty > 0 && avgCostNoLog > 0) {
+                    costNoLogEl.textContent = formatNumberWithSpaces(Math.round(inTransitQty * avgCostNoLog));
                 } else if (inTransitQty === 0) {
-                    qtyEl.textContent = '0';
-                    costEl.textContent = '0';
+                    costNoLogEl.textContent = '0';
                 } else {
-                    qtyEl.textContent = '—';
-                    costEl.textContent = '—';
+                    costNoLogEl.textContent = '—';
                 }
             }
 
             // План не доставлен: план - приход на склад
             const planNotDeliveredQty = totalPlan - totalArrival;
-            const planNotDeliveredCost = planNotDeliveredQty * avgCost;
-
-            if (planQtyEl && planCostEl) {
-                if (planNotDeliveredQty > 0 && avgCost > 0) {
-                    planQtyEl.textContent = formatNumberWithSpaces(planNotDeliveredQty);
-                    planCostEl.textContent = formatNumberWithSpaces(Math.round(planNotDeliveredCost));
+            fillCard(planQtyEl, planCostEl, planNotDeliveredQty, planNotDeliveredQty * avgCost);
+            // Себестоимость плана без логистики
+            if (planCostNoLogEl) {
+                if (planNotDeliveredQty > 0 && avgCostNoLog > 0) {
+                    planCostNoLogEl.textContent = formatNumberWithSpaces(Math.round(planNotDeliveredQty * avgCostNoLog));
                 } else if (planNotDeliveredQty === 0) {
-                    planQtyEl.textContent = '0';
-                    planCostEl.textContent = '0';
+                    planCostNoLogEl.textContent = '0';
                 } else {
-                    planQtyEl.textContent = '—';
-                    planCostEl.textContent = '—';
+                    planCostNoLogEl.textContent = '—';
                 }
             }
         }
