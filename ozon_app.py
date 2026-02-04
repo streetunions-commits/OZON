@@ -6860,7 +6860,7 @@ def get_supplies():
 
         cursor.execute('''
             SELECT * FROM supplies
-            ORDER BY created_at DESC
+            ORDER BY exit_plan_date ASC, created_at ASC
         ''')
 
         supplies = [dict(row) for row in cursor.fetchall()]
