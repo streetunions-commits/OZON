@@ -5295,17 +5295,25 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                // Валидация: итого выхода с фабрики не может быть меньше итого прихода на склад
+                // Валидации для выхода с фабрики
                 if (fieldName === 'exit_factory_qty' && input.value.trim() !== '') {
                     const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+                    let totalPlan = 0;
                     let totalFactory = 0;
                     let totalArrival = 0;
                     allRows.forEach(r => {
                         const ti = r.querySelectorAll('input[type="text"]');
+                        totalPlan += ti[0] ? (parseNumberFromSpaces(ti[0].value) || 0) : 0;
                         totalFactory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
                         totalArrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
                     });
-                    if (totalFactory < totalArrival) {
+                    // Итого выхода с фабрики не может быть больше итого плана
+                    if (totalFactory > totalPlan) {
+                        alert('⚠️ Итого выхода с фабрики (' + formatNumberWithSpaces(totalFactory) + ') не может быть больше итого плана (' + formatNumberWithSpaces(totalPlan) + ')');
+                        input.value = '';
+                    }
+                    // Итого выхода с фабрики не может быть меньше итого прихода на склад
+                    else if (totalFactory < totalArrival) {
                         alert('⚠️ Итого выхода с фабрики (' + formatNumberWithSpaces(totalFactory) + ') не может быть меньше итого прихода на склад (' + formatNumberWithSpaces(totalArrival) + ')');
                         input.value = '';
                     }
