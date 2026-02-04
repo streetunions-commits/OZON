@@ -5031,6 +5031,10 @@ HTML_TEMPLATE = '''
                 if (fieldName === 'exit_factory_qty') {
                     handleExitFactoryQtyChange(row);
                 }
+                // Логика вычитания излишка прихода на склад
+                if (fieldName === 'arrival_warehouse_qty') {
+                    handleArrivalQtyChange(row);
+                }
             };
 
             td.appendChild(input);
@@ -5255,6 +5259,65 @@ HTML_TEMPLATE = '''
             row.dataset.redistAmount = String(remainder);
 
             onSupplyFieldChange(row);
+        }
+
+        /**
+         * Обработка "Кол-во прихода на склад".
+         *
+         * Если приход > выход с фабрики — излишек вычитается из плана
+         * следующей строки с тем же товаром (с большей датой).
+         *
+         * Пример:
+         *   Выход с фабрики = 500, приход на склад = 600
+         *   → Излишек = 100, из плана следующей строки вычитаем 100
+         *
+         *   Потом приход меняется на 700
+         *   → Откат старого -100, новый излишек = 200, вычитаем 200
+         *
+         * Запоминаем: dataset.arrivalRedistTarget, dataset.arrivalRedistAmount
+         */
+        function handleArrivalQtyChange(row) {
+            const data = getRowData(row);
+            if (!data.sku) return;
+
+            const factoryQty = data.exit_factory_qty || 0;
+            const arrivalQty = data.arrival_warehouse_qty || 0;
+
+            // --- Шаг 1: откатываем предыдущий перенос ---
+            const prevTargetId = row.dataset.arrivalRedistTarget || '';
+            const prevAmount = parseInt(row.dataset.arrivalRedistAmount) || 0;
+
+            if (prevTargetId && prevAmount !== 0) {
+                const prevTargetRow = findRowById(prevTargetId);
+                if (prevTargetRow) {
+                    modifyPlanQty(prevTargetRow, -prevAmount);
+                }
+            }
+            row.dataset.arrivalRedistTarget = '';
+            row.dataset.arrivalRedistAmount = '0';
+
+            // --- Шаг 2: если приход <= выход — излишка нет ---
+            if (!arrivalQty || !factoryQty || arrivalQty <= factoryQty) return;
+
+            // --- Шаг 3: считаем излишек и вычитаем из следующей строки ---
+            const excess = arrivalQty - factoryQty;
+
+            // Ищем строку-получатель
+            let targetRow = null;
+
+            if (prevTargetId) {
+                targetRow = findRowById(prevTargetId);
+            }
+            if (!targetRow) {
+                targetRow = findNextSameSkuRow(row, data);
+            }
+            if (!targetRow) return; // Нет следующей строки — не создаём новую, просто пропускаем
+
+            // Вычитаем излишек из плана следующей строки
+            modifyPlanQty(targetRow, -excess);
+
+            row.dataset.arrivalRedistTarget = getRowId(targetRow);
+            row.dataset.arrivalRedistAmount = String(-excess);
         }
 
         /**
