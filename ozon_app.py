@@ -3864,6 +3864,11 @@ HTML_TEMPLATE = '''
                             <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#ca8a04;">—</span>
                             <span class="currency-rub" style="color:#713f12;">₽</span>
                         </div>
+                        <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
+                            <span class="currency-label">Логистика в пути</span>
+                            <span class="currency-value" id="logistics-in-transit" style="color:#dc2626;">—</span>
+                            <span class="currency-rub" style="color:#7f1d1d;">₽</span>
+                        </div>
                     </div>
                     <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
@@ -3880,6 +3885,11 @@ HTML_TEMPLATE = '''
                             <span class="currency-label">Себестоимость плана без логистики</span>
                             <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#4f46e5;">—</span>
                             <span class="currency-rub" style="color:#312e81;">₽</span>
+                        </div>
+                        <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
+                            <span class="currency-label">Логистика план</span>
+                            <span class="currency-value" id="logistics-plan" style="color:#dc2626;">—</span>
+                            <span class="currency-rub" style="color:#7f1d1d;">₽</span>
                         </div>
                     </div>
                 </div>
@@ -5963,27 +5973,55 @@ HTML_TEMPLATE = '''
             const inTransitQty = totalFactory - totalArrival;
             fillCard(qtyEl, costEl, inTransitQty, inTransitQty * avgCost);
             // Себестоимость в пути без логистики
+            const inTransitCostFull = inTransitQty * avgCost;
+            const inTransitCostNoLog = inTransitQty * avgCostNoLog;
             if (costNoLogEl) {
                 if (inTransitQty > 0 && avgCostNoLog > 0) {
-                    costNoLogEl.textContent = formatNumberWithSpaces(Math.round(inTransitQty * avgCostNoLog));
+                    costNoLogEl.textContent = formatNumberWithSpaces(Math.round(inTransitCostNoLog));
                 } else if (inTransitQty === 0) {
                     costNoLogEl.textContent = '0';
                 } else {
                     costNoLogEl.textContent = '—';
                 }
             }
+            // Логистика в пути = вся себестоимость в пути - себестоимость без логистики
+            const logInTransitEl = document.getElementById('logistics-in-transit');
+            if (logInTransitEl) {
+                const logVal = Math.round(inTransitCostFull - inTransitCostNoLog);
+                if (inTransitQty > 0 && logVal > 0) {
+                    logInTransitEl.textContent = formatNumberWithSpaces(logVal);
+                } else if (inTransitQty === 0) {
+                    logInTransitEl.textContent = '0';
+                } else {
+                    logInTransitEl.textContent = '—';
+                }
+            }
 
             // План не доставлен: план - приход на склад
             const planNotDeliveredQty = totalPlan - totalArrival;
-            fillCard(planQtyEl, planCostEl, planNotDeliveredQty, planNotDeliveredQty * avgCost);
+            const planCostFull = planNotDeliveredQty * avgCost;
+            const planCostNoLogVal = planNotDeliveredQty * avgCostNoLog;
+            fillCard(planQtyEl, planCostEl, planNotDeliveredQty, planCostFull);
             // Себестоимость плана без логистики
             if (planCostNoLogEl) {
                 if (planNotDeliveredQty > 0 && avgCostNoLog > 0) {
-                    planCostNoLogEl.textContent = formatNumberWithSpaces(Math.round(planNotDeliveredQty * avgCostNoLog));
+                    planCostNoLogEl.textContent = formatNumberWithSpaces(Math.round(planCostNoLogVal));
                 } else if (planNotDeliveredQty === 0) {
                     planCostNoLogEl.textContent = '0';
                 } else {
                     planCostNoLogEl.textContent = '—';
+                }
+            }
+            // Логистика план = вся себестоимость плана - себестоимость плана без логистики
+            const logPlanEl = document.getElementById('logistics-plan');
+            if (logPlanEl) {
+                const logPlanVal = Math.round(planCostFull - planCostNoLogVal);
+                if (planNotDeliveredQty > 0 && logPlanVal > 0) {
+                    logPlanEl.textContent = formatNumberWithSpaces(logPlanVal);
+                } else if (planNotDeliveredQty === 0) {
+                    logPlanEl.textContent = '0';
+                } else {
+                    logPlanEl.textContent = '—';
                 }
             }
         }
