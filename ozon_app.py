@@ -4997,19 +4997,19 @@ HTML_TEMPLATE = '''
             row.appendChild(tdProduct);
 
             // 2. Выход с фабрики ПЛАН (дата без года)
-            row.appendChild(createDateCell(data ? data.exit_plan_date : '', isLocked, row));
+            row.appendChild(createDateCell(data ? data.exit_plan_date : '', isLocked, row, 0));
 
             // 3. Заказ кол-во ПЛАН (число)
             row.appendChild(createNumberCell(data ? data.order_qty_plan : '', isLocked, row, 'order_qty_plan'));
 
             // 4. Дата выхода с фабрики (дата)
-            row.appendChild(createDateCell(data ? data.exit_factory_date : '', isLocked, row));
+            row.appendChild(createDateCell(data ? data.exit_factory_date : '', isLocked, row, 1));
 
             // 5. Кол-во выхода с фабрики (число) — с логикой перераспределения
             row.appendChild(createNumberCell(data ? data.exit_factory_qty : '', isLocked, row, 'exit_factory_qty'));
 
             // 6. Дата прихода на склад (дата)
-            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', isLocked, row));
+            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', isLocked, row, 2));
 
             // 7. Кол-во прихода на склад (число)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', isLocked, row, 'arrival_warehouse_qty'));
@@ -5085,7 +5085,7 @@ HTML_TEMPLATE = '''
         /**
          * Создание ячейки с полем даты (без года — отображается ДД.ММ)
          */
-        function createDateCell(value, isLocked, row) {
+        function createDateCell(value, isLocked, row, dateIndex) {
             const td = document.createElement('td');
             const input = document.createElement('input');
             input.type = 'date';
@@ -5094,6 +5094,24 @@ HTML_TEMPLATE = '''
             if (value) input.value = value;
             input.disabled = isLocked;
             input.onchange = () => {
+                // Валидация порядка дат внутри строки
+                const dateInputs = row.querySelectorAll('input[type="date"]');
+                const planDate = dateInputs[0] ? dateInputs[0].value : '';
+                const factoryDate = dateInputs[1] ? dateInputs[1].value : '';
+                const arrivalDate = dateInputs[2] ? dateInputs[2].value : '';
+
+                // dateIndex: 0=план, 1=выход с фабрики, 2=приход на склад
+                if (dateIndex === 1 && planDate && factoryDate && factoryDate < planDate) {
+                    alert('⚠️ Дата выхода с фабрики не может быть раньше даты плана');
+                    input.value = '';
+                    return;
+                }
+                if (dateIndex === 2 && factoryDate && arrivalDate && arrivalDate < factoryDate) {
+                    alert('⚠️ Дата прихода на склад не может быть раньше даты выхода с фабрики');
+                    input.value = '';
+                    return;
+                }
+
                 onSupplyFieldChange(row);
                 highlightEmptyCells(row);
                 updateSupplyTotals();
@@ -5107,13 +5125,18 @@ HTML_TEMPLATE = '''
          */
         /**
          * Проверка: можно ли заполнять exit_factory_qty или arrival_warehouse_qty.
-         * Нельзя, если предыдущая строка того же товара (по дате) ещё не имеет
-         * заполненного поля "Кол-во выхода с фабрики".
+         *
+         * Для exit_factory_qty: нельзя, если предыдущая строка того же товара
+         * не имеет заполненного "Кол-во выхода с фабрики".
+         *
+         * Для arrival_warehouse_qty: нельзя, если предыдущая строка того же товара
+         * не имеет заполненного "Кол-во прихода на склад".
+         *
          * Возвращает true если можно заполнять, false если нет.
          */
-        function canFillQtyField(row) {
+        function canFillQtyField(row, fieldName) {
             const data = getRowData(row);
-            if (!data.sku) return true; // товар не выбран — пока разрешаем
+            if (!data.sku) return true;
 
             const currentDate = data.exit_plan_date || data.exit_factory_date || '';
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
@@ -5127,20 +5150,32 @@ HTML_TEMPLATE = '''
 
                 const dateInputs = r.querySelectorAll('input[type="date"]');
                 const rDate = dateInputs[0] ? dateInputs[0].value : '';
-                // Строка с более ранней датой (или той же, но выше в таблице)
                 if (currentDate && rDate) return rDate < currentDate;
-                if (!currentDate && rDate) return true; // у текущей нет даты — считаем предыдущей любую с датой
-                return allRows.indexOf(r) < allRows.indexOf(row); // без дат — по порядку в таблице
+                if (!currentDate && rDate) return true;
+                return allRows.indexOf(r) < allRows.indexOf(row);
             });
 
-            if (prevRows.length === 0) return true; // нет предыдущих строк — можно
+            if (prevRows.length === 0) return true;
 
-            // Проверяем: у всех предыдущих строк должно быть заполнено exit_factory_qty
             for (const prevRow of prevRows) {
                 const textInputs = prevRow.querySelectorAll('input[type="text"]');
-                const exitFactoryRaw = textInputs[1] ? textInputs[1].value.trim() : '';
-                if (exitFactoryRaw === '') {
-                    return false; // предыдущая строка не заполнена (пустое поле, ноль — допустим)
+
+                // Для выхода с фабрики — проверяем exit_factory_qty (textInputs[1])
+                if (fieldName === 'exit_factory_qty') {
+                    const val = textInputs[1] ? textInputs[1].value.trim() : '';
+                    if (val === '') {
+                        alert('⚠️ Сначала заполните "Кол-во выхода с фабрики" в предыдущей поставке этого товара');
+                        return false;
+                    }
+                }
+
+                // Для прихода на склад — проверяем arrival_warehouse_qty (textInputs[2])
+                if (fieldName === 'arrival_warehouse_qty') {
+                    const val = textInputs[2] ? textInputs[2].value.trim() : '';
+                    if (val === '') {
+                        alert('⚠️ Сначала заполните "Кол-во прихода на склад" в предыдущей поставке этого товара');
+                        return false;
+                    }
                 }
             }
             return true;
@@ -5158,15 +5193,35 @@ HTML_TEMPLATE = '''
             }
             input.disabled = isLocked;
 
-            // Валидация: нельзя заполнять выход/приход, если предыдущая поставка не заполнена
-            if (fieldName === 'exit_factory_qty' || fieldName === 'arrival_warehouse_qty') {
-                input.onfocus = function() {
-                    if (!canFillQtyField(row)) {
+            // Валидация: нельзя заполнять количество без соответствующей даты
+            input.onfocus = function() {
+                const dateInputs = row.querySelectorAll('input[type="date"]');
+
+                // Проверка: дата должна быть заполнена для соответствующего количества
+                if (fieldName === 'order_qty_plan' && (!dateInputs[0] || !dateInputs[0].value)) {
+                    this.blur();
+                    alert('⚠️ Сначала заполните дату плана');
+                    return;
+                }
+                if (fieldName === 'exit_factory_qty' && (!dateInputs[1] || !dateInputs[1].value)) {
+                    this.blur();
+                    alert('⚠️ Сначала заполните дату выхода с фабрики');
+                    return;
+                }
+                if (fieldName === 'arrival_warehouse_qty' && (!dateInputs[2] || !dateInputs[2].value)) {
+                    this.blur();
+                    alert('⚠️ Сначала заполните дату прихода на склад');
+                    return;
+                }
+
+                // Проверка: предыдущая поставка должна быть заполнена (выход с фабрики и приход)
+                if (fieldName === 'exit_factory_qty' || fieldName === 'arrival_warehouse_qty') {
+                    if (!canFillQtyField(row, fieldName)) {
                         this.blur();
-                        alert('⚠️ Сначала заполните "Кол-во выхода с фабрики" в предыдущей поставке этого товара');
+                        return;
                     }
-                };
-            }
+                }
+            };
 
             // Форматирование при вводе — только цифры и пробелы
             input.oninput = function() {
@@ -5175,13 +5230,29 @@ HTML_TEMPLATE = '''
             };
 
             input.onblur = () => {
+                // Валидация: итого прихода не может превышать итого выхода с фабрики
+                if (fieldName === 'arrival_warehouse_qty' && input.value.trim() !== '') {
+                    const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
+                    let totalFactory = 0;
+                    let totalArrival = 0;
+                    allRows.forEach(r => {
+                        const ti = r.querySelectorAll('input[type="text"]');
+                        totalFactory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
+                        totalArrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
+                    });
+                    if (totalArrival > totalFactory) {
+                        alert('⚠️ Итого прихода на склад (' + formatNumberWithSpaces(totalArrival) + ') не может быть больше итого выхода с фабрики (' + formatNumberWithSpaces(totalFactory) + ')');
+                        input.value = '';
+                    }
+                }
+
                 onSupplyFieldChange(row);
 
                 // Логика перераспределения для "Кол-во выхода с фабрики"
                 if (fieldName === 'exit_factory_qty') {
                     handleExitFactoryQtyChange(row);
                 }
-                // Логика вычитания излишка прихода на склад
+                // Логика перераспределения для "Кол-во прихода на склад"
                 if (fieldName === 'arrival_warehouse_qty') {
                     handleArrivalQtyChange(row);
                 }
