@@ -5209,7 +5209,10 @@ HTML_TEMPLATE = '''
                 pencilBtn.className = 'supply-plan-edit-btn';
                 pencilBtn.textContent = 'Ред.';
                 pencilBtn.title = 'Редактировать план';
-                pencilBtn.style.cssText = 'border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 8px;margin-left:4px;display:none;vertical-align:middle;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;';
+                pencilBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;display:none;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
+                // Ячейка должна быть position:relative для позиционирования кнопки
+                td.style.position = 'relative';
+                td.style.overflow = 'visible';
 
                 // Показываем карандаш если план заполнен (независимо от блокировки строки)
                 if (input.value.trim() !== '') {
