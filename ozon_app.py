@@ -5138,9 +5138,9 @@ HTML_TEMPLATE = '''
             // Проверяем: у всех предыдущих строк должно быть заполнено exit_factory_qty
             for (const prevRow of prevRows) {
                 const textInputs = prevRow.querySelectorAll('input[type="text"]');
-                const exitFactoryVal = textInputs[1] ? parseNumberFromSpaces(textInputs[1].value) : 0;
-                if (!exitFactoryVal) {
-                    return false; // предыдущая строка не заполнена
+                const exitFactoryRaw = textInputs[1] ? textInputs[1].value.trim() : '';
+                if (exitFactoryRaw === '') {
+                    return false; // предыдущая строка не заполнена (пустое поле, ноль — допустим)
                 }
             }
             return true;
