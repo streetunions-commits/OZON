@@ -3847,6 +3847,19 @@ HTML_TEMPLATE = '''
                             <span class="currency-rub">₽</span>
                         </div>
                     </div>
+                    <!-- Стоимость товара в пути -->
+                    <div class="currency-rates-row" style="margin-top: 12px;">
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Товар в пути</span>
+                            <span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span>
+                            <span class="currency-rub" style="color:#92400e;">шт.</span>
+                        </div>
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Стоимость в пути</span>
+                            <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
+                            <span class="currency-rub" style="color:#92400e;">₽</span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Фильтр по товару -->
@@ -5443,6 +5456,8 @@ HTML_TEMPLATE = '''
         function recalcAllCosts() {
             const rows = document.querySelectorAll('#supplies-tbody tr');
             rows.forEach(row => recalcCost(row));
+            // Пересчитываем стоимость товара в пути (зависит от себестоимости)
+            updateGoodsInTransit();
         }
 
         /**
@@ -5845,6 +5860,65 @@ HTML_TEMPLATE = '''
             html += '<td></td><td></td>'; // замок, удалить
 
             tfoot.innerHTML = html;
+
+            // Пересчитываем стоимость товара в пути
+            updateGoodsInTransit();
+        }
+
+        // ============================================================
+        // СТОИМОСТЬ ТОВАРА В ПУТИ
+        // ============================================================
+
+        /**
+         * Расчёт стоимости товара в пути.
+         *
+         * Формула: (итого выход с фабрики - итого приход на склад) * средняя себестоимость +6%
+         * Учитывает фильтр по товару — считает только видимые строки.
+         */
+        function updateGoodsInTransit() {
+            const qtyEl = document.getElementById('goods-in-transit-qty');
+            const costEl = document.getElementById('goods-in-transit-cost');
+            if (!qtyEl || !costEl) return;
+
+            // Берём только видимые строки (с учётом фильтра по товару)
+            const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
+                .filter(r => r.style.display !== 'none');
+
+            let totalFactory = 0;
+            let totalArrival = 0;
+            let costSum = 0;
+            let costCount = 0;
+
+            rows.forEach(row => {
+                const textInputs = row.querySelectorAll('input[type="text"]');
+                // textInputs: 0=plan, 1=exit_factory_qty, 2=arrival_warehouse_qty
+                const factoryVal = textInputs[1] ? (parseNumberFromSpaces(textInputs[1].value) || 0) : 0;
+                const arrivalVal = textInputs[2] ? (parseNumberFromSpaces(textInputs[2].value) || 0) : 0;
+                totalFactory += factoryVal;
+                totalArrival += arrivalVal;
+
+                // Себестоимость +6% из span
+                const costSpan = row.querySelector('.supply-cost-auto');
+                if (costSpan && costSpan.textContent !== '—') {
+                    const cv = parseNumberFromSpaces(costSpan.textContent);
+                    if (cv) { costSum += cv; costCount++; }
+                }
+            });
+
+            const inTransitQty = totalFactory - totalArrival;
+            const avgCost = costCount > 0 ? costSum / costCount : 0;
+            const inTransitCost = inTransitQty * avgCost;
+
+            if (inTransitQty > 0 && avgCost > 0) {
+                qtyEl.textContent = formatNumberWithSpaces(inTransitQty);
+                costEl.textContent = formatNumberWithSpaces(Math.round(inTransitCost));
+            } else if (inTransitQty === 0) {
+                qtyEl.textContent = '0';
+                costEl.textContent = '0';
+            } else {
+                qtyEl.textContent = '—';
+                costEl.textContent = '—';
+            }
         }
 
         // ============================================================
