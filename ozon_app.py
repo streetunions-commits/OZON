@@ -3821,7 +3821,37 @@ HTML_TEMPLATE = '''
         let allProducts = [];
 
         document.addEventListener('DOMContentLoaded', function() {
-            loadProductsList();
+            // Восстанавливаем активный таб из URL hash при обновлении страницы
+            const savedTab = location.hash.replace('#', '');
+            const validTabs = ['history', 'fbo', 'supplies'];
+
+            if (savedTab && validTabs.includes(savedTab)) {
+                // Активируем сохранённый таб
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+
+                document.getElementById(savedTab).classList.add('active');
+                // Находим кнопку таба по onclick атрибуту
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + savedTab + "'")) {
+                        btn.classList.add('active');
+                    }
+                });
+
+                // Загружаем данные для восстановленного таба
+                if (savedTab === 'history') {
+                    loadProductsList();
+                } else if (savedTab === 'fbo') {
+                    loadProductsList(); // Список товаров нужен всегда
+                    loadFboAnalytics();
+                } else if (savedTab === 'supplies') {
+                    loadProductsList();
+                    loadSupplies();
+                }
+            } else {
+                // По умолчанию — первый таб
+                loadProductsList();
+            }
         });
 
         // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
@@ -3892,6 +3922,9 @@ HTML_TEMPLATE = '''
             // Показываем нужный таб
             document.getElementById(tab).classList.add('active');
             e.target.classList.add('active');
+
+            // Сохраняем активный таб в URL hash, чтобы при обновлении страницы оставаться на месте
+            location.hash = tab;
 
             // Если открыли историю - загружаем список товаров
             if (tab === 'history') {
