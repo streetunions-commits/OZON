@@ -5207,9 +5207,9 @@ HTML_TEMPLATE = '''
                 pencilBtn = document.createElement('button');
                 pencilBtn.type = 'button';
                 pencilBtn.className = 'supply-plan-edit-btn';
-                pencilBtn.textContent = '✏️';
+                pencilBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
                 pencilBtn.title = 'Редактировать план';
-                pencilBtn.style.cssText = 'border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:2px;display:none;vertical-align:middle;';
+                pencilBtn.style.cssText = 'border:none;background:#fff8e1;border-radius:4px;cursor:pointer;padding:3px 5px;margin-left:4px;display:none;vertical-align:middle;line-height:1;';
 
                 // Если значение уже заполнено и строка не заблокирована — блокируем поле, показываем карандаш
                 if (input.value.trim() !== '' && !isLocked) {
