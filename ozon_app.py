@@ -3665,6 +3665,72 @@ HTML_TEMPLATE = '''
         }
 
         /* Модальное окно подтверждения редактирования */
+        .supplies-filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .sortable-date {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sortable-date:hover {
+            background: #e2e6ea;
+        }
+
+        .sort-arrow {
+            font-size: 10px;
+            color: #999;
+        }
+
+        .supply-cell-empty {
+            background: #fff5f5 !important;
+        }
+
+        /* Скрываем год в date-input */
+        .supply-date-input {
+            font-family: inherit;
+        }
+        .supply-date-input::-webkit-datetime-edit-year-field {
+            display: none;
+        }
+        .supply-date-input::-webkit-datetime-edit-text:first-of-type {
+            /* Убираем первый разделитель (точка/тире перед годом или после) */
+        }
+
+        .supply-delete-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 4px;
+            color: #ccc;
+            transition: color 0.2s;
+        }
+
+        .supply-delete-btn:hover {
+            color: #ef4444;
+        }
+
+        .supplies-totals-row td {
+            padding: 8px;
+            font-weight: 700;
+            font-size: 13px;
+            background: #f1f3f5;
+            border: 1px solid #dee2e6;
+            text-align: center;
+            color: #333;
+        }
+
+        .supplies-table tfoot {
+            position: sticky;
+            bottom: 0;
+            z-index: 2;
+        }
+
         .supply-edit-confirm {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -3783,6 +3849,14 @@ HTML_TEMPLATE = '''
                     </div>
                 </div>
 
+                <!-- Фильтр по товару -->
+                <div class="supplies-filter-bar">
+                    <label style="font-weight:500; font-size:13px; color:#555;">Фильтр по товару:</label>
+                    <select id="supplies-product-filter" class="supply-select" style="min-width:220px; border:1px solid #dee2e6;" onchange="filterSuppliesTable()">
+                        <option value="">Все товары</option>
+                    </select>
+                </div>
+
                 <!-- Таблица поставок -->
                 <div class="supplies-table-wrapper">
                     <div style="overflow-x: auto;">
@@ -3790,11 +3864,11 @@ HTML_TEMPLATE = '''
                             <thead>
                                 <tr>
                                     <th>Товар</th>
-                                    <th>Выход с фабрики<br>ПЛАН</th>
+                                    <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Выход с фабрики<br>ПЛАН <span class="sort-arrow"></span></th>
                                     <th>Заказ кол-во<br>ПЛАН</th>
-                                    <th>Дата выхода<br>с фабрики</th>
+                                    <th class="sortable-date" data-col="3" onclick="sortSuppliesByDate(3)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
-                                    <th>Дата прихода<br>на склад</th>
+                                    <th class="sortable-date" data-col="5" onclick="sortSuppliesByDate(5)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
                                     <th>Кол-во прихода<br>на склад</th>
                                     <th>Стоимость логистики<br>за единицу, ₽</th>
                                     <th>Цена товара<br>единица, ¥</th>
@@ -3803,10 +3877,14 @@ HTML_TEMPLATE = '''
                                     <th>Внести<br>в долги</th>
                                     <th>План<br>на FBO</th>
                                     <th style="width: 40px;">🔒</th>
+                                    <th style="width: 40px;"></th>
                                 </tr>
                             </thead>
                             <tbody id="supplies-tbody">
                             </tbody>
+                            <tfoot id="supplies-tfoot">
+                                <tr class="supplies-totals-row"></tr>
+                            </tfoot>
                         </table>
                     </div>
                     <button class="supplies-add-btn" onclick="addSupplyRow()" title="Добавить строку">
@@ -4882,6 +4960,11 @@ HTML_TEMPLATE = '''
                 const row = createSupplyRowElement(s);
                 tbody.appendChild(row);
             });
+
+            // После отрисовки: подсветка пустых, фильтр, итоги
+            highlightAllEmptyCells();
+            populateSuppliesFilter();
+            updateSupplyTotals();
         }
 
         /**
@@ -4892,7 +4975,8 @@ HTML_TEMPLATE = '''
          */
         function createSupplyRowElement(data) {
             const row = document.createElement('tr');
-            const isLocked = data && data.is_locked;
+            // По умолчанию все существующие строки заблокированы
+            const isLocked = data ? true : false;
             const rowId = data ? data.id : 'new_' + Date.now();
             row.dataset.supplyId = rowId;
             if (isLocked) row.classList.add('locked-row');
@@ -4977,6 +5061,19 @@ HTML_TEMPLATE = '''
             tdLock.appendChild(lockBtn);
             row.appendChild(tdLock);
 
+            // 15. Кнопка удаления строки
+            const tdDel = document.createElement('td');
+            const delBtn = document.createElement('button');
+            delBtn.className = 'supply-delete-btn';
+            delBtn.textContent = '✕';
+            delBtn.title = 'Удалить строку';
+            delBtn.onclick = function(e) {
+                e.stopPropagation();
+                deleteSupplyRow(row);
+            };
+            tdDel.appendChild(delBtn);
+            row.appendChild(tdDel);
+
             // Если строка заблокирована — ставим обработчик двойного клика
             if (isLocked) {
                 row.ondblclick = function() {
@@ -4994,11 +5091,15 @@ HTML_TEMPLATE = '''
             const td = document.createElement('td');
             const input = document.createElement('input');
             input.type = 'date';
-            input.className = 'supply-input';
+            input.className = 'supply-input supply-date-input';
             input.style.minWidth = '110px';
             if (value) input.value = value;
             input.disabled = isLocked;
-            input.onchange = () => onSupplyFieldChange(row);
+            input.onchange = () => {
+                onSupplyFieldChange(row);
+                highlightEmptyCells(row);
+                updateSupplyTotals();
+            };
             td.appendChild(input);
             return td;
         }
@@ -5051,6 +5152,11 @@ HTML_TEMPLATE = '''
             cb.className = 'supply-checkbox';
             cb.checked = !!checked;
             cb.disabled = isLocked;
+            // При закрытом замке: чекбокс disabled, но визуально checked сохраняется
+            // onclick предотвращает изменение при disabled (доп. защита)
+            if (isLocked) {
+                cb.onclick = function(e) { e.preventDefault(); };
+            }
             cb.onchange = () => onSupplyFieldChange(row);
             td.appendChild(cb);
             return td;
@@ -5063,6 +5169,8 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('supplies-tbody');
             const row = createSupplyRowElement(null);
             tbody.appendChild(row);
+            highlightEmptyCells(row);
+            updateSupplyTotals();
         }
 
         /**
@@ -5135,6 +5243,8 @@ HTML_TEMPLATE = '''
          */
         function onSupplyFieldChange(row) {
             recalcCost(row);
+            highlightEmptyCells(row);
+            updateSupplyTotals();
             autoSaveSupplyRow(row);
         }
 
@@ -5495,6 +5605,277 @@ HTML_TEMPLATE = '''
                 lockBtn.textContent = '🔓';
                 lockBtn.title = 'Нажмите чтобы заблокировать';
             }
+        }
+
+        // ============================================================
+        // УДАЛЕНИЕ СТРОКИ С ПОДТВЕРЖДЕНИЕМ
+        // ============================================================
+
+        function deleteSupplyRow(row) {
+            const overlay = document.createElement('div');
+            overlay.className = 'supply-edit-confirm';
+            overlay.innerHTML = `
+                <div class="supply-edit-confirm-box">
+                    <h3>Удаление строки</h3>
+                    <p>Вы уверены, что хотите удалить эту строку? Действие нельзя отменить.</p>
+                    <button class="supply-confirm-yes" style="background:#ef4444;">Да, удалить</button>
+                    <button class="supply-confirm-no">Отмена</button>
+                </div>
+            `;
+
+            overlay.querySelector('.supply-confirm-yes').onclick = () => {
+                overlay.remove();
+                const supplyId = row.dataset.supplyId;
+
+                // Удаляем из DOM
+                row.remove();
+                updateSupplyTotals();
+
+                // Удаляем с сервера
+                if (supplyId && !String(supplyId).startsWith('new_')) {
+                    fetch('/api/supplies/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: supplyId })
+                    });
+                }
+            };
+            overlay.querySelector('.supply-confirm-no').onclick = () => {
+                overlay.remove();
+            };
+
+            document.body.appendChild(overlay);
+        }
+
+        // ============================================================
+        // СОРТИРОВКА ПО СТОЛБЦАМ С ДАТАМИ
+        // ============================================================
+
+        let suppliesSortCol = -1;
+        let suppliesSortAsc = true;
+
+        /**
+         * Сортировка таблицы поставок по столбцу с датой.
+         * colIndex — индекс столбца (1 = Выход план, 3 = Дата выхода, 5 = Дата прихода)
+         */
+        function sortSuppliesByDate(colIndex) {
+            const tbody = document.getElementById('supplies-tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Переключаем направление
+            if (suppliesSortCol === colIndex) {
+                suppliesSortAsc = !suppliesSortAsc;
+            } else {
+                suppliesSortCol = colIndex;
+                suppliesSortAsc = true;
+            }
+
+            rows.sort((a, b) => {
+                const dateA = a.querySelectorAll('input[type="date"]');
+                const dateB = b.querySelectorAll('input[type="date"]');
+                // colIndex 1→dateInputs[0], 3→dateInputs[1], 5→dateInputs[2]
+                const dateIdx = colIndex === 1 ? 0 : colIndex === 3 ? 1 : 2;
+                const valA = dateA[dateIdx] ? dateA[dateIdx].value : '';
+                const valB = dateB[dateIdx] ? dateB[dateIdx].value : '';
+
+                // Пустые даты — в конец
+                if (!valA && !valB) return 0;
+                if (!valA) return 1;
+                if (!valB) return -1;
+
+                const cmp = valA.localeCompare(valB);
+                return suppliesSortAsc ? cmp : -cmp;
+            });
+
+            rows.forEach(r => tbody.appendChild(r));
+
+            // Обновляем стрелки
+            document.querySelectorAll('.sortable-date .sort-arrow').forEach(el => el.textContent = '');
+            const th = document.querySelector('.sortable-date[data-col="' + colIndex + '"] .sort-arrow');
+            if (th) th.textContent = suppliesSortAsc ? ' ▲' : ' ▼';
+        }
+
+        // ============================================================
+        // ФИЛЬТР ПО ТОВАРУ
+        // ============================================================
+
+        /**
+         * Заполняет выпадающий список фильтра уникальными товарами
+         */
+        function populateSuppliesFilter() {
+            const filter = document.getElementById('supplies-product-filter');
+            if (!filter) return;
+
+            const currentVal = filter.value;
+            // Очищаем, кроме первого пункта "Все товары"
+            while (filter.options.length > 1) filter.remove(1);
+
+            // Собираем уникальные товары из строк
+            const seen = new Set();
+            document.querySelectorAll('#supplies-tbody tr').forEach(row => {
+                const sel = row.querySelector('select');
+                if (sel && sel.value) {
+                    const sku = sel.value;
+                    if (!seen.has(sku)) {
+                        seen.add(sku);
+                        const opt = document.createElement('option');
+                        opt.value = sku;
+                        opt.textContent = sel.options[sel.selectedIndex]?.text || sku;
+                        filter.appendChild(opt);
+                    }
+                }
+            });
+
+            filter.value = currentVal;
+        }
+
+        /**
+         * Фильтрация строк таблицы по выбранному товару
+         */
+        function filterSuppliesTable() {
+            const filter = document.getElementById('supplies-product-filter');
+            const selectedSku = filter ? filter.value : '';
+
+            document.querySelectorAll('#supplies-tbody tr').forEach(row => {
+                if (!selectedSku) {
+                    row.style.display = '';
+                } else {
+                    const sel = row.querySelector('select');
+                    const rowSku = sel ? sel.value : '';
+                    row.style.display = (rowSku === selectedSku) ? '' : 'none';
+                }
+            });
+
+            updateSupplyTotals();
+        }
+
+        // ============================================================
+        // СУММЫ И СРЕДНИЕ В ПОДВАЛЕ ТАБЛИЦЫ
+        // ============================================================
+
+        /**
+         * Обновить итоги в tfoot.
+         * Числовые столбцы (кол-во) — сумма.
+         * Валютные столбцы (логистика, цена ¥, себестоимость) — среднее.
+         */
+        function updateSupplyTotals() {
+            const tfoot = document.querySelector('#supplies-tfoot tr');
+            if (!tfoot) return;
+
+            // Видимые строки
+            const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
+                .filter(r => r.style.display !== 'none');
+
+            // Индексы столбцов (0-based):
+            // 0:товар, 1:дата план, 2:заказ план, 3:дата выхода, 4:кол выхода,
+            // 5:дата прихода, 6:кол прихода, 7:логистика₽, 8:цена¥, 9:себестоимость,
+            // 10:маркетинг, 11:долги, 12:FBO, 13:замок, 14:удалить
+
+            // Столбцы с суммами (числа, не валюты)
+            const sumCols = [2, 4, 6];
+            // Столбцы со средним (валюты)
+            const avgCols = [7, 8, 9];
+
+            // Собираем данные
+            const sums = {};
+            const avgs = {};
+            const counts = {};
+
+            sumCols.forEach(i => { sums[i] = 0; });
+            avgCols.forEach(i => { avgs[i] = 0; counts[i] = 0; });
+
+            rows.forEach(row => {
+                const textInputs = row.querySelectorAll('input[type="text"]');
+                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty,
+                //                     3=logistics_cost, 4=price_cny
+                const vals = [];
+                textInputs.forEach(inp => vals.push(parseNumberFromSpaces(inp.value)));
+
+                // Сумма: заказ план (idx 0→col 2), выход (idx 1→col 4), приход (idx 2→col 6)
+                if (vals[0]) sums[2] += vals[0];
+                if (vals[1]) sums[4] += vals[1];
+                if (vals[2]) sums[6] += vals[2];
+
+                // Среднее: логистика (idx 3→col 7), цена¥ (idx 4→col 8)
+                if (vals[3]) { avgs[7] += vals[3]; counts[7]++; }
+                if (vals[4]) { avgs[8] += vals[4]; counts[8]++; }
+
+                // Себестоимость из span
+                const costSpan = row.querySelector('.supply-cost-auto');
+                if (costSpan && costSpan.textContent !== '—') {
+                    const costVal = parseNumberFromSpaces(costSpan.textContent);
+                    if (costVal) { avgs[9] += costVal; counts[9]++; }
+                }
+            });
+
+            // Строим строку итогов
+            let html = '<td style="font-weight:600; text-align:right;">Итого:</td>'; // товар
+            html += '<td></td>'; // дата план
+
+            // Заказ план (сумма)
+            html += '<td>' + (sums[2] ? formatNumberWithSpaces(sums[2]) : '') + '</td>';
+            html += '<td></td>'; // дата выхода
+
+            // Кол-во выхода (сумма)
+            html += '<td>' + (sums[4] ? formatNumberWithSpaces(sums[4]) : '') + '</td>';
+            html += '<td></td>'; // дата прихода
+
+            // Кол-во прихода (сумма)
+            html += '<td>' + (sums[6] ? formatNumberWithSpaces(sums[6]) : '') + '</td>';
+
+            // Логистика (среднее)
+            html += '<td>' + (counts[7] ? formatNumberWithSpaces(Math.round(avgs[7] / counts[7])) : '') + '</td>';
+
+            // Цена ¥ (среднее)
+            html += '<td>' + (counts[8] ? formatNumberWithSpaces(Math.round(avgs[8] / counts[8])) : '') + '</td>';
+
+            // Себестоимость (среднее)
+            html += '<td>' + (counts[9] ? formatNumberWithSpaces(Math.round(avgs[9] / counts[9])) : '') + '</td>';
+
+            html += '<td></td><td></td><td></td>'; // чекбоксы
+            html += '<td></td><td></td>'; // замок, удалить
+
+            tfoot.innerHTML = html;
+        }
+
+        // ============================================================
+        // ПОДСВЕТКА ПУСТЫХ ЯЧЕЕК
+        // ============================================================
+
+        /**
+         * Подсветить незаполненные ячейки в строке бледно-красным
+         */
+        function highlightEmptyCells(row) {
+            // Все input и select в строке (кроме чекбоксов, замка, удалить)
+            const inputs = row.querySelectorAll('.supply-input, .supply-select');
+            inputs.forEach(el => {
+                const td = el.closest('td');
+                if (!td) return;
+
+                let isEmpty = false;
+                if (el.tagName === 'SELECT') {
+                    isEmpty = !el.value;
+                } else if (el.type === 'date') {
+                    isEmpty = !el.value;
+                } else if (el.type === 'text') {
+                    isEmpty = !el.value.trim();
+                }
+
+                if (isEmpty) {
+                    td.classList.add('supply-cell-empty');
+                } else {
+                    td.classList.remove('supply-cell-empty');
+                }
+            });
+        }
+
+        /**
+         * Подсветить пустые ячейки во всех строках
+         */
+        function highlightAllEmptyCells() {
+            document.querySelectorAll('#supplies-tbody tr').forEach(row => {
+                highlightEmptyCells(row);
+            });
         }
 
     </script>
@@ -6389,6 +6770,26 @@ def unlock_supply():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('UPDATE supplies SET is_locked = 0 WHERE id = ?', (supply_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/supplies/delete', methods=['POST'])
+def delete_supply():
+    """
+    Удалить строку поставки из базы данных.
+    """
+    try:
+        data = request.json
+        supply_id = data.get('id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM supplies WHERE id = ?', (supply_id,))
         conn.commit()
         conn.close()
 
