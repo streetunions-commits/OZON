@@ -4796,7 +4796,7 @@ HTML_TEMPLATE = '''
          * 3. Существующие строки поставок из базы
          */
         function loadSupplies() {
-            // Загружаем курсы валют
+            // Загружаем курсы валют (независимый запрос)
             fetch('/api/currency-rates')
                 .then(r => r.json())
                 .then(data => {
@@ -4812,8 +4812,9 @@ HTML_TEMPLATE = '''
                     }
                 });
 
-            // Загружаем список товаров для dropdown
-            fetch('/api/products/list')
+            // Загружаем товары и поставки параллельно, но рендерим только когда ОБА готовы
+            // Иначе suppliesProducts может быть пустым при отрисовке таблицы
+            const productsPromise = fetch('/api/products/list')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -4821,14 +4822,14 @@ HTML_TEMPLATE = '''
                     }
                 });
 
-            // Загружаем существующие поставки
-            fetch('/api/supplies')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        renderSuppliesTable(data.supplies);
-                    }
-                });
+            const suppliesPromise = fetch('/api/supplies')
+                .then(r => r.json());
+
+            Promise.all([productsPromise, suppliesPromise]).then(([_, suppliesData]) => {
+                if (suppliesData.success) {
+                    renderSuppliesTable(suppliesData.supplies);
+                }
+            });
 
             suppliesLoaded = true;
         }
