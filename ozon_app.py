@@ -3859,6 +3859,16 @@ HTML_TEMPLATE = '''
                             <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">₽</span>
                         </div>
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">План не доставлен</span>
+                            <span class="currency-value" id="plan-not-delivered-qty" style="color:#2563eb;">—</span>
+                            <span class="currency-rub" style="color:#1e40af;">шт.</span>
+                        </div>
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">Стоимость плана</span>
+                            <span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span>
+                            <span class="currency-rub" style="color:#1e40af;">₽</span>
+                        </div>
                     </div>
                 </div>
 
@@ -5878,12 +5888,14 @@ HTML_TEMPLATE = '''
         function updateGoodsInTransit() {
             const qtyEl = document.getElementById('goods-in-transit-qty');
             const costEl = document.getElementById('goods-in-transit-cost');
-            if (!qtyEl || !costEl) return;
+            const planQtyEl = document.getElementById('plan-not-delivered-qty');
+            const planCostEl = document.getElementById('plan-not-delivered-cost');
 
             // Берём только видимые строки (с учётом фильтра по товару)
             const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
                 .filter(r => r.style.display !== 'none');
 
+            let totalPlan = 0;
             let totalFactory = 0;
             let totalArrival = 0;
             let costSum = 0;
@@ -5892,8 +5904,10 @@ HTML_TEMPLATE = '''
             rows.forEach(row => {
                 const textInputs = row.querySelectorAll('input[type="text"]');
                 // textInputs: 0=plan, 1=exit_factory_qty, 2=arrival_warehouse_qty
+                const planVal = textInputs[0] ? (parseNumberFromSpaces(textInputs[0].value) || 0) : 0;
                 const factoryVal = textInputs[1] ? (parseNumberFromSpaces(textInputs[1].value) || 0) : 0;
                 const arrivalVal = textInputs[2] ? (parseNumberFromSpaces(textInputs[2].value) || 0) : 0;
+                totalPlan += planVal;
                 totalFactory += factoryVal;
                 totalArrival += arrivalVal;
 
@@ -5905,19 +5919,40 @@ HTML_TEMPLATE = '''
                 }
             });
 
-            const inTransitQty = totalFactory - totalArrival;
             const avgCost = costCount > 0 ? costSum / costCount : 0;
+
+            // Товар в пути: выход с фабрики - приход на склад
+            const inTransitQty = totalFactory - totalArrival;
             const inTransitCost = inTransitQty * avgCost;
 
-            if (inTransitQty > 0 && avgCost > 0) {
-                qtyEl.textContent = formatNumberWithSpaces(inTransitQty);
-                costEl.textContent = formatNumberWithSpaces(Math.round(inTransitCost));
-            } else if (inTransitQty === 0) {
-                qtyEl.textContent = '0';
-                costEl.textContent = '0';
-            } else {
-                qtyEl.textContent = '—';
-                costEl.textContent = '—';
+            if (qtyEl && costEl) {
+                if (inTransitQty > 0 && avgCost > 0) {
+                    qtyEl.textContent = formatNumberWithSpaces(inTransitQty);
+                    costEl.textContent = formatNumberWithSpaces(Math.round(inTransitCost));
+                } else if (inTransitQty === 0) {
+                    qtyEl.textContent = '0';
+                    costEl.textContent = '0';
+                } else {
+                    qtyEl.textContent = '—';
+                    costEl.textContent = '—';
+                }
+            }
+
+            // План не доставлен: план - приход на склад
+            const planNotDeliveredQty = totalPlan - totalArrival;
+            const planNotDeliveredCost = planNotDeliveredQty * avgCost;
+
+            if (planQtyEl && planCostEl) {
+                if (planNotDeliveredQty > 0 && avgCost > 0) {
+                    planQtyEl.textContent = formatNumberWithSpaces(planNotDeliveredQty);
+                    planCostEl.textContent = formatNumberWithSpaces(Math.round(planNotDeliveredCost));
+                } else if (planNotDeliveredQty === 0) {
+                    planQtyEl.textContent = '0';
+                    planCostEl.textContent = '0';
+                } else {
+                    planQtyEl.textContent = '—';
+                    planCostEl.textContent = '—';
+                }
             }
         }
 
