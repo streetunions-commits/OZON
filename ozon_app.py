@@ -2102,12 +2102,6 @@ def load_product_prices(products_data=None):
                 price_obj = item.get("price", {})
                 price_indexes = item.get("price_indexes", {})
 
-                # DEBUG: выводим структуру price_indexes для первого товара
-                if len(prices_by_sku) == 0:
-                    print(f"  🔍 DEBUG price_indexes keys: {price_indexes.keys() if price_indexes else 'empty'}")
-                    print(f"  🔍 DEBUG price_indexes full: {price_indexes}")
-                    print(f"  🔍 DEBUG item keys: {item.keys()}")
-
                 # "Ваша цена" в ЛК (с учетом акций/бустинга) = marketing_seller_price
                 marketing_seller_price = price_obj.get("marketing_seller_price", 0)
 
@@ -2115,9 +2109,9 @@ def load_product_prices(products_data=None):
                 external_index = price_indexes.get("external_index_data", {})
                 website_price = external_index.get("min_price", 0)
 
-                # Индекс цены (price_index) — строка типа "WITHOUT_INDEX", "PROFIT", "AVG_PROFIT" и т.д.
-                # Находится в price_indexes.price_index
-                price_index_value = price_indexes.get("price_index", None)
+                # Индекс цены (color_index) — цветовой индекс цены
+                # Возможные значения: "SUPER", "GOOD", "AVG", "BAD", "WITHOUT_INDEX"
+                price_index_value = price_indexes.get("color_index", None)
 
                 # Конвертируем в float
                 try:
@@ -4459,13 +4453,14 @@ HTML_TEMPLATE = '''
                 const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
                 html += `<td><strong>${reviewCount}</strong></td>`;
 
-                // Индекс цены (price_index)
-                // Возможные значения: WITHOUT_INDEX, PROFIT, AVG_PROFIT, NON_PROFIT
+                // Индекс цены (color_index)
+                // Возможные значения: SUPER, GOOD, AVG, BAD, WITHOUT_INDEX
                 const priceIndexMap = {
-                    'WITHOUT_INDEX': { text: 'Без индекса', color: '#6b7280' },
-                    'PROFIT': { text: 'Прибыльный', color: '#22c55e' },
-                    'AVG_PROFIT': { text: 'Средний', color: '#f59e0b' },
-                    'NON_PROFIT': { text: 'Неприбыльный', color: '#ef4444' }
+                    'SUPER': { text: 'Отличная', color: '#22c55e' },
+                    'GOOD': { text: 'Хорошая', color: '#84cc16' },
+                    'AVG': { text: 'Средняя', color: '#f59e0b' },
+                    'BAD': { text: 'Плохая', color: '#ef4444' },
+                    'WITHOUT_INDEX': { text: 'Без индекса', color: '#6b7280' }
                 };
                 const priceIndexValue = item.price_index || null;
                 const priceIndexDisplay = priceIndexValue && priceIndexMap[priceIndexValue]
