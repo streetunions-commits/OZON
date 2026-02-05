@@ -3288,17 +3288,11 @@ HTML_TEMPLATE = '''
             border-radius: 4px;
         }
 
-        /* Стили для фильтров по дате */
-        .date-filters {
-            margin-bottom: 16px;
-            padding: 12px 16px;
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
+        /* Стили для фильтров по дате (в хедере) */
+        .date-filters-inline {
             display: flex;
             gap: 8px;
             align-items: center;
-            flex-wrap: wrap;
         }
 
         .date-filter-input {
@@ -3321,9 +3315,15 @@ HTML_TEMPLATE = '''
             box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
         }
 
+        .date-separator {
+            color: #999;
+            font-size: 16px;
+            padding: 0 4px;
+        }
+
         .date-filter-reset {
             padding: 8px 16px;
-            margin-left: 8px;
+            margin-left: 4px;
             background: #fff;
             border: 1px solid #ddd;
             border-radius: 6px;
@@ -3853,11 +3853,16 @@ HTML_TEMPLATE = '''
             <!-- ТАБ: История товара -->
             <div id="history" class="tab-content active">
                 <div class="table-header">
-                    <div></div>
+                    <div class="date-filters-inline">
+                        <input type="date" id="date-from" class="date-filter-input" onchange="applyDateFilter()">
+                        <span class="date-separator">—</span>
+                        <input type="date" id="date-to" class="date-filter-input" onchange="applyDateFilter()">
+                        <button class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
+                    </div>
                     <div>
                         <label for="product-select" style="margin-right: 10px; font-weight: 500;">Выберите товар:</label>
-                        <select 
-                            id="product-select" 
+                        <select
+                            id="product-select"
                             class="history-select"
                             onchange="loadHistoryForProduct()"
                         >
@@ -4312,16 +4317,8 @@ HTML_TEMPLATE = '''
                 });
         }
 
-        function renderHistory(data, preserveFilters = false) {
+        function renderHistory(data) {
             const historyContent = document.getElementById('history-content');
-
-            // Сохраняем значения фильтров перед перерисовкой
-            let savedDateFrom = '';
-            let savedDateTo = '';
-            if (preserveFilters) {
-                savedDateFrom = document.getElementById('date-from')?.value || '';
-                savedDateTo = document.getElementById('date-to')?.value || '';
-            }
 
             if (!data.history || data.history.length === 0) {
                 historyContent.innerHTML = '<div class="empty-state">История не найдена</div>';
@@ -4658,14 +4655,6 @@ HTML_TEMPLATE = '''
             
             // Обворачиваю таблицу в контейнер для скролла
             const fullHtml = `
-                <div class="date-filters">
-                    <span style="font-weight: 600; margin-right: 8px;">Фильтр по дате:</span>
-                    <label for="date-from" style="margin-right: 4px;">с</label>
-                    <input type="date" id="date-from" class="date-filter-input" onchange="applyDateFilter()">
-                    <label for="date-to" style="margin: 0 4px 0 12px;">по</label>
-                    <input type="date" id="date-to" class="date-filter-input" onchange="applyDateFilter()">
-                    <button class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
-                </div>
                 <div class="table-controls">
                     <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
                     <button class="toggle-col-btn" onclick="toggleColumn(1)">Дата</button>
@@ -4700,14 +4689,6 @@ HTML_TEMPLATE = '''
             
             historyContent.innerHTML = fullHtml;
 
-            // Восстанавливаем значения фильтров после перерисовки
-            if (preserveFilters) {
-                const dateFromEl = document.getElementById('date-from');
-                const dateToEl = document.getElementById('date-to');
-                if (dateFromEl) dateFromEl.value = savedDateFrom;
-                if (dateToEl) dateToEl.value = savedDateTo;
-            }
-
             // Инициализирую изменение ширины столбцов
             initColumnResize();
         }
@@ -4737,7 +4718,7 @@ HTML_TEMPLATE = '''
                 })
             };
 
-            renderHistory(filteredData, true);  // true = сохранить значения фильтров
+            renderHistory(filteredData);
         }
 
         /**
