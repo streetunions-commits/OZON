@@ -3858,19 +3858,19 @@ HTML_TEMPLATE = '''
                             <span class="currency-label">Вся себестоимость в пути</span>
                             <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">₽</span>
-                            <span style="display:block;font-size:10px;color:#92400e;margin-top:2px;" id="goods-in-transit-cost-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#92400e;margin-top:6px;border-top:1px solid #f59e0b;padding-top:4px;" id="goods-in-transit-cost-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fefce8; border-color:#ca8a04;">
                             <span class="currency-label">Себестоимость в пути без логистики</span>
                             <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#ca8a04;">—</span>
                             <span class="currency-rub" style="color:#713f12;">₽</span>
-                            <span style="display:block;font-size:10px;color:#713f12;margin-top:2px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#713f12;margin-top:6px;border-top:1px solid #ca8a04;padding-top:4px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
                             <span class="currency-label">Логистика в пути</span>
                             <span class="currency-value" id="logistics-in-transit" style="color:#dc2626;">—</span>
                             <span class="currency-rub" style="color:#7f1d1d;">₽</span>
-                            <span style="display:block;font-size:10px;color:#7f1d1d;margin-top:2px;" id="logistics-in-transit-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#7f1d1d;margin-top:6px;border-top:1px solid #ef4444;padding-top:4px;" id="logistics-in-transit-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                     <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
@@ -3883,19 +3883,19 @@ HTML_TEMPLATE = '''
                             <span class="currency-label">Вся себестоимость плана</span>
                             <span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span>
                             <span class="currency-rub" style="color:#1e40af;">₽</span>
-                            <span style="display:block;font-size:10px;color:#1e40af;margin-top:2px;" id="plan-cost-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#1e40af;margin-top:6px;border-top:1px solid #3b82f6;padding-top:4px;" id="plan-cost-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#eef2ff; border-color:#6366f1;">
                             <span class="currency-label">Себестоимость плана без логистики</span>
                             <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#4f46e5;">—</span>
                             <span class="currency-rub" style="color:#312e81;">₽</span>
-                            <span style="display:block;font-size:10px;color:#312e81;margin-top:2px;" id="plan-cost-no-log-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#312e81;margin-top:6px;border-top:1px solid #6366f1;padding-top:4px;" id="plan-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
                             <span class="currency-label">Логистика план</span>
                             <span class="currency-value" id="logistics-plan" style="color:#dc2626;">—</span>
                             <span class="currency-rub" style="color:#7f1d1d;">₽</span>
-                            <span style="display:block;font-size:10px;color:#7f1d1d;margin-top:2px;" id="logistics-plan-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:12px;color:#7f1d1d;margin-top:6px;border-top:1px solid #ef4444;padding-top:4px;" id="logistics-plan-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                 </div>
