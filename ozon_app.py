@@ -3858,16 +3858,19 @@ HTML_TEMPLATE = '''
                             <span class="currency-label">Вся себестоимость в пути</span>
                             <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">₽</span>
+                            <span style="display:block;font-size:10px;color:#92400e;margin-top:2px;" id="goods-in-transit-cost-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fefce8; border-color:#ca8a04;">
                             <span class="currency-label">Себестоимость в пути без логистики</span>
                             <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#ca8a04;">—</span>
                             <span class="currency-rub" style="color:#713f12;">₽</span>
+                            <span style="display:block;font-size:10px;color:#713f12;margin-top:2px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
                             <span class="currency-label">Логистика в пути</span>
                             <span class="currency-value" id="logistics-in-transit" style="color:#dc2626;">—</span>
                             <span class="currency-rub" style="color:#7f1d1d;">₽</span>
+                            <span style="display:block;font-size:10px;color:#7f1d1d;margin-top:2px;" id="logistics-in-transit-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                     <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
@@ -3880,16 +3883,19 @@ HTML_TEMPLATE = '''
                             <span class="currency-label">Вся себестоимость плана</span>
                             <span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span>
                             <span class="currency-rub" style="color:#1e40af;">₽</span>
+                            <span style="display:block;font-size:10px;color:#1e40af;margin-top:2px;" id="plan-cost-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#eef2ff; border-color:#6366f1;">
                             <span class="currency-label">Себестоимость плана без логистики</span>
                             <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#4f46e5;">—</span>
                             <span class="currency-rub" style="color:#312e81;">₽</span>
+                            <span style="display:block;font-size:10px;color:#312e81;margin-top:2px;" id="plan-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
                             <span class="currency-label">Логистика план</span>
                             <span class="currency-value" id="logistics-plan" style="color:#dc2626;">—</span>
                             <span class="currency-rub" style="color:#7f1d1d;">₽</span>
+                            <span style="display:block;font-size:10px;color:#7f1d1d;margin-top:2px;" id="logistics-plan-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                 </div>
@@ -5932,7 +5938,7 @@ HTML_TEMPLATE = '''
                 byProduct[sku].push(row);
             });
 
-            // Итоговые суммы по всем товарам
+            // Итоговые суммы по всем товарам (с наценкой +6%)
             let totalInTransitQty = 0;
             let totalInTransitCostFull = 0;
             let totalInTransitCostNoLog = 0;
@@ -5940,20 +5946,31 @@ HTML_TEMPLATE = '''
             let totalPlanCostFull = 0;
             let totalPlanCostNoLog = 0;
 
+            // Итоговые суммы БЕЗ наценки +6%
+            let totalInTransitCostFullNo6 = 0;      // себестоимость = (логистика + цена¥×курс) без ×1.06
+            let totalInTransitCostNoLogNo6 = 0;     // только цена¥×курс
+            let totalInTransitLogistics = 0;        // только логистика
+            let totalPlanCostFullNo6 = 0;
+            let totalPlanCostNoLogNo6 = 0;
+            let totalPlanLogistics = 0;
+
             // Считаем по каждому товару отдельно
             Object.keys(byProduct).forEach(sku => {
                 const productRows = byProduct[sku];
                 let plan = 0, factory = 0, arrival = 0;
                 let costSum = 0, costCount = 0;
                 let cnySum = 0, cnyCount = 0;
+                let logSum = 0, logCount = 0;
 
                 productRows.forEach(row => {
                     const ti = row.querySelectorAll('input[type="text"]');
                     plan += ti[0] ? (parseNumberFromSpaces(ti[0].value) || 0) : 0;
                     factory += ti[1] ? (parseNumberFromSpaces(ti[1].value) || 0) : 0;
                     arrival += ti[2] ? (parseNumberFromSpaces(ti[2].value) || 0) : 0;
+                    const logVal = ti[3] ? (parseNumberFromSpaces(ti[3].value) || 0) : 0;
                     const priceCny = ti[4] ? (parseNumberFromSpaces(ti[4].value) || 0) : 0;
                     if (priceCny) { cnySum += priceCny; cnyCount++; }
+                    if (logVal) { logSum += logVal; logCount++; }
 
                     const costSpan = row.querySelector('.supply-cost-auto');
                     if (costSpan && costSpan.textContent !== '—') {
@@ -5963,9 +5980,14 @@ HTML_TEMPLATE = '''
                 });
 
                 // Средние по этому товару
-                const avgCost = costCount > 0 ? costSum / costCount : 0;
-                const avgCny = cnyCount > 0 ? cnySum / cnyCount : 0;
-                const avgCostNoLog = avgCny * currentCnyRate * 1.06;
+                const avgCost = costCount > 0 ? costSum / costCount : 0;           // себестоимость +6%
+                const avgCny = cnyCount > 0 ? cnySum / cnyCount : 0;               // цена ¥
+                const avgLog = logCount > 0 ? logSum / logCount : 0;               // логистика за ед.
+                const avgCostNoLog = avgCny * currentCnyRate * 1.06;               // цена¥×курс×1.06
+
+                // Без наценки +6%
+                const avgCostNo6 = avgLog + avgCny * currentCnyRate;               // логистика + цена¥×курс
+                const avgCostNoLogNo6 = avgCny * currentCnyRate;                   // только цена¥×курс
 
                 // В пути по этому товару
                 const inTransit = factory - arrival;
@@ -5973,6 +5995,10 @@ HTML_TEMPLATE = '''
                     totalInTransitQty += inTransit;
                     totalInTransitCostFull += inTransit * avgCost;
                     totalInTransitCostNoLog += inTransit * avgCostNoLog;
+                    // Без наценки
+                    totalInTransitCostFullNo6 += inTransit * avgCostNo6;
+                    totalInTransitCostNoLogNo6 += inTransit * avgCostNoLogNo6;
+                    totalInTransitLogistics += inTransit * avgLog;
                 }
 
                 // План не доставлен по этому товару
@@ -5981,6 +6007,10 @@ HTML_TEMPLATE = '''
                     totalPlanNotDeliveredQty += planNotDel;
                     totalPlanCostFull += planNotDel * avgCost;
                     totalPlanCostNoLog += planNotDel * avgCostNoLog;
+                    // Без наценки
+                    totalPlanCostFullNo6 += planNotDel * avgCostNo6;
+                    totalPlanCostNoLogNo6 += planNotDel * avgCostNoLogNo6;
+                    totalPlanLogistics += planNotDel * avgLog;
                 }
             });
 
@@ -5994,17 +6024,35 @@ HTML_TEMPLATE = '''
                 }
             }
 
+            // Вспомогательная функция для подписи "без наценки +6%"
+            function fillNo6(el, val) {
+                if (!el) return;
+                if (val > 0) {
+                    el.textContent = 'без наценки +6%: ' + formatNumberWithSpaces(Math.round(val)) + ' ₽';
+                } else {
+                    el.textContent = 'без наценки +6%: —';
+                }
+            }
+
             // Товар в пути
             fillVal(qtyEl, totalInTransitQty);
             fillVal(costEl, totalInTransitCostFull);
             fillVal(costNoLogEl, totalInTransitCostNoLog);
             fillVal(logInTransitEl, totalInTransitCostFull - totalInTransitCostNoLog);
+            // Без наценки +6%
+            fillNo6(document.getElementById('goods-in-transit-cost-no6'), totalInTransitCostFullNo6);
+            fillNo6(document.getElementById('goods-in-transit-cost-no-log-no6'), totalInTransitCostNoLogNo6);
+            fillNo6(document.getElementById('logistics-in-transit-no6'), totalInTransitLogistics);
 
             // План не доставлен
             fillVal(planQtyEl, totalPlanNotDeliveredQty);
             fillVal(planCostEl, totalPlanCostFull);
             fillVal(planCostNoLogEl, totalPlanCostNoLog);
             fillVal(logPlanEl, totalPlanCostFull - totalPlanCostNoLog);
+            // Без наценки +6%
+            fillNo6(document.getElementById('plan-cost-no6'), totalPlanCostFullNo6);
+            fillNo6(document.getElementById('plan-cost-no-log-no6'), totalPlanCostNoLogNo6);
+            fillNo6(document.getElementById('logistics-plan-no6'), totalPlanLogistics);
         }
 
         // ============================================================
