@@ -325,6 +325,15 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN in_draft INTEGER DEFAULT 0"):
         print("✅ Столбец in_draft добавлен в products")
 
+    # ✅ Добавляем колонку для индекса цены (price_index)
+    if ensure_column(cursor, "products_history", "price_index",
+                     "ALTER TABLE products_history ADD COLUMN price_index TEXT DEFAULT NULL"):
+        print("✅ Столбец price_index добавлен в products_history")
+
+    if ensure_column(cursor, "products", "price_index",
+                     "ALTER TABLE products ADD COLUMN price_index TEXT DEFAULT NULL"):
+        print("✅ Столбец price_index добавлен в products")
+
     # ✅ Таблица fbo_warehouse_stock — остатки по складам/кластерам
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS fbo_warehouse_stock (
@@ -2100,6 +2109,10 @@ def load_product_prices(products_data=None):
                 external_index = price_indexes.get("external_index_data", {})
                 website_price = external_index.get("min_price", 0)
 
+                # Индекс цены (price_index) — строка типа "WITHOUT_INDEX", "PROFIT", "AVG_PROFIT" и т.д.
+                # Находится в price_indexes.price_index
+                price_index_value = price_indexes.get("price_index", None)
+
                 # Конвертируем в float
                 try:
                     seller_price = float(marketing_seller_price) if marketing_seller_price else 0
@@ -2113,7 +2126,8 @@ def load_product_prices(products_data=None):
                     "marketing_price": site_price,  # Цена на сайте (с Ozon картой) - 11,658₽
                     "rating": sku_info["rating"],  # Рейтинг товара
                     "review_count": sku_info["review_count"],  # Количество отзывов
-                    "offer_id": offer_id  # Артикул товара (текстовый, например "ABC-123")
+                    "offer_id": offer_id,  # Артикул товара (текстовый, например "ABC-123")
+                    "price_index": price_index_value  # Индекс цены (WITHOUT_INDEX, PROFIT, AVG_PROFIT и т.д.)
                 }
 
             print(f"  ✓ Обработано {len(items)} товаров (batch {i // batch_size + 1})")
@@ -2638,6 +2652,7 @@ def sync_products():
             price = price_data.get("price", 0)
             marketing_price = price_data.get("marketing_price", 0)
             offer_id = price_data.get("offer_id", None)
+            price_index = price_data.get("price_index", None)
 
             # Рейтинг и отзывы - пока оставляем пустыми
             # (парсинг не работает с сервера из-за блокировки Ozon)
@@ -2647,8 +2662,8 @@ def sync_products():
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
-                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (sku, name, offer_id, fbo_stock, orders_qty, price, marketing_price, price_index, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products.offer_id),
@@ -2656,6 +2671,7 @@ def sync_products():
                     orders_qty=excluded.orders_qty,
                     price=excluded.price,
                     marketing_price=excluded.marketing_price,
+                    price_index=COALESCE(excluded.price_index, products.price_index),
                     hits_view_search=excluded.hits_view_search,
                     hits_view_search_pdp=excluded.hits_view_search_pdp,
                     search_ctr=excluded.search_ctr,
@@ -2674,6 +2690,7 @@ def sync_products():
                 orders_qty,
                 price,
                 marketing_price,
+                price_index,
                 views,
                 pdp,
                 search_ctr,
@@ -2688,8 +2705,8 @@ def sync_products():
             
             # 2️⃣ Сохраняем в историю (один раз в день на SKU)
             cursor.execute('''
-                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products_history (sku, name, offer_id, fbo_stock, orders_qty, rating, review_count, price, marketing_price, price_index, avg_position, hits_view_search, hits_view_search_pdp, search_ctr, hits_add_to_cart, cr1, cr2, adv_spend, in_transit, in_draft, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(sku, snapshot_date) DO UPDATE SET
                     name=excluded.name,
                     offer_id=COALESCE(excluded.offer_id, products_history.offer_id),
@@ -2699,6 +2716,7 @@ def sync_products():
                     review_count=COALESCE(excluded.review_count, products_history.review_count),
                     price=excluded.price,
                     marketing_price=excluded.marketing_price,
+                    price_index=COALESCE(excluded.price_index, products_history.price_index),
                     avg_position=excluded.avg_position,
                     hits_view_search=excluded.hits_view_search,
                     hits_view_search_pdp=excluded.hits_view_search_pdp,
@@ -2720,6 +2738,7 @@ def sync_products():
                 review_count,
                 price,
                 marketing_price,
+                price_index,
                 avg_pos,
                 views,
                 pdp,
@@ -4366,6 +4385,7 @@ HTML_TEMPLATE = '''
             html += '<th>SKU</th>';
             html += '<th>Рейтинг</th>';
             html += '<th>Отзывы</th>';
+            html += '<th>Индекс цен</th>';
             html += '<th>FBO остаток</th>';
             html += '<th>Заказы</th>';
             html += '<th>Заказы план</th>';
@@ -4432,6 +4452,20 @@ HTML_TEMPLATE = '''
                 // Количество отзывов
                 const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
                 html += `<td><strong>${reviewCount}</strong></td>`;
+
+                // Индекс цены (price_index)
+                // Возможные значения: WITHOUT_INDEX, PROFIT, AVG_PROFIT, NON_PROFIT
+                const priceIndexMap = {
+                    'WITHOUT_INDEX': { text: 'Без индекса', color: '#6b7280' },
+                    'PROFIT': { text: 'Прибыльный', color: '#22c55e' },
+                    'AVG_PROFIT': { text: 'Средний', color: '#f59e0b' },
+                    'NON_PROFIT': { text: 'Неприбыльный', color: '#ef4444' }
+                };
+                const priceIndexValue = item.price_index || null;
+                const priceIndexDisplay = priceIndexValue && priceIndexMap[priceIndexValue]
+                    ? `<span style="color: ${priceIndexMap[priceIndexValue].color}; font-weight: 500;">${priceIndexMap[priceIndexValue].text}</span>`
+                    : '—';
+                html += `<td>${priceIndexDisplay}</td>`;
 
                 html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
 
@@ -4668,25 +4702,26 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(3)">SKU</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(4)">Рейтинг</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(5)">Отзывы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(6)">FBO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Заказы план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Цена план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Соинвест</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(17)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(19)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(20)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(21)">CPO план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(22)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(23)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(24)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Индекс цен</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(7)">FBO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Заказы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Заказы план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Цена план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(21)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(22)">CPO план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(24)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(25)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -6402,6 +6437,7 @@ def get_product_history(sku):
                 price_plan,
                 rating,
                 review_count,
+                price_index,
                 price,
                 marketing_price,
                 avg_position,
