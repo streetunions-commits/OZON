@@ -3339,6 +3339,12 @@ HTML_TEMPLATE = '''
             color: #333;
         }
 
+        .date-filter-reset.active {
+            color: #000;
+            border-color: #333;
+            font-weight: 500;
+        }
+
         .table-controls {
             margin-bottom: 12px;
             padding: 16px 0;
@@ -3854,10 +3860,10 @@ HTML_TEMPLATE = '''
             <div id="history" class="tab-content active">
                 <div class="table-header">
                     <div class="date-filters-inline">
-                        <input type="date" id="date-from" class="date-filter-input" onchange="applyDateFilter()">
+                        <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
                         <span class="date-separator">—</span>
-                        <input type="date" id="date-to" class="date-filter-input" onchange="applyDateFilter()">
-                        <button class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
+                        <input type="date" id="date-to" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
+                        <button id="date-filter-reset-btn" class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
                     </div>
                     <div>
                         <label for="product-select" style="margin-right: 10px; font-weight: 500;">Выберите товар:</label>
@@ -4706,6 +4712,16 @@ HTML_TEMPLATE = '''
 
             const dateFrom = document.getElementById('date-from')?.value;
             const dateTo = document.getElementById('date-to')?.value;
+            const resetBtn = document.getElementById('date-filter-reset-btn');
+
+            // Обновляем состояние кнопки сброса
+            if (resetBtn) {
+                if (dateFrom || dateTo) {
+                    resetBtn.classList.add('active');
+                } else {
+                    resetBtn.classList.remove('active');
+                }
+            }
 
             // Создаём копию данных с отфильтрованной историей
             const filteredData = {
@@ -4730,8 +4746,11 @@ HTML_TEMPLATE = '''
             // Очищаем поля ввода
             const dateFromEl = document.getElementById('date-from');
             const dateToEl = document.getElementById('date-to');
+            const resetBtn = document.getElementById('date-filter-reset-btn');
+
             if (dateFromEl) dateFromEl.value = '';
             if (dateToEl) dateToEl.value = '';
+            if (resetBtn) resetBtn.classList.remove('active');
 
             // Перерисовываем с полными данными
             renderHistory(currentHistoryData);
