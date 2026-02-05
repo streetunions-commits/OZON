@@ -4454,9 +4454,10 @@ HTML_TEMPLATE = '''
                 html += `<td><strong>${reviewCount}</strong></td>`;
 
                 // Индекс цены (color_index)
-                // Возможные значения: SUPER, GOOD, AVG, BAD, WITHOUT_INDEX
+                // Возможные значения: SUPER, GREEN, GOOD, AVG, BAD, WITHOUT_INDEX
                 const priceIndexMap = {
                     'SUPER': { text: 'Отличная', color: '#22c55e' },
+                    'GREEN': { text: 'Отличная', color: '#22c55e' },
                     'GOOD': { text: 'Хорошая', color: '#84cc16' },
                     'AVG': { text: 'Средняя', color: '#f59e0b' },
                     'BAD': { text: 'Плохая', color: '#ef4444' },
