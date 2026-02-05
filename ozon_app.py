@@ -2102,6 +2102,12 @@ def load_product_prices(products_data=None):
                 price_obj = item.get("price", {})
                 price_indexes = item.get("price_indexes", {})
 
+                # DEBUG: выводим структуру price_indexes для первого товара
+                if len(prices_by_sku) == 0:
+                    print(f"  🔍 DEBUG price_indexes keys: {price_indexes.keys() if price_indexes else 'empty'}")
+                    print(f"  🔍 DEBUG price_indexes full: {price_indexes}")
+                    print(f"  🔍 DEBUG item keys: {item.keys()}")
+
                 # "Ваша цена" в ЛК (с учетом акций/бустинга) = marketing_seller_price
                 marketing_seller_price = price_obj.get("marketing_seller_price", 0)
 
