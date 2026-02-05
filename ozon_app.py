@@ -4453,13 +4453,15 @@ HTML_TEMPLATE = '''
                 const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
                 html += `<td><strong>${reviewCount}</strong></td>`;
 
-                // Индекс цены (color_index)
-                // Возможные значения: SUPER, GREEN, GOOD, AVG, BAD, WITHOUT_INDEX
+                // Индекс цены (color_index) — цветовой код от Ozon
+                // Возможные значения: SUPER, GREEN, YELLOW, RED, WITHOUT_INDEX
                 const priceIndexMap = {
-                    'SUPER': { text: 'Отличная', color: '#22c55e' },
-                    'GREEN': { text: 'Отличная', color: '#22c55e' },
+                    'SUPER': { text: 'Супер', color: '#22c55e' },
+                    'GREEN': { text: 'Выгодная', color: '#22c55e' },
                     'GOOD': { text: 'Хорошая', color: '#84cc16' },
+                    'YELLOW': { text: 'Умеренная', color: '#f59e0b' },
                     'AVG': { text: 'Средняя', color: '#f59e0b' },
+                    'RED': { text: 'Невыгодная', color: '#ef4444' },
                     'BAD': { text: 'Плохая', color: '#ef4444' },
                     'WITHOUT_INDEX': { text: 'Без индекса', color: '#6b7280' }
                 };
