@@ -3288,6 +3288,57 @@ HTML_TEMPLATE = '''
             border-radius: 4px;
         }
 
+        /* Стили для фильтров по дате */
+        .date-filters {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-filter-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .date-filter-input:hover {
+            border-color: #0066ff;
+        }
+
+        .date-filter-input:focus {
+            outline: none;
+            border-color: #0066ff;
+            box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+        }
+
+        .date-filter-reset {
+            padding: 8px 16px;
+            margin-left: 8px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .date-filter-reset:hover {
+            background: #f5f5f5;
+            border-color: #ccc;
+            color: #333;
+        }
+
         .table-controls {
             margin-bottom: 12px;
             padding: 16px 0;
@@ -3945,6 +3996,7 @@ HTML_TEMPLATE = '''
 
     <script>
         let allProducts = [];
+        let currentHistoryData = null;  // Хранит загруженные данные истории для фильтрации
 
         document.addEventListener('DOMContentLoaded', function() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
@@ -4247,9 +4299,10 @@ HTML_TEMPLATE = '''
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
+                        currentHistoryData = data;  // Сохраняем данные для фильтрации
                         renderHistory(data);
                     } else {
-                        document.getElementById('history-content').innerHTML = 
+                        document.getElementById('history-content').innerHTML =
                             '<div class="error">' + data.error + '</div>';
                     }
                 })
@@ -4259,8 +4312,16 @@ HTML_TEMPLATE = '''
                 });
         }
 
-        function renderHistory(data) {
+        function renderHistory(data, preserveFilters = false) {
             const historyContent = document.getElementById('history-content');
+
+            // Сохраняем значения фильтров перед перерисовкой
+            let savedDateFrom = '';
+            let savedDateTo = '';
+            if (preserveFilters) {
+                savedDateFrom = document.getElementById('date-from')?.value || '';
+                savedDateTo = document.getElementById('date-to')?.value || '';
+            }
 
             if (!data.history || data.history.length === 0) {
                 historyContent.innerHTML = '<div class="empty-state">История не найдена</div>';
@@ -4597,6 +4658,14 @@ HTML_TEMPLATE = '''
             
             // Обворачиваю таблицу в контейнер для скролла
             const fullHtml = `
+                <div class="date-filters">
+                    <span style="font-weight: 600; margin-right: 8px;">Фильтр по дате:</span>
+                    <label for="date-from" style="margin-right: 4px;">с</label>
+                    <input type="date" id="date-from" class="date-filter-input" onchange="applyDateFilter()">
+                    <label for="date-to" style="margin: 0 4px 0 12px;">по</label>
+                    <input type="date" id="date-to" class="date-filter-input" onchange="applyDateFilter()">
+                    <button class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
+                </div>
                 <div class="table-controls">
                     <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
                     <button class="toggle-col-btn" onclick="toggleColumn(1)">Дата</button>
@@ -4630,9 +4699,61 @@ HTML_TEMPLATE = '''
             `;
             
             historyContent.innerHTML = fullHtml;
-            
+
+            // Восстанавливаем значения фильтров после перерисовки
+            if (preserveFilters) {
+                const dateFromEl = document.getElementById('date-from');
+                const dateToEl = document.getElementById('date-to');
+                if (dateFromEl) dateFromEl.value = savedDateFrom;
+                if (dateToEl) dateToEl.value = savedDateTo;
+            }
+
             // Инициализирую изменение ширины столбцов
             initColumnResize();
+        }
+
+        // ============================================================================
+        // ФИЛЬТРАЦИЯ ПО ДАТЕ
+        // ============================================================================
+
+        /**
+         * Применяет фильтр по дате к данным истории.
+         * Фильтрует записи по диапазону дат и перерисовывает таблицу.
+         */
+        function applyDateFilter() {
+            if (!currentHistoryData) return;
+
+            const dateFrom = document.getElementById('date-from')?.value;
+            const dateTo = document.getElementById('date-to')?.value;
+
+            // Создаём копию данных с отфильтрованной историей
+            const filteredData = {
+                ...currentHistoryData,
+                history: currentHistoryData.history.filter(item => {
+                    const itemDate = item.snapshot_date;
+                    if (dateFrom && itemDate < dateFrom) return false;
+                    if (dateTo && itemDate > dateTo) return false;
+                    return true;
+                })
+            };
+
+            renderHistory(filteredData, true);  // true = сохранить значения фильтров
+        }
+
+        /**
+         * Сбрасывает фильтры по дате и показывает все записи.
+         */
+        function resetDateFilter() {
+            if (!currentHistoryData) return;
+
+            // Очищаем поля ввода
+            const dateFromEl = document.getElementById('date-from');
+            const dateToEl = document.getElementById('date-to');
+            if (dateFromEl) dateFromEl.value = '';
+            if (dateToEl) dateToEl.value = '';
+
+            // Перерисовываем с полными данными
+            renderHistory(currentHistoryData);
         }
 
         function startEditNote(uniqueId, sku, date) {
