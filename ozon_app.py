@@ -6998,8 +6998,8 @@ HTML_TEMPLATE = '''
                     '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
-                    '<td style="text-align:center;" class="' + (item.stock_balance > 0 ? 'wh-stock-positive' : (item.stock_balance < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(item.stock_balance) + '</td>' +
                     '<td style="text-align:center;' + (reserved > 0 ? 'color:#d97706;font-weight:500;' : '') + '">' + (reserved > 0 ? formatNumberWithSpaces(reserved) : '—') + '</td>' +
+                    '<td style="text-align:center;" class="' + (item.stock_balance > 0 ? 'wh-stock-positive' : (item.stock_balance < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(item.stock_balance) + '</td>' +
                     '<td style="text-align:right;">' + (item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.avg_purchase_price)) + ' ₽' : '—') + '</td>' +
                     '<td style="text-align:right;font-weight:600;">' + (item.stock_balance > 0 && item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.stock_balance * item.avg_purchase_price)) + ' ₽' : '—') + '</td>';
                 tbody.appendChild(row);
@@ -7021,8 +7021,8 @@ HTML_TEMPLATE = '''
             tfoot.innerHTML = '<tr><td colspan="2" style="text-align:right;font-weight:600;">Итого:</td>' +
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalReceived) + '</td>' +
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalShipped) + '</td>' +
-                '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
                 '<td style="text-align:center;font-weight:600;' + (totalReserved > 0 ? 'color:#d97706;' : '') + '">' + (totalReserved > 0 ? formatNumberWithSpaces(totalReserved) : '—') + '</td>' +
+                '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
                 '<td></td>' +
                 '<td style="text-align:right;font-weight:600;">' + (totalValue > 0 ? formatNumberWithSpaces(Math.round(totalValue)) + ' ₽' : '—') + '</td></tr>';
         }
