@@ -8213,6 +8213,16 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(25)">ДРР</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(26)">В пути</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(27)">В заявках</button>
+                    <div style="margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                        <span style="font-weight: 600; margin-right: 4px;">Теги:</span>
+                        <span class="tag-badge tag-samovykup">Самовыкуп</span>
+                        <span class="tag-badge tag-pp">ПП</span>
+                        <span class="tag-badge tag-mediana">Медиана</span>
+                        <span class="tag-badge tag-reklama">Реклама</span>
+                        <span class="tag-badge tag-cena">Цена</span>
+                        <span class="tag-badge tag-akcii">Акции</span>
+                        <span class="tag-badge tag-test">Тест</span>
+                    </div>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -8474,6 +8484,9 @@ HTML_TEMPLATE = '''
 
         // ✅ Функция удаления тега
         function removeTag(tagId, sku, date, tagName) {
+            // Подтверждение перед удалением
+            if (!confirm(`Удалить тег "${tagName}"?`)) return;
+
             // Получаем текущие теги из бейджей
             const badgesContainer = document.getElementById(tagId + '_badges');
             const existingBadges = badgesContainer.querySelectorAll('.tag-badge');
