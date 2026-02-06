@@ -5725,209 +5725,6 @@ HTML_TEMPLATE = '''
         let allProducts = [];
         let currentHistoryData = null;  // Хранит загруженные данные истории для фильтрации
 
-        // ============================================================
-        // МОДАЛЬНОЕ ОКНО ПОСТАВОК ПО SKU
-        // ============================================================
-        let suppliesModalData = {
-            sku: null,
-            productName: '',
-            supplies: [],
-            offset: 0,
-            hasMore: true,
-            avgCost: 0,
-            totalCount: 0
-        };
-
-        /**
-         * Открыть модальное окно с поставками для товара
-         */
-        async function openSuppliesModal(sku, productName) {
-            // Сбрасываем данные
-            suppliesModalData = {
-                sku: sku,
-                productName: productName || 'SKU ' + sku,
-                supplies: [],
-                offset: 0,
-                hasMore: true,
-                avgCost: 0,
-                totalCount: 0
-            };
-
-            // Создаём модальное окно если его ещё нет
-            let modal = document.getElementById('supplies-modal');
-            if (!modal) {
-                modal = document.createElement('div');
-                modal.id = 'supplies-modal';
-                modal.className = 'supplies-modal-overlay';
-                modal.innerHTML = `
-                    <div class="supplies-modal-box">
-                        <div class="supplies-modal-header">
-                            <div>
-                                <h3 id="supplies-modal-title">Поставки товара</h3>
-                                <span class="avg-cost" id="supplies-modal-avg"></span>
-                            </div>
-                            <button class="supplies-modal-close" onclick="closeSuppliesModal()">&times;</button>
-                        </div>
-                        <div class="supplies-modal-body" id="supplies-modal-body">
-                            <div class="supplies-empty">Загрузка...</div>
-                        </div>
-                        <div class="supplies-modal-footer" id="supplies-modal-footer" style="display:none;">
-                            <button class="supplies-load-more-btn" onclick="loadMoreSupplies()">Загрузить ещё 10</button>
-                        </div>
-                    </div>
-                `;
-                // Закрытие по клику на оверлей
-                modal.addEventListener('click', function(e) {
-                    if (e.target === modal) closeSuppliesModal();
-                });
-                document.body.appendChild(modal);
-            }
-
-            // Показываем модалку
-            modal.style.display = 'flex';
-            document.getElementById('supplies-modal-title').textContent = 'Поставки: ' + suppliesModalData.productName;
-            document.getElementById('supplies-modal-avg').textContent = '';
-            document.getElementById('supplies-modal-body').innerHTML = '<div class="supplies-empty">Загрузка...</div>';
-            document.getElementById('supplies-modal-footer').style.display = 'none';
-
-            // Загружаем первые 10 поставок
-            await loadMoreSupplies();
-        }
-
-        /**
-         * Закрыть модальное окно поставок
-         */
-        function closeSuppliesModal() {
-            const modal = document.getElementById('supplies-modal');
-            if (modal) modal.style.display = 'none';
-        }
-
-        /**
-         * Загрузить ещё 10 поставок
-         */
-        async function loadMoreSupplies() {
-            if (!suppliesModalData.sku) return;
-
-            try {
-                const url = `/api/supplies/by-sku/${suppliesModalData.sku}?limit=10&offset=${suppliesModalData.offset}`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (!data.success) {
-                    document.getElementById('supplies-modal-body').innerHTML =
-                        '<div class="supplies-empty">Ошибка загрузки: ' + (data.error || 'неизвестная') + '</div>';
-                    return;
-                }
-
-                // Добавляем новые поставки к существующим
-                suppliesModalData.supplies = suppliesModalData.supplies.concat(data.supplies);
-                suppliesModalData.offset = data.offset + data.supplies.length;
-                suppliesModalData.hasMore = data.has_more;
-                suppliesModalData.avgCost = data.avg_cost;
-                suppliesModalData.totalCount = data.total_count;
-
-                // Отрисовываем
-                renderSuppliesModal();
-            } catch (err) {
-                document.getElementById('supplies-modal-body').innerHTML =
-                    '<div class="supplies-empty">Ошибка: ' + err.message + '</div>';
-            }
-        }
-
-        /**
-         * Отрисовать содержимое модального окна поставок
-         */
-        function renderSuppliesModal() {
-            const body = document.getElementById('supplies-modal-body');
-            const footer = document.getElementById('supplies-modal-footer');
-            const avgEl = document.getElementById('supplies-modal-avg');
-
-            // Средняя себестоимость
-            if (suppliesModalData.avgCost > 0) {
-                avgEl.textContent = 'Средняя себестоимость: ' + formatNumberModal(Math.round(suppliesModalData.avgCost)) + ' ₽';
-            }
-
-            if (suppliesModalData.supplies.length === 0) {
-                body.innerHTML = '<div class="supplies-empty">Нет поставок для этого товара</div>';
-                footer.style.display = 'none';
-                return;
-            }
-
-            // Формируем таблицу
-            let html = '<table class="supplies-modal-table">';
-            html += '<thead><tr>';
-            html += '<th>Дата плана</th>';
-            html += '<th>Дата выхода</th>';
-            html += '<th>Дата прихода</th>';
-            html += '<th>План</th>';
-            html += '<th>Выход</th>';
-            html += '<th>Приход</th>';
-            html += '<th>Себест. ₽</th>';
-            html += '</tr></thead>';
-            html += '<tbody>';
-
-            let totalPlan = 0, totalExit = 0, totalArrival = 0;
-
-            suppliesModalData.supplies.forEach(s => {
-                const planDate = formatDateModal(s.exit_plan_date);
-                const exitDate = formatDateModal(s.exit_factory_date);
-                const arrivalDate = formatDateModal(s.arrival_warehouse_date);
-                const planQty = s.order_qty_plan || 0;
-                const exitQty = s.exit_factory_qty || 0;
-                const arrivalQty = s.arrival_warehouse_qty || 0;
-                const cost = s.cost_plus_6 ? formatNumberModal(Math.round(s.cost_plus_6)) : '—';
-
-                totalPlan += planQty;
-                totalExit += exitQty;
-                totalArrival += arrivalQty;
-
-                html += '<tr>';
-                html += '<td>' + (planDate || '—') + '</td>';
-                html += '<td>' + (exitDate || '—') + '</td>';
-                html += '<td>' + (arrivalDate || '—') + '</td>';
-                html += '<td>' + (planQty || '—') + '</td>';
-                html += '<td>' + (exitQty || '—') + '</td>';
-                html += '<td>' + (arrivalQty || '—') + '</td>';
-                html += '<td>' + cost + '</td>';
-                html += '</tr>';
-            });
-
-            html += '</tbody>';
-            html += '<tfoot><tr>';
-            html += '<td colspan="3"><strong>ИТОГО (' + suppliesModalData.totalCount + ' поставок)</strong></td>';
-            html += '<td><strong>' + totalPlan + '</strong></td>';
-            html += '<td><strong>' + totalExit + '</strong></td>';
-            html += '<td><strong>' + totalArrival + '</strong></td>';
-            html += '<td></td>';
-            html += '</tr></tfoot>';
-            html += '</table>';
-
-            body.innerHTML = html;
-
-            // Показываем/скрываем кнопку "Загрузить ещё"
-            footer.style.display = suppliesModalData.hasMore ? 'block' : 'none';
-        }
-
-        /**
-         * Форматирование даты для модального окна (ДД.ММ.ГГ)
-         */
-        function formatDateModal(dateStr) {
-            if (!dateStr) return '';
-            const parts = dateStr.split('-');
-            if (parts.length === 3) {
-                return parts[2] + '.' + parts[1] + '.' + parts[0].slice(-2);
-            }
-            return dateStr;
-        }
-
-        /**
-         * Форматирование числа с пробелами для модального окна
-         */
-        function formatNumberModal(num) {
-            if (num === null || num === undefined) return '0';
-            return String(num).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');
-        }
-
         document.addEventListener('DOMContentLoaded', function() {
             // Сначала проверяем авторизацию
             checkAuth();
@@ -7185,7 +6982,7 @@ HTML_TEMPLATE = '''
             const tfoot = document.getElementById('wh-stock-tfoot');
             tbody.innerHTML = '';
             stockSuppliesCache = {}; // Очищаем кэш
-            let totalReceived = 0, totalShipped = 0, totalStock = 0, totalValue = 0;
+            let totalReceived = 0, totalShipped = 0, totalReserved = 0, totalStock = 0, totalValue = 0;
 
             stock.forEach(item => {
                 const sku = item.sku;
@@ -7196,11 +6993,13 @@ HTML_TEMPLATE = '''
                 row.className = 'wh-stock-row';
                 row.id = 'wh-stock-row-' + sku;
                 row.onclick = function() { toggleStockAccordion(sku, productName); };
+                const reserved = item.reserved || 0;
                 row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + productName + '</td>' +
                     '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
                     '<td style="text-align:center;" class="' + (item.stock_balance > 0 ? 'wh-stock-positive' : (item.stock_balance < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(item.stock_balance) + '</td>' +
+                    '<td style="text-align:center;' + (reserved > 0 ? 'color:#d97706;font-weight:500;' : '') + '">' + (reserved > 0 ? formatNumberWithSpaces(reserved) : '—') + '</td>' +
                     '<td style="text-align:right;">' + (item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.avg_purchase_price)) + ' ₽' : '—') + '</td>' +
                     '<td style="text-align:right;font-weight:600;">' + (item.stock_balance > 0 && item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.stock_balance * item.avg_purchase_price)) + ' ₽' : '—') + '</td>';
                 tbody.appendChild(row);
@@ -7209,11 +7008,12 @@ HTML_TEMPLATE = '''
                 const accordionRow = document.createElement('tr');
                 accordionRow.className = 'wh-stock-accordion';
                 accordionRow.id = 'wh-stock-accordion-' + sku;
-                accordionRow.innerHTML = '<td colspan="7" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка поставок...</div></div></td>';
+                accordionRow.innerHTML = '<td colspan="8" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка поставок...</div></div></td>';
                 tbody.appendChild(accordionRow);
 
                 totalReceived += item.total_received;
                 totalShipped += item.total_shipped;
+                totalReserved += reserved;
                 totalStock += item.stock_balance;
                 totalValue += item.stock_balance > 0 && item.avg_purchase_price > 0 ? item.stock_balance * item.avg_purchase_price : 0;
             });
@@ -7222,6 +7022,7 @@ HTML_TEMPLATE = '''
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalReceived) + '</td>' +
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalShipped) + '</td>' +
                 '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
+                '<td style="text-align:center;font-weight:600;' + (totalReserved > 0 ? 'color:#d97706;' : '') + '">' + (totalReserved > 0 ? formatNumberWithSpaces(totalReserved) : '—') + '</td>' +
                 '<td></td>' +
                 '<td style="text-align:right;font-weight:600;">' + (totalValue > 0 ? formatNumberWithSpaces(Math.round(totalValue)) + ' ₽' : '—') + '</td></tr>';
         }
@@ -10922,70 +10723,6 @@ def get_warehouse_movements_by_sku(sku):
 
 
 
-@app.route('/api/supplies/by-sku/<int:sku>')
-def get_supplies_by_sku(sku):
-    """
-    Получить поставки для конкретного товара с пагинацией.
-
-    Параметры запроса:
-        limit: количество записей (по умолчанию 10)
-        offset: смещение (по умолчанию 0)
-
-    Возвращает:
-        supplies: список поставок
-        total_count: общее количество поставок для этого SKU
-        avg_cost: средняя себестоимость
-        has_more: есть ли ещё записи
-    """
-    try:
-        limit = request.args.get('limit', 10, type=int)
-        offset = request.args.get('offset', 0, type=int)
-
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Получаем общее количество поставок для этого SKU
-        cursor.execute('SELECT COUNT(*) as cnt FROM supplies WHERE sku = ?', (sku,))
-        total_count = cursor.fetchone()['cnt']
-
-        # Получаем среднюю себестоимость
-        cursor.execute('''
-            SELECT AVG(cost_plus_6) as avg_cost
-            FROM supplies
-            WHERE sku = ? AND cost_plus_6 > 0
-        ''', (sku,))
-        avg_row = cursor.fetchone()
-        avg_cost = round(avg_row['avg_cost'], 2) if avg_row['avg_cost'] else 0
-
-        # Получаем поставки с пагинацией (сортировка по дате прихода, новые первыми)
-        cursor.execute('''
-            SELECT * FROM supplies
-            WHERE sku = ?
-            ORDER BY
-                COALESCE(arrival_warehouse_date, exit_factory_date, exit_plan_date) DESC,
-                created_at DESC
-            LIMIT ? OFFSET ?
-        ''', (sku, limit, offset))
-
-        supplies = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        has_more = (offset + len(supplies)) < total_count
-
-        return jsonify({
-            'success': True,
-            'supplies': supplies,
-            'total_count': total_count,
-            'avg_cost': avg_cost,
-            'has_more': has_more,
-            'offset': offset,
-            'limit': limit
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e), 'supplies': []})
-
-
 @app.route('/api/supplies/save', methods=['POST'])
 @require_auth(['admin'])
 def save_supply():
@@ -11856,11 +11593,12 @@ def get_warehouse_stock():
 
         # Собираем результат
         stock = []
-        all_skus = set(receipts_data.keys()) | set(shipments_data.keys())
+        all_skus = set(receipts_data.keys()) | set(shipments_data.keys()) | set(reserved_data.keys())
 
         for sku in all_skus:
             receipt_info = receipts_data.get(sku, {'total_received': 0, 'avg_purchase_price': 0})
             shipped = shipments_data.get(sku, 0)
+            reserved = reserved_data.get(sku, 0)
             product_info = products_data.get(sku, {'name': '', 'offer_id': ''})
 
             total_received = receipt_info['total_received'] or 0
@@ -11873,6 +11611,7 @@ def get_warehouse_stock():
                 'offer_id': product_info['offer_id'],
                 'total_received': total_received,
                 'total_shipped': shipped,
+                'reserved': reserved,
                 'stock_balance': stock_balance,
                 'avg_purchase_price': avg_price
             })
