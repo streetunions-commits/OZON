@@ -5026,7 +5026,7 @@ HTML_TEMPLATE = '''
                                 <div class="receipt-form-field">
                                     <label>Назначение</label>
                                     <div style="display:flex;gap:8px;align-items:center;">
-                                        <input type="text" id="shipment-destination" class="wh-input" list="destination-list" placeholder="Выберите или введите">
+                                        <input type="text" id="shipment-destination" class="wh-input" list="destination-list" placeholder="Выберите или введите" onfocus="showDestinationList(this)" onclick="showDestinationList(this)">
                                         <datalist id="destination-list"></datalist>
                                         <button type="button" class="wh-add-btn-small" onclick="addNewDestination()" title="Добавить в список">+</button>
                                     </div>
@@ -6249,6 +6249,17 @@ HTML_TEMPLATE = '''
                 opt.value = d.name;
                 datalist.appendChild(opt);
             });
+        }
+
+        // Показать выпадающий список при клике на поле
+        function showDestinationList(input) {
+            // Трюк для показа datalist - очищаем и восстанавливаем значение
+            const val = input.value;
+            input.value = '';
+            setTimeout(() => {
+                input.value = val;
+                input.setSelectionRange(0, val.length);
+            }, 0);
         }
 
         // Добавить новое назначение в справочник
