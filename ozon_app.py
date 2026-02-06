@@ -3233,6 +3233,45 @@ HTML_TEMPLATE = '''
             display: block;
         }
 
+        /* Под-вкладки внутри OZON */
+        .sub-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #e9ecef;
+            margin-bottom: 20px;
+            padding: 0;
+        }
+
+        .sub-tab-button {
+            padding: 10px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #888;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            margin-bottom: -2px;
+        }
+
+        .sub-tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .sub-tab-button:hover {
+            color: #667eea;
+        }
+
+        .sub-tab-content {
+            display: none;
+        }
+
+        .sub-tab-content.active {
+            display: block;
+        }
+
         .history-select {
             padding: 10px 15px;
             border: 1px solid #ddd;
@@ -5237,27 +5276,44 @@ HTML_TEMPLATE = '''
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
 
-            <!-- ТАБ: История товара -->
+            <!-- ТАБ: OZON (с внутренними вкладками) -->
             <div id="history" class="tab-content active">
-                <div class="table-header">
-                    <div class="date-filters-inline">
-                        <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
-                        <span class="date-separator">—</span>
-                        <input type="date" id="date-to" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
-                        <button id="date-filter-reset-btn" class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
+                <!-- Внутренние вкладки -->
+                <div class="sub-tabs">
+                    <button class="sub-tab-button active" onclick="switchSubTab(event, 'product-analysis')">Анализ товара</button>
+                    <button class="sub-tab-button" onclick="switchSubTab(event, 'summary')">Сводная</button>
+                </div>
+
+                <!-- Под-вкладка: Анализ товара -->
+                <div id="product-analysis" class="sub-tab-content active">
+                    <div class="table-header">
+                        <div class="date-filters-inline">
+                            <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
+                            <span class="date-separator">—</span>
+                            <input type="date" id="date-to" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
+                            <button id="date-filter-reset-btn" class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
+                        </div>
+                        <div>
+                            <label for="product-select" style="margin-right: 10px; font-weight: 500;">Выберите товар:</label>
+                            <select
+                                id="product-select"
+                                class="history-select"
+                                onchange="loadHistoryForProduct()"
+                            >
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label for="product-select" style="margin-right: 10px; font-weight: 500;">Выберите товар:</label>
-                        <select
-                            id="product-select"
-                            class="history-select"
-                            onchange="loadHistoryForProduct()"
-                        >
-                        </select>
+                    <div id="history-content">
+                        <div class="loading">Выберите товар из списка</div>
                     </div>
                 </div>
-                <div id="history-content">
-                    <div class="loading">Выберите товар из списка</div>
+
+                <!-- Под-вкладка: Сводная -->
+                <div id="summary" class="sub-tab-content">
+                    <div class="empty-state" style="padding: 60px 30px;">
+                        <p style="font-size: 18px; color: #666;">Сводная таблица</p>
+                        <p style="font-size: 14px; color: #999; margin-top: 10px;">Раздел в разработке</p>
+                    </div>
                 </div>
             </div>
 
@@ -5280,7 +5336,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Оприходование -->
                 <div id="wh-receipt" class="warehouse-subtab-content active">
                     <div class="wh-section-header">
-                        <h3>📦 Оприходование товаров</h3>
+                        <h3>Оприходование товаров</h3>
                         <p>Создание документа прихода на склад</p>
                     </div>
 
@@ -5327,7 +5383,7 @@ HTML_TEMPLATE = '''
                         </div>
 
                         <div class="receipt-form-actions">
-                            <button class="wh-save-receipt-btn" onclick="saveReceipt()">💾 Сохранить приход</button>
+                            <button class="wh-save-receipt-btn" onclick="saveReceipt()">Сохранить приход</button>
                             <button class="wh-clear-btn" onclick="clearReceiptForm()">Очистить форму</button>
                         </div>
                     </div>
@@ -5376,7 +5432,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Отгрузки -->
                 <div id="wh-shipments" class="warehouse-subtab-content">
                     <div class="wh-section-header">
-                        <h3>🚚 Отгрузки товаров</h3>
+                        <h3>Отгрузки товаров</h3>
                         <p>Создание документа отгрузки со склада</p>
                     </div>
 
@@ -5434,7 +5490,7 @@ HTML_TEMPLATE = '''
                         </div>
 
                         <div class="receipt-form-actions">
-                            <button class="wh-save-receipt-btn wh-save-shipment-btn" onclick="saveShipment()">💾 Сохранить отгрузку</button>
+                            <button class="wh-save-receipt-btn wh-save-shipment-btn" onclick="saveShipment()">Сохранить отгрузку</button>
                             <button class="wh-clear-btn" onclick="clearShipmentForm()">Очистить форму</button>
                         </div>
                     </div>
@@ -5442,7 +5498,7 @@ HTML_TEMPLATE = '''
                     <!-- История отгрузок -->
                     <div class="receipt-history">
                         <div class="receipt-history-header">
-                            <h4>📋 История отгрузок</h4>
+                            <h4>История отгрузок</h4>
                             <!-- Фильтры -->
                             <div class="receipt-date-filter" style="display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap;">
                                 <label style="font-size: 13px; color: #666;">№ отгрузки:</label>
@@ -5484,7 +5540,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Остатки -->
                 <div id="wh-stock" class="warehouse-subtab-content">
                     <div class="wh-section-header">
-                        <h3>📊 Остатки на складе</h3>
+                        <h3>Остатки на складе</h3>
                         <p>Текущие остатки товаров с учётом оприходований и отгрузок</p>
                     </div>
                     <div class="wh-toolbar">
@@ -6010,6 +6066,17 @@ HTML_TEMPLATE = '''
             }
         }
 
+        // ✅ Переключение под-вкладок внутри OZON
+        function switchSubTab(e, subTab) {
+            // Скрываем все под-вкладки
+            document.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.sub-tab-button').forEach(el => el.classList.remove('active'));
+
+            // Показываем нужную под-вкладку
+            document.getElementById(subTab).classList.add('active');
+            e.target.classList.add('active');
+        }
+
         // ============================================================
         // СКЛАД — ВКЛАДКА С ПОДВКЛАДКАМИ
         // ============================================================
@@ -6292,7 +6359,7 @@ HTML_TEMPLATE = '''
             updateReceiptTotals();
 
             // Вернуть текст кнопки
-            document.querySelector('.wh-save-receipt-btn').textContent = '💾 Сохранить приход';
+            document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить приход';
         }
 
         // Загрузить историю приходов
@@ -6488,7 +6555,7 @@ HTML_TEMPLATE = '''
                         updateReceiptTotals();
 
                         // Меняем текст кнопки
-                        document.querySelector('.wh-save-receipt-btn').textContent = '💾 Сохранить изменения';
+                        document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить изменения';
 
                         // Скроллим к форме
                         document.getElementById('receipt-form').scrollIntoView({ behavior: 'smooth' });
@@ -6916,7 +6983,7 @@ HTML_TEMPLATE = '''
             shipmentItemCounter = 0;
             addShipmentItemRow();
             updateShipmentTotals();
-            document.querySelector('.wh-save-shipment-btn').textContent = '💾 Сохранить отгрузку';
+            document.querySelector('.wh-save-shipment-btn').textContent = 'Сохранить отгрузку';
         }
 
         // Хранилище всех отгрузок для фильтрации
@@ -7096,7 +7163,7 @@ HTML_TEMPLATE = '''
                         shipmentItemCounter = 0;
                         data.items.forEach(item => addShipmentItemRowWithData(item));
                         updateShipmentTotals();
-                        document.querySelector('.wh-save-shipment-btn').textContent = '💾 Сохранить изменения';
+                        document.querySelector('.wh-save-shipment-btn').textContent = 'Сохранить изменения';
                         document.getElementById('shipment-form').scrollIntoView({ behavior: 'smooth' });
                     } else {
                         alert('Ошибка загрузки: ' + (data.error || 'Неизвестная ошибка'));
