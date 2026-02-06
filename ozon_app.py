@@ -5474,7 +5474,7 @@ HTML_TEMPLATE = '''
         function loadWarehouse() {
             if (warehouseDataLoaded) return;
 
-            fetch('/api/products/list')
+            authFetch('/api/products/list')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -5482,7 +5482,8 @@ HTML_TEMPLATE = '''
                         // Инициализируем форму после загрузки товаров
                         initReceiptForm();
                     }
-                });
+                })
+                .catch(err => console.error('Ошибка загрузки товаров:', err));
 
             loadReceiptHistory();
             loadWarehouseShipments();
@@ -5668,7 +5669,7 @@ HTML_TEMPLATE = '''
                 items: items
             };
 
-            fetch('/api/warehouse/receipts/save-doc', {
+            authFetch('/api/warehouse/receipts/save-doc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -5685,7 +5686,7 @@ HTML_TEMPLATE = '''
                 }
             })
             .catch(err => {
-                alert('Ошибка сети: ' + err);
+                console.error('Ошибка сохранения прихода:', err);
             });
         }
 
@@ -5708,7 +5709,7 @@ HTML_TEMPLATE = '''
 
         // Загрузить историю приходов
         function loadReceiptHistory() {
-            fetch('/api/warehouse/receipt-docs')
+            authFetch('/api/warehouse/receipt-docs')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.docs && data.docs.length > 0) {
@@ -5720,7 +5721,8 @@ HTML_TEMPLATE = '''
                         document.getElementById('wh-receipt-history-empty').style.display = 'block';
                     }
                 })
-                .catch(() => {
+                .catch(err => {
+                    console.error('Ошибка загрузки истории:', err);
                     document.getElementById('receipt-history-wrapper').style.display = 'none';
                     document.getElementById('wh-receipt-history-empty').style.display = 'block';
                 });
@@ -5780,7 +5782,7 @@ HTML_TEMPLATE = '''
         function deleteReceiptDoc(docId) {
             if (!confirm('Удалить этот приход? Все позиции будут удалены.')) return;
 
-            fetch('/api/warehouse/receipt-docs/delete', {
+            authFetch('/api/warehouse/receipt-docs/delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: docId })
@@ -5793,11 +5795,12 @@ HTML_TEMPLATE = '''
                 } else {
                     alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
                 }
-            });
+            })
+            .catch(err => console.error('Ошибка удаления:', err));
         }
 
         function loadWarehouseShipments() {
-            fetch('/api/warehouse/shipments')
+            authFetch('/api/warehouse/shipments')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.shipments.length > 0) {
@@ -5905,21 +5908,26 @@ HTML_TEMPLATE = '''
                 comment: inputs[2]?.value || ''
             };
             if (!data.sku) return;
-            fetch('/api/warehouse/shipments/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+            authFetch('/api/warehouse/shipments/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
                 .then(r => r.json())
-                .then(result => { if (result.success && result.id) row.dataset.shipmentId = result.id; loadWarehouseStock(); });
+                .then(result => { if (result.success && result.id) row.dataset.shipmentId = result.id; loadWarehouseStock(); })
+                .catch(err => console.error('Ошибка сохранения отгрузки:', err));
         }
 
         function deleteShipmentRow(row) {
             if (!confirm('Удалить эту запись?')) return;
             const id = row.dataset.shipmentId;
             row.remove();
-            if (id && !String(id).startsWith('new_')) fetch('/api/warehouse/shipments/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).then(() => loadWarehouseStock());
+            if (id && !String(id).startsWith('new_')) {
+                authFetch('/api/warehouse/shipments/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+                    .then(() => loadWarehouseStock())
+                    .catch(err => console.error('Ошибка удаления:', err));
+            }
             if (!document.getElementById('wh-shipments-tbody').children.length) { document.getElementById('wh-shipments-empty').style.display = 'block'; document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'none'; }
         }
 
         function loadWarehouseStock() {
-            fetch('/api/warehouse/stock')
+            authFetch('/api/warehouse/stock')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.stock.length > 0) {
