@@ -4266,6 +4266,52 @@ HTML_TEMPLATE = '''
             border-color: #667eea;
         }
 
+        /* Кастомный dropdown для назначений */
+        .destination-dropdown-wrapper {
+            position: relative;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .destination-dropdown-wrapper input {
+            flex: 1;
+        }
+        .destination-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 40px;
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            margin-top: 4px;
+        }
+        .destination-dropdown.show {
+            display: block;
+        }
+        .destination-dropdown-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.15s;
+        }
+        .destination-dropdown-item:last-child {
+            border-bottom: none;
+        }
+        .destination-dropdown-item:hover {
+            background: #f0f4ff;
+        }
+        .destination-dropdown-item.selected {
+            background: #667eea;
+            color: white;
+        }
+
         .wh-delete-btn {
             background: none;
             border: none;
@@ -5025,9 +5071,9 @@ HTML_TEMPLATE = '''
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field">
                                     <label>Назначение</label>
-                                    <div style="display:flex;gap:8px;align-items:center;">
-                                        <input type="text" id="shipment-destination" class="wh-input" list="destination-list" placeholder="Выберите или введите" onfocus="showDestinationList(this)" onclick="showDestinationList(this)">
-                                        <datalist id="destination-list"></datalist>
+                                    <div class="destination-dropdown-wrapper">
+                                        <input type="text" id="shipment-destination" class="wh-input" placeholder="Выберите или введите" autocomplete="off" onclick="toggleDestinationDropdown()" oninput="filterDestinations()">
+                                        <div class="destination-dropdown" id="destination-dropdown"></div>
                                         <button type="button" class="wh-add-btn-small" onclick="addNewDestination()" title="Добавить в список">+</button>
                                     </div>
                                 </div>
@@ -6233,34 +6279,80 @@ HTML_TEMPLATE = '''
                 .then(data => {
                     if (data.success) {
                         shipmentDestinations = data.destinations;
-                        updateDestinationDatalist();
+                        renderDestinationDropdown();
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки назначений:', err));
         }
 
-        // Обновить datalist с вариантами назначений
-        function updateDestinationDatalist() {
-            const datalist = document.getElementById('destination-list');
-            if (!datalist) return;
-            datalist.innerHTML = '';
-            shipmentDestinations.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d.name;
-                datalist.appendChild(opt);
+        // Отрисовать dropdown с вариантами назначений
+        function renderDestinationDropdown(filter = '') {
+            const dropdown = document.getElementById('destination-dropdown');
+            if (!dropdown) return;
+
+            const filterLower = filter.toLowerCase();
+            const filtered = filter
+                ? shipmentDestinations.filter(d => d.name.toLowerCase().includes(filterLower))
+                : shipmentDestinations;
+
+            dropdown.innerHTML = '';
+            filtered.forEach(d => {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                item.textContent = d.name;
+                item.onclick = () => selectDestination(d.name);
+                dropdown.appendChild(item);
             });
+
+            if (filtered.length === 0 && filter) {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                item.style.color = '#999';
+                item.textContent = 'Нажмите + чтобы добавить "' + filter + '"';
+                dropdown.appendChild(item);
+            }
         }
 
-        // Показать выпадающий список при клике на поле
-        function showDestinationList(input) {
-            // Трюк для показа datalist - очищаем и восстанавливаем значение
-            const val = input.value;
-            input.value = '';
-            setTimeout(() => {
-                input.value = val;
-                input.setSelectionRange(0, val.length);
-            }, 0);
+        // Показать/скрыть dropdown
+        function toggleDestinationDropdown() {
+            const dropdown = document.getElementById('destination-dropdown');
+            const input = document.getElementById('shipment-destination');
+            if (!dropdown) return;
+
+            if (dropdown.classList.contains('show')) {
+                dropdown.classList.remove('show');
+            } else {
+                renderDestinationDropdown(input.value);
+                dropdown.classList.add('show');
+            }
         }
+
+        // Фильтрация при вводе
+        function filterDestinations() {
+            const dropdown = document.getElementById('destination-dropdown');
+            const input = document.getElementById('shipment-destination');
+            if (!dropdown) return;
+
+            renderDestinationDropdown(input.value);
+            dropdown.classList.add('show');
+        }
+
+        // Выбрать назначение
+        function selectDestination(name) {
+            const input = document.getElementById('shipment-destination');
+            const dropdown = document.getElementById('destination-dropdown');
+            input.value = name;
+            dropdown.classList.remove('show');
+        }
+
+        // Закрыть dropdown при клике вне
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('.destination-dropdown-wrapper');
+            const dropdown = document.getElementById('destination-dropdown');
+            if (wrapper && dropdown && !wrapper.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
 
         // Добавить новое назначение в справочник
         function addNewDestination() {
@@ -6287,7 +6379,7 @@ HTML_TEMPLATE = '''
             .then(data => {
                 if (data.success) {
                     shipmentDestinations.push({ id: data.id, name: name, is_default: false });
-                    updateDestinationDatalist();
+                    renderDestinationDropdown();
                     alert('Назначение "' + name + '" добавлено в список');
                 } else {
                     alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
@@ -10015,6 +10107,70 @@ def get_supplies():
         return jsonify({
             'success': True,
             'supplies': supplies
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'supplies': []})
+
+
+@app.route('/api/supplies/by-sku/<int:sku>')
+def get_supplies_by_sku(sku):
+    """
+    Получить поставки для конкретного товара с пагинацией.
+
+    Параметры запроса:
+        limit: количество записей (по умолчанию 10)
+        offset: смещение (по умолчанию 0)
+
+    Возвращает:
+        supplies: список поставок
+        total_count: общее количество поставок для этого SKU
+        avg_cost: средняя себестоимость
+        has_more: есть ли ещё записи
+    """
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        offset = request.args.get('offset', 0, type=int)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем общее количество поставок для этого SKU
+        cursor.execute('SELECT COUNT(*) as cnt FROM supplies WHERE sku = ?', (sku,))
+        total_count = cursor.fetchone()['cnt']
+
+        # Получаем среднюю себестоимость
+        cursor.execute('''
+            SELECT AVG(cost_plus_6) as avg_cost
+            FROM supplies
+            WHERE sku = ? AND cost_plus_6 > 0
+        ''', (sku,))
+        avg_row = cursor.fetchone()
+        avg_cost = round(avg_row['avg_cost'], 2) if avg_row['avg_cost'] else 0
+
+        # Получаем поставки с пагинацией (сортировка по дате прихода, новые первыми)
+        cursor.execute('''
+            SELECT * FROM supplies
+            WHERE sku = ?
+            ORDER BY
+                COALESCE(arrival_warehouse_date, exit_factory_date, exit_plan_date) DESC,
+                created_at DESC
+            LIMIT ? OFFSET ?
+        ''', (sku, limit, offset))
+
+        supplies = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        has_more = (offset + len(supplies)) < total_count
+
+        return jsonify({
+            'success': True,
+            'supplies': supplies,
+            'total_count': total_count,
+            'avg_cost': avg_cost,
+            'has_more': has_more,
+            'offset': offset,
+            'limit': limit
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'supplies': []})
