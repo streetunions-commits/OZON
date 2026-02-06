@@ -573,6 +573,27 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
 
+    # Справочник назначений отгрузок (пользовательские варианты)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS shipment_destinations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            is_default INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Добавляем дефолтные варианты если таблица пустая
+    cursor.execute('SELECT COUNT(*) FROM shipment_destinations')
+    if cursor.fetchone()[0] == 0:
+        default_destinations = [
+            ('FBO (Ozon)', 1),
+            ('FBS (свой склад)', 1),
+            ('Возврат поставщику', 1),
+            ('Другое', 1)
+        ]
+        cursor.executemany('INSERT INTO shipment_destinations (name, is_default) VALUES (?, ?)', default_destinations)
+
     # ============================================================================
     # ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ — для аутентификации и ролей
     # ============================================================================
@@ -5004,13 +5025,11 @@ HTML_TEMPLATE = '''
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field">
                                     <label>Назначение</label>
-                                    <select id="shipment-destination" class="wh-select">
-                                        <option value="">— Выберите —</option>
-                                        <option value="FBO">FBO (Ozon)</option>
-                                        <option value="FBS">FBS (свой склад)</option>
-                                        <option value="RETURN">Возврат поставщику</option>
-                                        <option value="OTHER">Другое</option>
-                                    </select>
+                                    <div style="display:flex;gap:8px;align-items:center;">
+                                        <input type="text" id="shipment-destination" class="wh-input" list="destination-list" placeholder="Выберите или введите">
+                                        <datalist id="destination-list"></datalist>
+                                        <button type="button" class="wh-add-btn-small" onclick="addNewDestination()" title="Добавить в список">+</button>
+                                    </div>
                                 </div>
                                 <div class="receipt-form-field" style="flex: 2;">
                                     <label>Комментарий к отгрузке</label>
@@ -6205,8 +6224,72 @@ HTML_TEMPLATE = '''
 
         let shipmentItemCounter = 0;
         let editingShipmentDocId = null;
+        let shipmentDestinations = [];
+
+        // Загрузить список назначений из БД
+        function loadDestinations() {
+            authFetch('/api/warehouse/destinations')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        shipmentDestinations = data.destinations;
+                        updateDestinationDatalist();
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки назначений:', err));
+        }
+
+        // Обновить datalist с вариантами назначений
+        function updateDestinationDatalist() {
+            const datalist = document.getElementById('destination-list');
+            if (!datalist) return;
+            datalist.innerHTML = '';
+            shipmentDestinations.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.name;
+                datalist.appendChild(opt);
+            });
+        }
+
+        // Добавить новое назначение в справочник
+        function addNewDestination() {
+            const input = document.getElementById('shipment-destination');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название назначения');
+                return;
+            }
+
+            // Проверяем, есть ли уже такое назначение
+            if (shipmentDestinations.some(d => d.name.toLowerCase() === name.toLowerCase())) {
+                alert('Такое назначение уже есть в списке');
+                return;
+            }
+
+            authFetch('/api/warehouse/destinations/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    shipmentDestinations.push({ id: data.id, name: name, is_default: false });
+                    updateDestinationDatalist();
+                    alert('Назначение "' + name + '" добавлено в список');
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка добавления назначения:', err);
+                alert('Ошибка добавления назначения');
+            });
+        }
 
         function initShipmentForm() {
+            loadDestinations();
             addShipmentItemRow();
         }
 
@@ -10448,6 +10531,85 @@ def delete_warehouse_shipment():
         conn.close()
 
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API СПРАВОЧНИКА НАЗНАЧЕНИЙ ОТГРУЗОК
+# ============================================================================
+
+@app.route('/api/warehouse/destinations')
+@require_auth(['admin', 'viewer'])
+def get_destinations():
+    """
+    Получить список всех назначений отгрузок.
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, is_default FROM shipment_destinations ORDER BY is_default DESC, name')
+        rows = cursor.fetchall()
+        destinations = [{'id': r[0], 'name': r[1], 'is_default': bool(r[2])} for r in rows]
+        return jsonify({'success': True, 'destinations': destinations})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/destinations/add', methods=['POST'])
+@require_auth(['admin'])
+def add_destination():
+    """
+    Добавить новое назначение в справочник.
+    """
+    try:
+        data = request.get_json()
+        name = (data.get('name') or '').strip()
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Название не может быть пустым'})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли уже такое назначение
+        cursor.execute('SELECT id FROM shipment_destinations WHERE name = ?', (name,))
+        existing = cursor.fetchone()
+        if existing:
+            return jsonify({'success': True, 'message': 'Назначение уже существует', 'id': existing[0]})
+
+        cursor.execute('INSERT INTO shipment_destinations (name, is_default) VALUES (?, 0)', (name,))
+        conn.commit()
+
+        return jsonify({'success': True, 'id': cursor.lastrowid, 'message': 'Назначение добавлено'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/destinations/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_destination():
+    """
+    Удалить назначение из справочника (только пользовательские).
+    """
+    try:
+        data = request.get_json()
+        dest_id = data.get('id')
+
+        if not dest_id:
+            return jsonify({'success': False, 'error': 'ID не указан'})
+
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Не удаляем дефолтные назначения
+        cursor.execute('DELETE FROM shipment_destinations WHERE id = ? AND is_default = 0', (dest_id,))
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            return jsonify({'success': False, 'error': 'Назначение не найдено или защищено от удаления'})
+
+        return jsonify({'success': True, 'message': 'Назначение удалено'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
