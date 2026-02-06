@@ -4954,12 +4954,15 @@ HTML_TEMPLATE = '''
                     <div class="receipt-history">
                         <div class="receipt-history-header">
                             <h4>📋 История приходов</h4>
-                            <!-- Фильтр по датам -->
-                            <div class="receipt-date-filter" style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
+                            <!-- Фильтры -->
+                            <div class="receipt-date-filter" style="display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap;">
+                                <label style="font-size: 13px; color: #666;">№ прихода:</label>
+                                <input type="text" id="receipt-filter-docnum" class="wh-input" style="width: 80px; text-align: center;" placeholder="123" oninput="this.value = this.value.replace(/[^0-9]/g, ''); filterReceiptHistory()">
+                                <span style="color: #ddd; margin: 0 4px;">|</span>
                                 <label style="font-size: 13px; color: #666;">Период:</label>
-                                <input type="date" id="receipt-date-from" class="wh-input" style="width: 140px;" onchange="filterReceiptHistory()">
+                                <input type="date" id="receipt-date-from" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
                                 <span style="color: #999;">—</span>
-                                <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px;" onchange="filterReceiptHistory()">
+                                <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
                                 <button class="wh-clear-btn" onclick="resetReceiptDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
                             </div>
                         </div>
@@ -5904,14 +5907,19 @@ HTML_TEMPLATE = '''
                 });
         }
 
-        // Фильтрация истории приходов по датам
+        // Фильтрация истории приходов по номеру документа и датам
         function filterReceiptHistory() {
+            const docNumFilter = document.getElementById('receipt-filter-docnum').value.trim();
             const dateFrom = document.getElementById('receipt-date-from').value;
             const dateTo = document.getElementById('receipt-date-to').value;
 
             if (!allReceiptDocs || allReceiptDocs.length === 0) return;
 
             const filtered = allReceiptDocs.filter(doc => {
+                // Фильтр по номеру документа
+                if (docNumFilter && String(doc.id) !== docNumFilter) return false;
+
+                // Фильтр по датам
                 const dt = new Date(doc.receipt_datetime);
                 const docDate = dt.toISOString().split('T')[0]; // YYYY-MM-DD
 
@@ -5928,12 +5936,13 @@ HTML_TEMPLATE = '''
                 document.getElementById('wh-receipt-history-tbody').innerHTML = '';
                 document.getElementById('receipt-history-wrapper').style.display = 'block';
                 document.getElementById('wh-receipt-history-empty').style.display = 'block';
-                document.getElementById('wh-receipt-history-empty').querySelector('p').textContent = 'Нет приходов за выбранный период';
+                document.getElementById('wh-receipt-history-empty').querySelector('p').textContent = 'Нет приходов по заданным фильтрам';
             }
         }
 
-        // Сбросить фильтр по датам
+        // Сбросить все фильтры
         function resetReceiptDateFilter() {
+            document.getElementById('receipt-filter-docnum').value = '';
             document.getElementById('receipt-date-from').value = '';
             document.getElementById('receipt-date-to').value = '';
 
