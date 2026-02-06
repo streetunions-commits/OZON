@@ -5329,11 +5329,23 @@ HTML_TEMPLATE = '''
                     <div class="receipt-history">
                         <div class="receipt-history-header">
                             <h4>📋 История отгрузок</h4>
+                            <!-- Фильтры -->
+                            <div class="receipt-date-filter" style="display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap;">
+                                <label style="font-size: 13px; color: #666;">№ отгрузки:</label>
+                                <input type="text" id="shipment-filter-docnum" class="wh-input" style="width: 80px; text-align: center;" placeholder="123" oninput="this.value = this.value.replace(/[^0-9]/g, ''); filterShipmentHistory()">
+                                <span style="color: #ddd; margin: 0 4px;">|</span>
+                                <label style="font-size: 13px; color: #666;">Период:</label>
+                                <input type="date" id="shipment-date-from" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterShipmentHistory()">
+                                <span style="color: #999;">—</span>
+                                <input type="date" id="shipment-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterShipmentHistory()">
+                                <button class="wh-clear-btn" onclick="resetShipmentDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
+                            </div>
                         </div>
                         <div class="wh-table-wrapper" id="shipment-history-wrapper" style="display: none;">
                             <table class="wh-table" id="wh-shipment-history-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 60px;">№</th>
                                         <th>Дата/время</th>
                                         <th>Назначение</th>
                                         <th>Проведено</th>
@@ -6792,24 +6804,77 @@ HTML_TEMPLATE = '''
             document.querySelector('.wh-save-shipment-btn').textContent = '💾 Сохранить отгрузку';
         }
 
+        // Хранилище всех отгрузок для фильтрации
+        let allShipmentDocs = [];
+
         function loadShipmentHistory() {
             authFetch('/api/warehouse/shipment-docs')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.docs && data.docs.length > 0) {
+                        allShipmentDocs = data.docs;
                         renderShipmentHistory(data.docs);
                         document.getElementById('shipment-history-wrapper').style.display = 'block';
                         document.getElementById('wh-shipment-history-empty').style.display = 'none';
                     } else {
+                        allShipmentDocs = [];
                         document.getElementById('shipment-history-wrapper').style.display = 'none';
                         document.getElementById('wh-shipment-history-empty').style.display = 'block';
                     }
                 })
                 .catch(err => {
                     console.error('Ошибка загрузки истории:', err);
+                    allShipmentDocs = [];
                     document.getElementById('shipment-history-wrapper').style.display = 'none';
                     document.getElementById('wh-shipment-history-empty').style.display = 'block';
                 });
+        }
+
+        // Фильтрация истории отгрузок по номеру документа и датам
+        function filterShipmentHistory() {
+            const docNumFilter = document.getElementById('shipment-filter-docnum').value.trim();
+            const dateFrom = document.getElementById('shipment-date-from').value;
+            const dateTo = document.getElementById('shipment-date-to').value;
+
+            if (!allShipmentDocs || allShipmentDocs.length === 0) return;
+
+            const filtered = allShipmentDocs.filter(doc => {
+                // Фильтр по номеру документа
+                if (docNumFilter && String(doc.id) !== docNumFilter) return false;
+
+                // Фильтр по датам
+                const dt = new Date(doc.shipment_datetime);
+                const docDate = dt.toISOString().split('T')[0]; // YYYY-MM-DD
+
+                if (dateFrom && docDate < dateFrom) return false;
+                if (dateTo && docDate > dateTo) return false;
+                return true;
+            });
+
+            if (filtered.length > 0) {
+                renderShipmentHistory(filtered);
+                document.getElementById('shipment-history-wrapper').style.display = 'block';
+                document.getElementById('wh-shipment-history-empty').style.display = 'none';
+            } else {
+                document.getElementById('wh-shipment-history-tbody').innerHTML = '';
+                document.getElementById('shipment-history-wrapper').style.display = 'block';
+                document.getElementById('wh-shipment-history-empty').style.display = 'block';
+                document.getElementById('wh-shipment-history-empty').querySelector('p').textContent = 'Нет отгрузок по заданным фильтрам';
+            }
+        }
+
+        // Сбросить фильтры отгрузок
+        function resetShipmentDateFilter() {
+            document.getElementById('shipment-filter-docnum').value = '';
+            document.getElementById('shipment-date-from').value = '';
+            document.getElementById('shipment-date-to').value = '';
+
+            if (allShipmentDocs && allShipmentDocs.length > 0) {
+                renderShipmentHistory(allShipmentDocs);
+                document.getElementById('shipment-history-wrapper').style.display = 'block';
+                document.getElementById('wh-shipment-history-empty').style.display = 'none';
+                document.getElementById('wh-shipment-history-empty').querySelector('p').textContent = 'Нет сохранённых отгрузок';
+            }
         }
 
         function renderShipmentHistory(docs) {
@@ -6819,9 +6884,19 @@ HTML_TEMPLATE = '''
 
             docs.forEach(doc => {
                 const row = document.createElement('tr');
+                row.dataset.docId = doc.id; // Для фильтрации
+
+                // № отгрузки
+                const tdNum = document.createElement('td');
+                tdNum.style.textAlign = 'center';
+                tdNum.style.fontWeight = '600';
+                tdNum.style.color = '#667eea';
+                tdNum.textContent = doc.id;
+                row.appendChild(tdNum);
 
                 const tdDate = document.createElement('td');
                 const dt = new Date(doc.shipment_datetime);
+                row.dataset.date = doc.shipment_datetime.split('T')[0]; // Для фильтрации по дате
                 tdDate.textContent = dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                 row.appendChild(tdDate);
 
@@ -7164,6 +7239,7 @@ HTML_TEMPLATE = '''
             if (hasReceipts) {
                 html += '<table class="wh-accordion-table">';
                 html += '<thead><tr>';
+                html += '<th style="width: 40px;">№</th>';
                 html += '<th>Дата</th>';
                 html += '<th>Кол-во</th>';
                 html += '<th>Цена закупки</th>';
@@ -7173,6 +7249,7 @@ HTML_TEMPLATE = '''
 
                 let totalReceiptQty = 0;
                 data.receipts.forEach(r => {
+                    const docNum = r.doc_id || '—';
                     const date = formatDateShort(r.receipt_date);
                     const qty = r.quantity || 0;
                     const price = r.purchase_price ? formatNumberWithSpaces(Math.round(r.purchase_price)) + ' ₽' : '—';
@@ -7180,15 +7257,17 @@ HTML_TEMPLATE = '''
                     totalReceiptQty += qty;
 
                     html += '<tr>';
+                    html += '<td style="color: #667eea; font-weight: 600; text-align: center;">' + docNum + '</td>';
                     html += '<td>' + (date || '—') + '</td>';
                     html += '<td style="color: #16a34a; font-weight: 600;">+' + qty + '</td>';
                     html += '<td>' + price + '</td>';
-                    html += '<td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + comment + '">' + comment + '</td>';
+                    html += '<td style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + comment + '">' + comment + '</td>';
                     html += '</tr>';
                 });
 
                 html += '</tbody>';
                 html += '<tfoot><tr>';
+                html += '<td></td>';
                 html += '<td><strong>Итого</strong></td>';
                 html += '<td style="color: #16a34a;"><strong>+' + totalReceiptQty + '</strong></td>';
                 html += '<td colspan="2"></td>';
@@ -7212,6 +7291,7 @@ HTML_TEMPLATE = '''
             if (hasShipments) {
                 html += '<table class="wh-accordion-table">';
                 html += '<thead><tr>';
+                html += '<th style="width: 40px;">№</th>';
                 html += '<th>Дата</th>';
                 html += '<th>Кол-во</th>';
                 html += '<th>Назначение</th>';
@@ -7221,6 +7301,7 @@ HTML_TEMPLATE = '''
 
                 let totalShipmentQty = 0;
                 data.shipments.forEach(s => {
+                    const docNum = s.doc_id || '—';
                     const date = formatDateShort(s.shipment_date);
                     const qty = s.quantity || 0;
                     const dest = s.destination || s.doc_destination || '—';
@@ -7231,15 +7312,17 @@ HTML_TEMPLATE = '''
                     totalShipmentQty += qty;
 
                     html += '<tr>';
+                    html += '<td style="color: #667eea; font-weight: 600; text-align: center;">' + docNum + '</td>';
                     html += '<td>' + (date || '—') + '</td>';
                     html += '<td style="color: #dc2626; font-weight: 600;">−' + qty + '</td>';
-                    html += '<td style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + dest + '">' + dest + '</td>';
+                    html += '<td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + dest + '">' + dest + '</td>';
                     html += '<td>' + statusBadge + '</td>';
                     html += '</tr>';
                 });
 
                 html += '</tbody>';
                 html += '<tfoot><tr>';
+                html += '<td></td>';
                 html += '<td><strong>Итого</strong></td>';
                 html += '<td style="color: #dc2626;"><strong>−' + totalShipmentQty + '</strong></td>';
                 html += '<td colspan="2"></td>';
