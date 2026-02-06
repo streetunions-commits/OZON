@@ -5374,6 +5374,7 @@ HTML_TEMPLATE = '''
                                     <th>Отгружено</th>
                                     <th>Забронировано</th>
                                     <th>Остаток на складе</th>
+                                    <th>Остаток − бронь</th>
                                     <th>Ср. цена закупки, ₽</th>
                                     <th>Стоимость остатка, ₽</th>
                                 </tr>
@@ -6982,7 +6983,7 @@ HTML_TEMPLATE = '''
             const tfoot = document.getElementById('wh-stock-tfoot');
             tbody.innerHTML = '';
             stockSuppliesCache = {}; // Очищаем кэш
-            let totalReceived = 0, totalShipped = 0, totalReserved = 0, totalStock = 0, totalValue = 0;
+            let totalReceived = 0, totalShipped = 0, totalReserved = 0, totalStock = 0, totalAvailable = 0, totalValue = 0;
 
             stock.forEach(item => {
                 const sku = item.sku;
@@ -6994,12 +6995,14 @@ HTML_TEMPLATE = '''
                 row.id = 'wh-stock-row-' + sku;
                 row.onclick = function() { toggleStockAccordion(sku, productName); };
                 const reserved = item.reserved || 0;
+                const available = item.stock_balance - reserved; // Остаток минус бронь
                 row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + productName + '</td>' +
                     '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
                     '<td style="text-align:center;' + (reserved > 0 ? 'color:#d97706;font-weight:500;' : '') + '">' + (reserved > 0 ? formatNumberWithSpaces(reserved) : '—') + '</td>' +
                     '<td style="text-align:center;" class="' + (item.stock_balance > 0 ? 'wh-stock-positive' : (item.stock_balance < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(item.stock_balance) + '</td>' +
+                    '<td style="text-align:center;font-weight:600;" class="' + (available > 0 ? 'wh-stock-positive' : (available < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(available) + '</td>' +
                     '<td style="text-align:right;">' + (item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.avg_purchase_price)) + ' ₽' : '—') + '</td>' +
                     '<td style="text-align:right;font-weight:600;">' + (item.stock_balance > 0 && item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.stock_balance * item.avg_purchase_price)) + ' ₽' : '—') + '</td>';
                 tbody.appendChild(row);
@@ -7008,13 +7011,14 @@ HTML_TEMPLATE = '''
                 const accordionRow = document.createElement('tr');
                 accordionRow.className = 'wh-stock-accordion';
                 accordionRow.id = 'wh-stock-accordion-' + sku;
-                accordionRow.innerHTML = '<td colspan="8" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка поставок...</div></div></td>';
+                accordionRow.innerHTML = '<td colspan="9" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка движений...</div></div></td>';
                 tbody.appendChild(accordionRow);
 
                 totalReceived += item.total_received;
                 totalShipped += item.total_shipped;
                 totalReserved += reserved;
                 totalStock += item.stock_balance;
+                totalAvailable += available;
                 totalValue += item.stock_balance > 0 && item.avg_purchase_price > 0 ? item.stock_balance * item.avg_purchase_price : 0;
             });
 
@@ -7023,6 +7027,7 @@ HTML_TEMPLATE = '''
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalShipped) + '</td>' +
                 '<td style="text-align:center;font-weight:600;' + (totalReserved > 0 ? 'color:#d97706;' : '') + '">' + (totalReserved > 0 ? formatNumberWithSpaces(totalReserved) : '—') + '</td>' +
                 '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
+                '<td style="text-align:center;font-weight:600;" class="' + (totalAvailable > 0 ? 'wh-stock-positive' : (totalAvailable < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(totalAvailable) + '</td>' +
                 '<td></td>' +
                 '<td style="text-align:right;font-weight:600;">' + (totalValue > 0 ? formatNumberWithSpaces(Math.round(totalValue)) + ' ₽' : '—') + '</td></tr>';
         }
