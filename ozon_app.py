@@ -573,6 +573,13 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
 
+    # Миграция: добавляем колонку is_completed в warehouse_shipment_docs
+    # is_completed = 1: отгрузка проведена (вычитается из остатков)
+    # is_completed = 0: отгрузка не проведена (товар забронирован)
+    if ensure_column(cursor, "warehouse_shipment_docs", "is_completed",
+                     "ALTER TABLE warehouse_shipment_docs ADD COLUMN is_completed INTEGER DEFAULT 1"):
+        print("✅ Столбец is_completed добавлен в warehouse_shipment_docs")
+
     # Справочник назначений отгрузок (пользовательские варианты)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS shipment_destinations (
@@ -4542,6 +4549,63 @@ HTML_TEMPLATE = '''
             color: #555;
         }
 
+        /* Чекбокс "Проведено" для отгрузки */
+        .shipment-completed-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 8px 12px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .shipment-completed-checkbox:hover {
+            border-color: #667eea;
+        }
+
+        .shipment-completed-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #22c55e;
+        }
+
+        .shipment-completed-checkbox .checkbox-label {
+            font-size: 13px;
+            color: #333;
+            font-weight: 400;
+        }
+
+        /* Индикатор статуса проведения в истории */
+        .shipment-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .shipment-status-badge.completed {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .shipment-status-badge.pending {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .shipment-status-badge:hover {
+            opacity: 0.8;
+        }
+
         .receipt-items-header {
             display: flex;
             justify-content: space-between;
@@ -4970,93 +5034,6 @@ HTML_TEMPLATE = '''
             background: #f1f3f5;
             color: #333;
         }
-
-        /* МОДАЛЬНОЕ ОКНО ПОСТАВОК ПО SKU */
-        .supplies-modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-        }
-        .supplies-modal-box {
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-            max-width: 900px;
-            width: 95%;
-            max-height: 80vh;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-        .supplies-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 24px;
-            border-bottom: 1px solid #e9ecef;
-            background: #f8f9fa;
-        }
-        .supplies-modal-header h3 { margin: 0; font-size: 18px; color: #333; }
-        .supplies-modal-header .avg-cost { font-size: 14px; color: #667eea; font-weight: 600; margin-left: 16px; }
-        .supplies-modal-close {
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #999;
-            padding: 4px 8px;
-            line-height: 1;
-        }
-        .supplies-modal-close:hover { color: #333; }
-        .supplies-modal-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
-        .supplies-modal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .supplies-modal-table thead th {
-            background: #f1f3f5;
-            padding: 10px 8px;
-            text-align: center;
-            font-weight: 600;
-            font-size: 12px;
-            color: #555;
-            border: 1px solid #dee2e6;
-            white-space: nowrap;
-        }
-        .supplies-modal-table tbody td { padding: 8px; border: 1px solid #dee2e6; text-align: center; }
-        .supplies-modal-table tbody tr:hover { background: #f8f9fa; }
-        .supplies-modal-table tfoot td {
-            padding: 10px 8px;
-            background: #e9ecef;
-            font-weight: 700;
-            border: 1px solid #dee2e6;
-            text-align: center;
-        }
-        .supplies-modal-footer { padding: 12px 24px; border-top: 1px solid #e9ecef; text-align: center; background: #f8f9fa; }
-        .supplies-load-more-btn {
-            padding: 10px 24px;
-            background: #667eea;
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-        }
-        .supplies-load-more-btn:hover { background: #5a6fd6; }
-        .supplies-load-more-btn:disabled { background: #ccc; cursor: not-allowed; }
-        .supplies-btn-small {
-            padding: 4px 8px;
-            background: #f0f4ff;
-            border: 1px solid #667eea;
-            border-radius: 4px;
-            color: #667eea;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .supplies-btn-small:hover { background: #667eea; color: #fff; }
-        .supplies-empty { text-align: center; padding: 40px; color: #999; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -5305,6 +5282,13 @@ HTML_TEMPLATE = '''
                                     <label>Комментарий к отгрузке</label>
                                     <input type="text" id="shipment-comment" class="wh-input" placeholder="Например: Отгрузка на склад Ozon">
                                 </div>
+                                <div class="receipt-form-field" style="flex: 0; min-width: 140px;">
+                                    <label style="display: block; margin-bottom: 8px;">Проведено</label>
+                                    <label class="shipment-completed-checkbox">
+                                        <input type="checkbox" id="shipment-completed" checked>
+                                        <span class="checkbox-label">Списать со склада</span>
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
@@ -5352,6 +5336,7 @@ HTML_TEMPLATE = '''
                                     <tr>
                                         <th>Дата/время</th>
                                         <th>Назначение</th>
+                                        <th>Проведено</th>
                                         <th>Товаров</th>
                                         <th>Общее кол-во</th>
                                         <th>Комментарий</th>
@@ -5387,6 +5372,7 @@ HTML_TEMPLATE = '''
                                     <th>Артикул</th>
                                     <th>Оприходовано</th>
                                     <th>Отгружено</th>
+                                    <th>Забронировано</th>
                                     <th>Остаток на складе</th>
                                     <th>Ср. цена закупки, ₽</th>
                                     <th>Стоимость остатка, ₽</th>
@@ -6958,6 +6944,7 @@ HTML_TEMPLATE = '''
         function saveShipment() {
             const destination = document.getElementById('shipment-destination').value;
             const comment = document.getElementById('shipment-comment').value;
+            const isCompleted = document.getElementById('shipment-completed').checked;
             const rows = document.querySelectorAll('#wh-shipment-items-tbody tr');
             const items = [];
 
@@ -6979,7 +6966,7 @@ HTML_TEMPLATE = '''
             authFetch('/api/warehouse/shipments/save-doc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ doc_id: editingShipmentDocId, destination, comment, items })
+                body: JSON.stringify({ doc_id: editingShipmentDocId, destination, comment, items, is_completed: isCompleted })
             })
             .then(r => r.json())
             .then(result => {
@@ -6999,6 +6986,7 @@ HTML_TEMPLATE = '''
             editingShipmentDocId = null;
             document.getElementById('shipment-destination').value = '';
             document.getElementById('shipment-comment').value = '';
+            document.getElementById('shipment-completed').checked = true;  // По умолчанию проведено
             document.getElementById('wh-shipment-items-tbody').innerHTML = '';
             shipmentItemCounter = 0;
             addShipmentItemRow();
@@ -7042,6 +7030,18 @@ HTML_TEMPLATE = '''
                 const tdDest = document.createElement('td');
                 tdDest.textContent = destLabels[doc.destination] || doc.destination || '—';
                 row.appendChild(tdDest);
+
+                // Статус проведения (кликабельный бейдж)
+                const tdCompleted = document.createElement('td');
+                tdCompleted.style.textAlign = 'center';
+                const isCompleted = doc.is_completed === 1 || doc.is_completed === true;
+                const statusBadge = document.createElement('span');
+                statusBadge.className = 'shipment-status-badge ' + (isCompleted ? 'completed' : 'pending');
+                statusBadge.innerHTML = isCompleted ? '✓ Проведено' : '◷ Ожидает';
+                statusBadge.title = 'Нажмите для изменения статуса';
+                statusBadge.onclick = () => toggleShipmentCompleted(doc.id, !isCompleted);
+                tdCompleted.appendChild(statusBadge);
+                row.appendChild(tdCompleted);
 
                 const tdItems = document.createElement('td');
                 tdItems.style.textAlign = 'center';
@@ -7101,6 +7101,9 @@ HTML_TEMPLATE = '''
                         editingShipmentDocId = docId;
                         document.getElementById('shipment-destination').value = data.doc.destination || '';
                         document.getElementById('shipment-comment').value = data.doc.comment || '';
+                        // Загружаем статус проведения
+                        const isCompleted = data.doc.is_completed === 1 || data.doc.is_completed === true;
+                        document.getElementById('shipment-completed').checked = isCompleted;
                         document.getElementById('wh-shipment-items-tbody').innerHTML = '';
                         shipmentItemCounter = 0;
                         data.items.forEach(item => addShipmentItemRowWithData(item));
@@ -7120,6 +7123,32 @@ HTML_TEMPLATE = '''
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: docId })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    loadShipmentHistory();
+                    loadWarehouseStock();
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => console.error('Ошибка:', err));
+        }
+
+        /**
+         * Переключить статус проведения отгрузки
+         * @param {number} docId - ID документа отгрузки
+         * @param {boolean} newStatus - Новый статус (true = проведено)
+         */
+        function toggleShipmentCompleted(docId, newStatus) {
+            const actionText = newStatus ? 'провести' : 'отменить проведение';
+            if (!confirm(`Вы уверены, что хотите ${actionText} эту отгрузку?`)) return;
+
+            authFetch('/api/warehouse/shipment-docs/toggle-completed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: docId, is_completed: newStatus })
             })
             .then(r => r.json())
             .then(result => {
@@ -7198,7 +7227,7 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Переключить аккордеон поставок для товара на вкладке Остатки
+         * Переключить аккордеон движений (оприходования + отгрузки) для товара на вкладке Остатки
          */
         async function toggleStockAccordion(sku, productName) {
             const row = document.getElementById('wh-stock-row-' + sku);
@@ -7233,19 +7262,22 @@ HTML_TEMPLATE = '''
             }
 
             // Загружаем данные
-            content.innerHTML = '<div class="wh-accordion-loading">Загрузка поставок...</div>';
+            content.innerHTML = '<div class="wh-accordion-loading">Загрузка движений...</div>';
 
             try {
-                const response = await fetch('/api/supplies/by-sku/' + sku + '?limit=10&offset=0');
+                const response = await authFetch('/api/warehouse/movements/' + sku + '?receipts_limit=10&shipments_limit=10');
                 const data = await response.json();
 
                 if (data.success) {
                     stockSuppliesCache[sku] = {
-                        supplies: data.supplies,
-                        avgCost: data.avg_cost,
-                        totalCount: data.total_count,
-                        hasMore: data.has_more,
-                        offset: data.supplies.length
+                        receipts: data.receipts,
+                        shipments: data.shipments,
+                        receiptsTotal: data.receipts_total,
+                        shipmentsTotal: data.shipments_total,
+                        hasMoreReceipts: data.has_more_receipts,
+                        hasMoreShipments: data.has_more_shipments,
+                        receiptsOffset: data.receipts.length,
+                        shipmentsOffset: data.shipments.length
                     };
                     renderStockAccordionContent(sku, stockSuppliesCache[sku]);
                 } else {
@@ -7257,99 +7289,166 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Загрузить ещё поставок для аккордеона
+         * Загрузить ещё оприходований
          */
-        async function loadMoreStockSupplies(sku) {
+        async function loadMoreReceipts(sku) {
             const cache = stockSuppliesCache[sku];
-            if (!cache || !cache.hasMore) return;
+            if (!cache || !cache.hasMoreReceipts) return;
 
             try {
-                const response = await fetch('/api/supplies/by-sku/' + sku + '?limit=10&offset=' + cache.offset);
+                const response = await authFetch('/api/warehouse/movements/' + sku + '?receipts_limit=10&receipts_offset=' + cache.receiptsOffset + '&shipments_limit=0');
                 const data = await response.json();
 
                 if (data.success) {
-                    cache.supplies = cache.supplies.concat(data.supplies);
-                    cache.hasMore = data.has_more;
-                    cache.offset = cache.offset + data.supplies.length;
+                    cache.receipts = cache.receipts.concat(data.receipts);
+                    cache.hasMoreReceipts = data.has_more_receipts;
+                    cache.receiptsOffset = cache.receiptsOffset + data.receipts.length;
                     renderStockAccordionContent(sku, cache);
                 }
             } catch (err) {
-                console.error('Ошибка загрузки поставок:', err);
+                console.error('Ошибка загрузки оприходований:', err);
             }
         }
 
         /**
-         * Отрисовать содержимое аккордеона поставок
+         * Загрузить ещё отгрузок
+         */
+        async function loadMoreShipments(sku) {
+            const cache = stockSuppliesCache[sku];
+            if (!cache || !cache.hasMoreShipments) return;
+
+            try {
+                const response = await authFetch('/api/warehouse/movements/' + sku + '?shipments_limit=10&shipments_offset=' + cache.shipmentsOffset + '&receipts_limit=0');
+                const data = await response.json();
+
+                if (data.success) {
+                    cache.shipments = cache.shipments.concat(data.shipments);
+                    cache.hasMoreShipments = data.has_more_shipments;
+                    cache.shipmentsOffset = cache.shipmentsOffset + data.shipments.length;
+                    renderStockAccordionContent(sku, cache);
+                }
+            } catch (err) {
+                console.error('Ошибка загрузки отгрузок:', err);
+            }
+        }
+
+        /**
+         * Отрисовать содержимое аккордеона с оприходованиями и отгрузками
          */
         function renderStockAccordionContent(sku, data) {
             const content = document.getElementById('wh-accordion-content-' + sku);
             if (!content) return;
 
-            if (!data.supplies || data.supplies.length === 0) {
-                content.innerHTML = '<div class="wh-accordion-empty">Нет поставок для этого товара</div>';
+            const hasReceipts = data.receipts && data.receipts.length > 0;
+            const hasShipments = data.shipments && data.shipments.length > 0;
+
+            if (!hasReceipts && !hasShipments) {
+                content.innerHTML = '<div class="wh-accordion-empty">Нет оприходований и отгрузок для этого товара</div>';
                 return;
             }
 
-            let html = '<div class="wh-accordion-header">';
-            html += '<span>📦 Поставки (' + data.totalCount + ')</span>';
-            if (data.avgCost > 0) {
-                html += '<span class="wh-accordion-avg">Средняя себестоимость: ' + formatNumberWithSpaces(Math.round(data.avgCost)) + ' ₽</span>';
+            let html = '<div style="display: flex; gap: 20px; flex-wrap: wrap;">';
+
+            // ========== ОПРИХОДОВАНИЯ ==========
+            html += '<div style="flex: 1; min-width: 300px;">';
+            html += '<div class="wh-accordion-header">';
+            html += '<span>📥 Оприходования (' + data.receiptsTotal + ')</span>';
+            html += '</div>';
+
+            if (hasReceipts) {
+                html += '<table class="wh-accordion-table">';
+                html += '<thead><tr>';
+                html += '<th>Дата</th>';
+                html += '<th>Кол-во</th>';
+                html += '<th>Цена закупки</th>';
+                html += '<th>Комментарий</th>';
+                html += '</tr></thead>';
+                html += '<tbody>';
+
+                let totalReceiptQty = 0;
+                data.receipts.forEach(r => {
+                    const date = formatDateShort(r.receipt_date);
+                    const qty = r.quantity || 0;
+                    const price = r.purchase_price ? formatNumberWithSpaces(Math.round(r.purchase_price)) + ' ₽' : '—';
+                    const comment = r.comment || r.doc_comment || '—';
+                    totalReceiptQty += qty;
+
+                    html += '<tr>';
+                    html += '<td>' + (date || '—') + '</td>';
+                    html += '<td style="color: #16a34a; font-weight: 600;">+' + qty + '</td>';
+                    html += '<td>' + price + '</td>';
+                    html += '<td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + comment + '">' + comment + '</td>';
+                    html += '</tr>';
+                });
+
+                html += '</tbody>';
+                html += '<tfoot><tr>';
+                html += '<td><strong>Итого</strong></td>';
+                html += '<td style="color: #16a34a;"><strong>+' + totalReceiptQty + '</strong></td>';
+                html += '<td colspan="2"></td>';
+                html += '</tr></tfoot>';
+                html += '</table>';
+
+                if (data.hasMoreReceipts) {
+                    html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreReceipts(' + sku + ');">Ещё 10 оприходований</button>';
+                }
+            } else {
+                html += '<div class="wh-accordion-empty">Нет оприходований</div>';
             }
             html += '</div>';
 
-            html += '<table class="wh-accordion-table">';
-            html += '<thead><tr>';
-            html += '<th>Дата плана</th>';
-            html += '<th>Дата выхода</th>';
-            html += '<th>Дата прихода</th>';
-            html += '<th>План</th>';
-            html += '<th>Выход</th>';
-            html += '<th>Приход</th>';
-            html += '<th>Себест. ₽</th>';
-            html += '</tr></thead>';
-            html += '<tbody>';
+            // ========== ОТГРУЗКИ ==========
+            html += '<div style="flex: 1; min-width: 300px;">';
+            html += '<div class="wh-accordion-header">';
+            html += '<span>📤 Отгрузки (' + data.shipmentsTotal + ')</span>';
+            html += '</div>';
 
-            let totalPlan = 0, totalExit = 0, totalArrival = 0;
+            if (hasShipments) {
+                html += '<table class="wh-accordion-table">';
+                html += '<thead><tr>';
+                html += '<th>Дата</th>';
+                html += '<th>Кол-во</th>';
+                html += '<th>Назначение</th>';
+                html += '<th>Статус</th>';
+                html += '</tr></thead>';
+                html += '<tbody>';
 
-            data.supplies.forEach(s => {
-                const planDate = formatDateShort(s.exit_plan_date);
-                const exitDate = formatDateShort(s.exit_factory_date);
-                const arrivalDate = formatDateShort(s.arrival_warehouse_date);
-                const planQty = s.order_qty_plan || 0;
-                const exitQty = s.exit_factory_qty || 0;
-                const arrivalQty = s.arrival_warehouse_qty || 0;
-                const cost = s.cost_plus_6 ? formatNumberWithSpaces(Math.round(s.cost_plus_6)) : '—';
+                let totalShipmentQty = 0;
+                data.shipments.forEach(s => {
+                    const date = formatDateShort(s.shipment_date);
+                    const qty = s.quantity || 0;
+                    const dest = s.destination || s.doc_destination || '—';
+                    const isCompleted = s.is_completed !== 0;
+                    const statusBadge = isCompleted
+                        ? '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-size: 11px;">Проведена</span>'
+                        : '<span style="background: #fef9c3; color: #ca8a04; padding: 2px 6px; border-radius: 4px; font-size: 11px;">Бронь</span>';
+                    totalShipmentQty += qty;
 
-                totalPlan += planQty;
-                totalExit += exitQty;
-                totalArrival += arrivalQty;
+                    html += '<tr>';
+                    html += '<td>' + (date || '—') + '</td>';
+                    html += '<td style="color: #dc2626; font-weight: 600;">−' + qty + '</td>';
+                    html += '<td style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + dest + '">' + dest + '</td>';
+                    html += '<td>' + statusBadge + '</td>';
+                    html += '</tr>';
+                });
 
-                html += '<tr>';
-                html += '<td>' + (planDate || '—') + '</td>';
-                html += '<td>' + (exitDate || '—') + '</td>';
-                html += '<td>' + (arrivalDate || '—') + '</td>';
-                html += '<td>' + (planQty || '—') + '</td>';
-                html += '<td>' + (exitQty || '—') + '</td>';
-                html += '<td>' + (arrivalQty || '—') + '</td>';
-                html += '<td>' + cost + '</td>';
-                html += '</tr>';
-            });
+                html += '</tbody>';
+                html += '<tfoot><tr>';
+                html += '<td><strong>Итого</strong></td>';
+                html += '<td style="color: #dc2626;"><strong>−' + totalShipmentQty + '</strong></td>';
+                html += '<td colspan="2"></td>';
+                html += '</tr></tfoot>';
+                html += '</table>';
 
-            html += '</tbody>';
-            html += '<tfoot><tr>';
-            html += '<td colspan="3"><strong>Итого</strong></td>';
-            html += '<td><strong>' + totalPlan + '</strong></td>';
-            html += '<td><strong>' + totalExit + '</strong></td>';
-            html += '<td><strong>' + totalArrival + '</strong></td>';
-            html += '<td></td>';
-            html += '</tr></tfoot>';
-            html += '</table>';
-
-            if (data.hasMore) {
-                html += '<div class="wh-accordion-footer">';
-                html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreStockSupplies(' + sku + ');">Загрузить ещё 10</button>';
-                html += '</div>';
+                if (data.hasMoreShipments) {
+                    html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreShipments(' + sku + ');">Ещё 10 отгрузок</button>';
+                }
+            } else {
+                html += '<div class="wh-accordion-empty">Нет отгрузок</div>';
             }
+            html += '</div>';
+
+            html += '</div>'; // end flex container
 
             content.innerHTML = html;
         }
@@ -7623,7 +7722,6 @@ HTML_TEMPLATE = '''
             html += '<th>CPO</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
-            html += '<th>Поставки</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -7909,9 +8007,6 @@ HTML_TEMPLATE = '''
                 // В ЗАЯВКАХ - товары из черновиков/новых заявок
                 html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
 
-                // КНОПКА ПОСТАВОК - открывает модальное окно с историей поставок
-                html += `<td><button class="supplies-btn-small" onclick="openSuppliesModal(${item.sku}, '${(item.name || '').replace(/'/g, "\\'")}')">📦</button></td>`;
-
                 html += `</tr>`;
             });
             
@@ -7946,7 +8041,6 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(24)">В пути</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(25)">В заявках</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(26)">Поставки</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -10730,6 +10824,104 @@ def get_supplies():
         return jsonify({'success': False, 'error': str(e), 'supplies': []})
 
 
+@app.route('/api/warehouse/movements/<int:sku>')
+def get_warehouse_movements_by_sku(sku):
+    """
+    Получить оприходования и отгрузки для товара на вкладке Остатки.
+
+    Параметры запроса:
+        receipts_limit: лимит оприходований (по умолчанию 10)
+        receipts_offset: смещение оприходований (по умолчанию 0)
+        shipments_limit: лимит отгрузок (по умолчанию 10)
+        shipments_offset: смещение отгрузок (по умолчанию 0)
+
+    Возвращает:
+        receipts: список оприходований
+        shipments: список отгрузок
+        receipts_total: общее кол-во оприходований
+        shipments_total: общее кол-во отгрузок
+        has_more_receipts: есть ли ещё оприходования
+        has_more_shipments: есть ли ещё отгрузки
+    """
+    try:
+        receipts_limit = request.args.get('receipts_limit', 10, type=int)
+        receipts_offset = request.args.get('receipts_offset', 0, type=int)
+        shipments_limit = request.args.get('shipments_limit', 10, type=int)
+        shipments_offset = request.args.get('shipments_offset', 0, type=int)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # ========== ОПРИХОДОВАНИЯ ==========
+        cursor.execute('SELECT COUNT(*) as cnt FROM warehouse_receipts WHERE sku = ?', (sku,))
+        receipts_total = cursor.fetchone()['cnt']
+
+        cursor.execute('''
+            SELECT
+                r.id,
+                r.doc_id,
+                r.receipt_date,
+                r.quantity,
+                r.purchase_price,
+                r.comment,
+                d.receipt_datetime,
+                d.comment as doc_comment,
+                d.created_by
+            FROM warehouse_receipts r
+            LEFT JOIN warehouse_receipt_docs d ON r.doc_id = d.id
+            WHERE r.sku = ?
+            ORDER BY r.receipt_date DESC, r.id DESC
+            LIMIT ? OFFSET ?
+        ''', (sku, receipts_limit, receipts_offset))
+        receipts = [dict(row) for row in cursor.fetchall()]
+
+        # ========== ОТГРУЗКИ ==========
+        cursor.execute('SELECT COUNT(*) as cnt FROM warehouse_shipments WHERE sku = ?', (sku,))
+        shipments_total = cursor.fetchone()['cnt']
+
+        cursor.execute('''
+            SELECT
+                s.id,
+                s.doc_id,
+                s.shipment_date,
+                s.quantity,
+                s.destination,
+                s.comment,
+                d.shipment_datetime,
+                d.destination as doc_destination,
+                d.comment as doc_comment,
+                d.created_by,
+                d.is_completed
+            FROM warehouse_shipments s
+            LEFT JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+            WHERE s.sku = ?
+            ORDER BY s.shipment_date DESC, s.id DESC
+            LIMIT ? OFFSET ?
+        ''', (sku, shipments_limit, shipments_offset))
+        shipments = [dict(row) for row in cursor.fetchall()]
+
+        conn.close()
+
+        has_more_receipts = (receipts_offset + len(receipts)) < receipts_total
+        has_more_shipments = (shipments_offset + len(shipments)) < shipments_total
+
+        return jsonify({
+            'success': True,
+            'receipts': receipts,
+            'shipments': shipments,
+            'receipts_total': receipts_total,
+            'shipments_total': shipments_total,
+            'has_more_receipts': has_more_receipts,
+            'has_more_shipments': has_more_shipments,
+            'receipts_offset': receipts_offset,
+            'shipments_offset': shipments_offset
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'receipts': [], 'shipments': []})
+
+
+
 @app.route('/api/supplies/by-sku/<int:sku>')
 def get_supplies_by_sku(sku):
     """
@@ -11424,6 +11616,7 @@ def get_shipment_docs():
                 d.updated_by,
                 d.created_at,
                 d.updated_at,
+                d.is_completed,
                 COUNT(s.id) as items_count,
                 COALESCE(SUM(s.quantity), 0) as total_qty
             FROM warehouse_shipment_docs d
@@ -11452,7 +11645,7 @@ def get_shipment_doc(doc_id):
         cursor = conn.cursor()
 
         cursor.execute('''
-            SELECT id, shipment_datetime, destination, comment, created_by, updated_by, created_at, updated_at
+            SELECT id, shipment_datetime, destination, comment, created_by, updated_by, created_at, updated_at, is_completed
             FROM warehouse_shipment_docs WHERE id = ?
         ''', (doc_id,))
         doc = cursor.fetchone()
@@ -11489,6 +11682,8 @@ def save_shipment_doc():
         destination = data.get('destination', '')
         comment = data.get('comment', '')
         items = data.get('items', [])
+        # is_completed: 1 = проведено (вычитается из остатков), 0 = не проведено (забронировано)
+        is_completed = 1 if data.get('is_completed', True) else 0
 
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
@@ -11506,16 +11701,16 @@ def save_shipment_doc():
         if doc_id:
             cursor.execute('''
                 UPDATE warehouse_shipment_docs
-                SET destination = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET destination = ?, comment = ?, is_completed = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (destination, comment, username, doc_id))
+            ''', (destination, comment, is_completed, username, doc_id))
 
             cursor.execute('DELETE FROM warehouse_shipments WHERE doc_id = ?', (doc_id,))
         else:
             cursor.execute('''
-                INSERT INTO warehouse_shipment_docs (shipment_datetime, destination, comment, created_by, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (shipment_datetime, destination, comment, username, username))
+                INSERT INTO warehouse_shipment_docs (shipment_datetime, destination, comment, is_completed, created_by, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (shipment_datetime, destination, comment, is_completed, username, username))
             doc_id = cursor.lastrowid
 
         for item in items:
@@ -11565,6 +11760,42 @@ def delete_shipment_doc():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/warehouse/shipment-docs/toggle-completed', methods=['POST'])
+@require_auth(['admin'])
+def toggle_shipment_completed():
+    """
+    Переключить статус проведения документа отгрузки.
+
+    is_completed = 1: отгрузка проведена (товары вычитаются из остатков)
+    is_completed = 0: отгрузка не проведена (товары забронированы, но не списаны)
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+        is_completed = 1 if data.get('is_completed', True) else 0
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID документа'})
+
+        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE warehouse_shipment_docs
+            SET is_completed = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (is_completed, username, doc_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/warehouse/stock')
 @require_auth(['admin', 'viewer'])
 def get_warehouse_stock():
@@ -11593,13 +11824,27 @@ def get_warehouse_stock():
         ''')
         receipts_data = {row['sku']: dict(row) for row in cursor.fetchall()}
 
-        # Получаем сумму отгрузок по каждому SKU
+        # Получаем сумму проведённых отгрузок по каждому SKU (is_completed = 1)
+        # Только проведённые отгрузки вычитаются из остатков
         cursor.execute('''
-            SELECT sku, SUM(quantity) as total_shipped
-            FROM warehouse_shipments
-            GROUP BY sku
+            SELECT s.sku, SUM(s.quantity) as total_shipped
+            FROM warehouse_shipments s
+            JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+            WHERE d.is_completed = 1
+            GROUP BY s.sku
         ''')
         shipments_data = {row['sku']: row['total_shipped'] for row in cursor.fetchall()}
+
+        # Получаем сумму забронированных товаров (не проведённые отгрузки, is_completed = 0)
+        # Эти товары ещё не списаны со склада, но зарезервированы под отгрузку
+        cursor.execute('''
+            SELECT s.sku, SUM(s.quantity) as total_reserved
+            FROM warehouse_shipments s
+            JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+            WHERE d.is_completed = 0
+            GROUP BY s.sku
+        ''')
+        reserved_data = {row['sku']: row['total_reserved'] for row in cursor.fetchall()}
 
         # Получаем информацию о товарах
         cursor.execute('''
