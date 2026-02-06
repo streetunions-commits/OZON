@@ -5234,7 +5234,7 @@ HTML_TEMPLATE = '''
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')">СКЛАД</button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
-                <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">👥 Пользователи</button>
+                <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
 
             <!-- ТАБ: История товара -->
