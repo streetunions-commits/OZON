@@ -5622,14 +5622,15 @@ HTML_TEMPLATE = '''
                 .then(data => {
                     if (data.success) {
                         warehouseProducts = data.products;
-                        // Инициализируем форму после загрузки товаров
+                        // Инициализируем формы после загрузки товаров
                         initReceiptForm();
+                        initShipmentForm();
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки товаров:', err));
 
             loadReceiptHistory();
-            loadWarehouseShipments();
+            loadShipmentHistory();
             loadWarehouseStock();
             warehouseDataLoaded = true;
         }
@@ -6202,9 +6203,7 @@ HTML_TEMPLATE = '''
 
         function loadWarehouseShipments() {
             loadShipmentHistory();
-            if (document.getElementById('wh-shipment-items-tbody').children.length === 0) {
-                initShipmentForm();
-            }
+            // initShipmentForm вызывается после загрузки товаров в loadWarehouse()
         }
 
         function addShipmentItemRow() {
