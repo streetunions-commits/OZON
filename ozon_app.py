@@ -5457,8 +5457,11 @@ HTML_TEMPLATE = '''
          */
         function initApp() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
-            const savedTab = location.hash.replace('#', '');
+            // Формат hash: "tab" или "tab:subtab" (например "warehouse:wh-stock")
+            const hashValue = location.hash.replace('#', '');
+            const [savedTab, savedSubtab] = hashValue.split(':');
             const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'users'];
+            const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -5488,6 +5491,13 @@ HTML_TEMPLATE = '''
                 } else if (savedTab === 'warehouse') {
                     loadProductsList();
                     loadWarehouse();
+                    // Восстанавливаем подвкладку склада если она сохранена
+                    if (savedSubtab && validWarehouseSubtabs.includes(savedSubtab)) {
+                        // Небольшая задержка чтобы DOM успел отрисоваться
+                        setTimeout(() => {
+                            activateWarehouseSubtab(savedSubtab);
+                        }, 50);
+                    }
                 } else if (savedTab === 'supplies') {
                     loadProductsList();
                     loadSupplies();
@@ -5626,6 +5636,29 @@ HTML_TEMPLATE = '''
             document.querySelectorAll('.subtab-button').forEach(el => el.classList.remove('active'));
             document.getElementById(subtab).classList.add('active');
             e.target.classList.add('active');
+
+            // Сохраняем подвкладку в URL hash (формат: warehouse:subtab)
+            location.hash = 'warehouse:' + subtab;
+        }
+
+        /**
+         * Активировать подвкладку склада программно (без события клика)
+         */
+        function activateWarehouseSubtab(subtab) {
+            document.querySelectorAll('.warehouse-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.subtab-button').forEach(el => el.classList.remove('active'));
+
+            const subtabContent = document.getElementById(subtab);
+            if (subtabContent) {
+                subtabContent.classList.add('active');
+            }
+
+            // Находим кнопку подвкладки по onclick атрибуту
+            document.querySelectorAll('.subtab-button').forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + subtab + "'")) {
+                    btn.classList.add('active');
+                }
+            });
         }
 
         // ============================================================
@@ -6147,40 +6180,35 @@ HTML_TEMPLATE = '''
             .catch(err => console.error('Ошибка удаления:', err));
         }
 
+        // ============================================================
+        // ОТГРУЗКИ — ДОКУМЕНТ-ФОРМАТ
+        // ============================================================
+
+        let shipmentItemCounter = 0;
+        let editingShipmentDocId = null;
+
+        function initShipmentForm() {
+            addShipmentItemRow();
+        }
+
         function loadWarehouseShipments() {
-            authFetch('/api/warehouse/shipments')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success && data.shipments.length > 0) {
-                        renderShipmentsTable(data.shipments);
-                        document.getElementById('wh-shipments-empty').style.display = 'none';
-                        document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'block';
-                    } else {
-                        document.getElementById('wh-shipments-empty').style.display = 'block';
-                        document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'none';
-                    }
-                }).catch(() => document.getElementById('wh-shipments-empty').style.display = 'block');
+            loadShipmentHistory();
+            if (document.getElementById('wh-shipment-items-tbody').children.length === 0) {
+                initShipmentForm();
+            }
         }
 
-        function renderShipmentsTable(shipments) {
-            const tbody = document.getElementById('wh-shipments-tbody');
-            tbody.innerHTML = '';
-            shipments.forEach(s => tbody.appendChild(createShipmentRow(s)));
-        }
+        function addShipmentItemRow() {
+            const tbody = document.getElementById('wh-shipment-items-tbody');
+            shipmentItemCounter++;
 
-        function createShipmentRow(data) {
             const row = document.createElement('tr');
-            row.dataset.shipmentId = data ? data.id : 'new_' + Date.now();
+            row.dataset.itemId = 'ship_item_' + shipmentItemCounter;
 
-            const tdDate = document.createElement('td');
-            const inputDate = document.createElement('input');
-            inputDate.type = 'date';
-            inputDate.className = 'wh-input';
-            inputDate.style.width = '140px';
-            inputDate.value = data ? data.shipment_date : new Date().toISOString().split('T')[0];
-            inputDate.onchange = () => saveShipmentRow(row);
-            tdDate.appendChild(inputDate);
-            row.appendChild(tdDate);
+            const tdNum = document.createElement('td');
+            tdNum.style.textAlign = 'center';
+            tdNum.textContent = tbody.children.length + 1;
+            row.appendChild(tdNum);
 
             const tdProduct = document.createElement('td');
             const selectProduct = document.createElement('select');
@@ -6190,10 +6218,8 @@ HTML_TEMPLATE = '''
                 const opt = document.createElement('option');
                 opt.value = p.sku;
                 opt.textContent = p.offer_id || p.sku;
-                if (data && data.sku == p.sku) opt.selected = true;
                 selectProduct.appendChild(opt);
             });
-            selectProduct.onchange = () => saveShipmentRow(row);
             tdProduct.appendChild(selectProduct);
             row.appendChild(tdProduct);
 
@@ -6201,77 +6227,280 @@ HTML_TEMPLATE = '''
             const inputQty = document.createElement('input');
             inputQty.type = 'text';
             inputQty.className = 'wh-input';
-            inputQty.style.cssText = 'width:100px;text-align:center;';
-            inputQty.value = data ? data.quantity : '';
-            inputQty.oninput = function() { this.value = this.value.replace(/[^0-9]/g, ''); };
-            inputQty.onblur = () => saveShipmentRow(row);
+            inputQty.style.cssText = 'width:100%;text-align:center;';
+            inputQty.placeholder = '0';
+            inputQty.oninput = function() {
+                this.value = this.value.replace(/[^0-9]/g, '');
+                updateShipmentTotals();
+            };
             tdQty.appendChild(inputQty);
             row.appendChild(tdQty);
-
-            const tdDest = document.createElement('td');
-            const selectDest = document.createElement('select');
-            selectDest.className = 'wh-select';
-            selectDest.innerHTML = '<option value="">— Назначение —</option><option value="FBO"' + (data && data.destination === 'FBO' ? ' selected' : '') + '>FBO (Ozon)</option><option value="FBS"' + (data && data.destination === 'FBS' ? ' selected' : '') + '>FBS (свой склад)</option><option value="RETURN"' + (data && data.destination === 'RETURN' ? ' selected' : '') + '>Возврат поставщику</option><option value="OTHER"' + (data && data.destination === 'OTHER' ? ' selected' : '') + '>Другое</option>';
-            selectDest.onchange = () => saveShipmentRow(row);
-            tdDest.appendChild(selectDest);
-            row.appendChild(tdDest);
-
-            const tdComment = document.createElement('td');
-            const inputComment = document.createElement('input');
-            inputComment.type = 'text';
-            inputComment.className = 'wh-input';
-            inputComment.placeholder = 'Комментарий...';
-            inputComment.value = data ? (data.comment || '') : '';
-            inputComment.onblur = () => saveShipmentRow(row);
-            tdComment.appendChild(inputComment);
-            row.appendChild(tdComment);
 
             const tdDel = document.createElement('td');
             const delBtn = document.createElement('button');
             delBtn.className = 'wh-delete-btn';
             delBtn.textContent = '✕';
-            delBtn.onclick = () => deleteShipmentRow(row);
+            delBtn.onclick = () => removeShipmentItemRow(row);
             tdDel.appendChild(delBtn);
             row.appendChild(tdDel);
 
-            return row;
+            tbody.appendChild(row);
+            updateShipmentRowNumbers();
         }
 
-        function addShipmentRow() {
-            const tbody = document.getElementById('wh-shipments-tbody');
-            tbody.appendChild(createShipmentRow(null));
-            document.getElementById('wh-shipments-empty').style.display = 'none';
-            document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'block';
-        }
+        function addShipmentItemRowWithData(item) {
+            const tbody = document.getElementById('wh-shipment-items-tbody');
+            shipmentItemCounter++;
 
-        function saveShipmentRow(row) {
-            const inputs = row.querySelectorAll('input');
-            const selects = row.querySelectorAll('select');
-            const data = {
-                id: row.dataset.shipmentId,
-                shipment_date: inputs[0].value,
-                sku: parseInt(selects[0].value) || 0,
-                quantity: parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0,
-                destination: selects[1].value,
-                comment: inputs[2]?.value || ''
+            const row = document.createElement('tr');
+            row.dataset.itemId = 'ship_item_' + shipmentItemCounter;
+
+            const tdNum = document.createElement('td');
+            tdNum.style.textAlign = 'center';
+            tdNum.textContent = tbody.children.length + 1;
+            row.appendChild(tdNum);
+
+            const tdProduct = document.createElement('td');
+            const selectProduct = document.createElement('select');
+            selectProduct.className = 'wh-select';
+            selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
+            warehouseProducts.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.sku;
+                opt.textContent = p.offer_id || p.sku;
+                if (item && item.sku == p.sku) opt.selected = true;
+                selectProduct.appendChild(opt);
+            });
+            tdProduct.appendChild(selectProduct);
+            row.appendChild(tdProduct);
+
+            const tdQty = document.createElement('td');
+            const inputQty = document.createElement('input');
+            inputQty.type = 'text';
+            inputQty.className = 'wh-input';
+            inputQty.style.cssText = 'width:100%;text-align:center;';
+            inputQty.value = item ? item.quantity : '';
+            inputQty.oninput = function() {
+                this.value = this.value.replace(/[^0-9]/g, '');
+                updateShipmentTotals();
             };
-            if (!data.sku) return;
-            authFetch('/api/warehouse/shipments/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                .then(r => r.json())
-                .then(result => { if (result.success && result.id) row.dataset.shipmentId = result.id; loadWarehouseStock(); })
-                .catch(err => console.error('Ошибка сохранения отгрузки:', err));
+            tdQty.appendChild(inputQty);
+            row.appendChild(tdQty);
+
+            const tdDel = document.createElement('td');
+            const delBtn = document.createElement('button');
+            delBtn.className = 'wh-delete-btn';
+            delBtn.textContent = '✕';
+            delBtn.onclick = () => removeShipmentItemRow(row);
+            tdDel.appendChild(delBtn);
+            row.appendChild(tdDel);
+
+            tbody.appendChild(row);
+            updateShipmentRowNumbers();
         }
 
-        function deleteShipmentRow(row) {
-            if (!confirm('Удалить эту запись?')) return;
-            const id = row.dataset.shipmentId;
-            row.remove();
-            if (id && !String(id).startsWith('new_')) {
-                authFetch('/api/warehouse/shipments/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
-                    .then(() => loadWarehouseStock())
-                    .catch(err => console.error('Ошибка удаления:', err));
+        function removeShipmentItemRow(row) {
+            const tbody = document.getElementById('wh-shipment-items-tbody');
+            if (tbody.children.length <= 1) {
+                alert('Должна быть хотя бы одна строка товара');
+                return;
             }
-            if (!document.getElementById('wh-shipments-tbody').children.length) { document.getElementById('wh-shipments-empty').style.display = 'block'; document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'none'; }
+            row.remove();
+            updateShipmentRowNumbers();
+            updateShipmentTotals();
+        }
+
+        function updateShipmentRowNumbers() {
+            const rows = document.querySelectorAll('#wh-shipment-items-tbody tr');
+            rows.forEach((row, idx) => { row.cells[0].textContent = idx + 1; });
+        }
+
+        function updateShipmentTotals() {
+            const rows = document.querySelectorAll('#wh-shipment-items-tbody tr');
+            let totalQty = 0;
+            rows.forEach(row => {
+                const input = row.querySelector('input[type="text"]');
+                totalQty += parseInt((input?.value || '').replace(/\s/g, '')) || 0;
+            });
+            document.getElementById('shipment-total-qty').textContent = totalQty;
+        }
+
+        function saveShipment() {
+            const destination = document.getElementById('shipment-destination').value;
+            const comment = document.getElementById('shipment-comment').value;
+            const rows = document.querySelectorAll('#wh-shipment-items-tbody tr');
+            const items = [];
+
+            rows.forEach(row => {
+                const select = row.querySelector('select');
+                const input = row.querySelector('input[type="text"]');
+                const sku = parseInt(select?.value) || 0;
+                const qty = parseInt((input?.value || '').replace(/\s/g, '')) || 0;
+                if (sku > 0 && qty > 0) items.push({ sku, quantity: qty });
+            });
+
+            if (items.length === 0) {
+                alert('Добавьте хотя бы один товар с количеством');
+                return;
+            }
+
+            const isEdit = !!editingShipmentDocId;
+
+            authFetch('/api/warehouse/shipments/save-doc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ doc_id: editingShipmentDocId, destination, comment, items })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    alert(isEdit ? 'Отгрузка обновлена!' : 'Отгрузка сохранена!');
+                    clearShipmentForm();
+                    loadShipmentHistory();
+                    loadWarehouseStock();
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => console.error('Ошибка сохранения:', err));
+        }
+
+        function clearShipmentForm() {
+            editingShipmentDocId = null;
+            document.getElementById('shipment-destination').value = '';
+            document.getElementById('shipment-comment').value = '';
+            document.getElementById('wh-shipment-items-tbody').innerHTML = '';
+            shipmentItemCounter = 0;
+            addShipmentItemRow();
+            updateShipmentTotals();
+            document.querySelector('.wh-save-shipment-btn').textContent = '💾 Сохранить отгрузку';
+        }
+
+        function loadShipmentHistory() {
+            authFetch('/api/warehouse/shipment-docs')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.docs && data.docs.length > 0) {
+                        renderShipmentHistory(data.docs);
+                        document.getElementById('shipment-history-wrapper').style.display = 'block';
+                        document.getElementById('wh-shipment-history-empty').style.display = 'none';
+                    } else {
+                        document.getElementById('shipment-history-wrapper').style.display = 'none';
+                        document.getElementById('wh-shipment-history-empty').style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    console.error('Ошибка загрузки истории:', err);
+                    document.getElementById('shipment-history-wrapper').style.display = 'none';
+                    document.getElementById('wh-shipment-history-empty').style.display = 'block';
+                });
+        }
+
+        function renderShipmentHistory(docs) {
+            const tbody = document.getElementById('wh-shipment-history-tbody');
+            tbody.innerHTML = '';
+            const destLabels = { 'FBO': 'FBO (Ozon)', 'FBS': 'FBS', 'RETURN': 'Возврат', 'OTHER': 'Другое' };
+
+            docs.forEach(doc => {
+                const row = document.createElement('tr');
+
+                const tdDate = document.createElement('td');
+                const dt = new Date(doc.shipment_datetime);
+                tdDate.textContent = dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                row.appendChild(tdDate);
+
+                const tdDest = document.createElement('td');
+                tdDest.textContent = destLabels[doc.destination] || doc.destination || '—';
+                row.appendChild(tdDest);
+
+                const tdItems = document.createElement('td');
+                tdItems.style.textAlign = 'center';
+                tdItems.textContent = doc.items_count || 0;
+                row.appendChild(tdItems);
+
+                const tdQty = document.createElement('td');
+                tdQty.style.textAlign = 'center';
+                tdQty.textContent = doc.total_qty || 0;
+                row.appendChild(tdQty);
+
+                const tdComment = document.createElement('td');
+                tdComment.textContent = doc.comment || '';
+                row.appendChild(tdComment);
+
+                const tdCreated = document.createElement('td');
+                tdCreated.textContent = doc.created_by || '—';
+                row.appendChild(tdCreated);
+
+                const tdUpdated = document.createElement('td');
+                if (doc.updated_at && doc.updated_by) {
+                    const updDt = new Date(doc.updated_at);
+                    const updStr = updDt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    tdUpdated.innerHTML = `<span style="color:#666;">${updStr}</span><br><span style="font-size:12px;">${doc.updated_by}</span>`;
+                } else {
+                    tdUpdated.textContent = '—';
+                }
+                row.appendChild(tdUpdated);
+
+                const tdActions = document.createElement('td');
+                tdActions.style.whiteSpace = 'nowrap';
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'wh-edit-btn';
+                editBtn.textContent = '✏️';
+                editBtn.title = 'Редактировать';
+                editBtn.onclick = () => editShipmentDoc(doc.id);
+                tdActions.appendChild(editBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'wh-delete-btn';
+                delBtn.textContent = '✕';
+                delBtn.title = 'Удалить';
+                delBtn.onclick = () => deleteShipmentDoc(doc.id);
+                tdActions.appendChild(delBtn);
+
+                row.appendChild(tdActions);
+                tbody.appendChild(row);
+            });
+        }
+
+        function editShipmentDoc(docId) {
+            authFetch('/api/warehouse/shipment-docs/' + docId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        editingShipmentDocId = docId;
+                        document.getElementById('shipment-destination').value = data.doc.destination || '';
+                        document.getElementById('shipment-comment').value = data.doc.comment || '';
+                        document.getElementById('wh-shipment-items-tbody').innerHTML = '';
+                        shipmentItemCounter = 0;
+                        data.items.forEach(item => addShipmentItemRowWithData(item));
+                        updateShipmentTotals();
+                        document.querySelector('.wh-save-shipment-btn').textContent = '💾 Сохранить изменения';
+                        document.getElementById('shipment-form').scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        alert('Ошибка загрузки: ' + (data.error || 'Неизвестная ошибка'));
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки:', err));
+        }
+
+        function deleteShipmentDoc(docId) {
+            if (!confirm('Удалить эту отгрузку?')) return;
+            authFetch('/api/warehouse/shipment-docs/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: docId })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    loadShipmentHistory();
+                    loadWarehouseStock();
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => console.error('Ошибка:', err));
         }
 
         function loadWarehouseStock() {
