@@ -12,8 +12,11 @@ import sys
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from flask import Flask, render_template_string, jsonify, request
 from bs4 import BeautifulSoup
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
 
 # ✅ TIMEZONE FIX - Белград (Serbia/Balkans)
 try:
@@ -133,6 +136,93 @@ DB_PATH = "ozon_data.db"
 # Варианты: "free_to_sell_amount" | "available" | "present"
 STOCK_FIELD = os.environ.get("OZON_STOCK_FIELD", "free_to_sell_amount")
 print(f"\n📊 Используется поле остатка: {STOCK_FIELD}\n")
+
+# ============================================================================
+# АУТЕНТИФИКАЦИЯ И АВТОРИЗАЦИЯ
+# ============================================================================
+
+# JWT настройки
+JWT_SECRET = os.environ.get("JWT_SECRET", "default-secret-change-me")
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
+JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+
+print(f"🔐 Аутентификация: {'ВКЛЮЧЕНА' if AUTH_ENABLED else 'ОТКЛЮЧЕНА'}")
+
+
+def require_auth(allowed_roles=None):
+    """
+    Декоратор для проверки авторизации и роли пользователя.
+
+    Использование:
+        @require_auth()  # Любой залогиненный пользователь
+        @require_auth(['admin'])  # Только администратор
+
+    Возвращает:
+        401 - если пользователь не авторизован
+        403 - если у пользователя нет нужной роли
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Если авторизация отключена - пропускаем проверку
+            if not AUTH_ENABLED:
+                return f(*args, **kwargs)
+
+            # Получаем токен из заголовка Authorization
+            auth_header = request.headers.get('Authorization', '')
+            token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+
+            if not token:
+                return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+
+            try:
+                # Декодируем JWT токен
+                payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+                user_role = payload.get('role', 'viewer')
+                user_id = payload.get('user_id')
+                username = payload.get('username')
+
+                # Проверяем роль если указаны allowed_roles
+                if allowed_roles and user_role not in allowed_roles:
+                    return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+                # Сохраняем информацию о пользователе в request для использования в эндпоинте
+                request.current_user = {
+                    'user_id': user_id,
+                    'username': username,
+                    'role': user_role
+                }
+
+            except jwt.ExpiredSignatureError:
+                return jsonify({'success': False, 'error': 'Токен истёк'}), 401
+            except jwt.InvalidTokenError:
+                return jsonify({'success': False, 'error': 'Недействительный токен'}), 401
+
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+def create_jwt_token(user_id, username, role):
+    """
+    Создаёт JWT токен для пользователя.
+
+    Параметры:
+        user_id: ID пользователя в БД
+        username: Логин пользователя
+        role: Роль (admin/viewer)
+
+    Возвращает:
+        str: JWT токен
+    """
+    payload = {
+        'user_id': user_id,
+        'username': username,
+        'role': role,
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
+        'iat': datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
 # ============================================================================
 # СИНХРОНИЗАЦИЯ ДАННЫХ
@@ -398,6 +488,39 @@ def init_database():
             UNIQUE(currency_code, fetch_date)
         )
     ''')
+
+    # ============================================================================
+    # ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ — для аутентификации и ролей
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'viewer',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # ✅ Создаём дефолтных пользователей если таблица пустая
+    cursor.execute('SELECT COUNT(*) FROM users')
+    if cursor.fetchone()[0] == 0:
+        # Создаём администратора (admin/admin123 - СМЕНИТЬ ПОСЛЕ УСТАНОВКИ!)
+        admin_hash = generate_password_hash('admin123')
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role)
+            VALUES (?, ?, ?)
+        ''', ('admin', admin_hash, 'admin'))
+
+        # Создаём пользователя для просмотра (viewer/viewer123)
+        viewer_hash = generate_password_hash('viewer123')
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role)
+            VALUES (?, ?, ?)
+        ''', ('viewer', viewer_hash, 'viewer'))
+
+        print("✅ Созданы дефолтные пользователи: admin/admin123, viewer/viewer123")
+        print("⚠️  ВАЖНО: Смените пароли после первого входа!")
 
     conn.commit()
     conn.close()
@@ -3854,14 +3977,392 @@ HTML_TEMPLATE = '''
             background: #f1f3f5;
             color: #333;
         }
+
+        /* ============================================================================
+           СТИЛИ ФОРМЫ ЛОГИНА
+           ============================================================================ */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+
+        .login-overlay.hidden {
+            display: none;
+        }
+
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 360px;
+            text-align: center;
+        }
+
+        .login-box h2 {
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 24px;
+        }
+
+        .login-box .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .login-box input {
+            width: 100%;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        .login-box input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .login-box button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .login-box button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .login-box button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .login-error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .login-error.show {
+            display: block;
+        }
+
+        /* Панель пользователя в хедере */
+        .user-panel {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: 20px;
+        }
+
+        .user-info {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .user-info .username {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .user-info .role-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        .role-badge.admin {
+            background: #667eea;
+            color: white;
+        }
+
+        .role-badge.viewer {
+            background: #e9ecef;
+            color: #666;
+        }
+
+        .logout-btn {
+            padding: 6px 12px;
+            background: #f1f3f5;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #666;
+            transition: background 0.2s;
+        }
+
+        .logout-btn:hover {
+            background: #e9ecef;
+        }
+
+        /* Скрытие элементов для viewer */
+        .admin-only {
+            /* Будет скрываться через JS для viewer */
+        }
+
+        body.viewer-mode .admin-only {
+            display: none !important;
+        }
+
+        /* ============================================================================
+           СТИЛИ ВКЛАДКИ ПОЛЬЗОВАТЕЛИ (АДМИН-ПАНЕЛЬ)
+           ============================================================================ */
+        .users-tab {
+            padding: 20px 30px;
+        }
+
+        .users-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .users-header h3 {
+            font-size: 18px;
+            color: #333;
+        }
+
+        .add-user-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .users-table th,
+        .users-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .users-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .users-table .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .users-table .action-btn {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .users-table .change-pwd-btn {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .users-table .delete-btn {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        /* Модалка для создания пользователя */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10001;
+        }
+
+        .modal-overlay.hidden {
+            display: none;
+        }
+
+        .modal-box {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            width: 400px;
+        }
+
+        .modal-box h3 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .modal-box .form-group {
+            margin-bottom: 16px;
+        }
+
+        .modal-box label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .modal-box input,
+        .modal-box select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .modal-box input:focus,
+        .modal-box select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .modal-buttons button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .modal-buttons .save-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .modal-buttons .cancel-btn {
+            background: #f1f3f5;
+            color: #333;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <!-- ============================================================================
+         ФОРМА ВХОДА (показывается если не авторизован)
+         ============================================================================ -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-box">
+            <h2>Ozon Tracker</h2>
+            <p class="subtitle">Войдите для продолжения</p>
+            <div id="login-error" class="login-error"></div>
+            <input type="text" id="login-username" placeholder="Логин" autocomplete="username">
+            <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
+            <button id="login-submit" onclick="doLogin()">Войти</button>
+        </div>
+    </div>
+
+    <!-- ============================================================================
+         МОДАЛКА: СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
+         ============================================================================ -->
+    <div id="create-user-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Новый пользователь</h3>
+            <div class="form-group">
+                <label>Логин</label>
+                <input type="text" id="new-user-username" placeholder="Минимум 3 символа">
+            </div>
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" id="new-user-password" placeholder="Минимум 6 символов">
+            </div>
+            <div class="form-group">
+                <label>Роль</label>
+                <select id="new-user-role">
+                    <option value="viewer">Viewer (только просмотр)</option>
+                    <option value="admin">Admin (полный доступ)</option>
+                </select>
+            </div>
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeCreateUserModal()">Отмена</button>
+                <button class="save-btn" onclick="createUser()">Создать</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================================
+         МОДАЛКА: СМЕНА ПАРОЛЯ
+         ============================================================================ -->
+    <div id="change-pwd-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Сменить пароль</h3>
+            <p style="color: #666; margin-bottom: 16px;">Пользователь: <strong id="change-pwd-username"></strong></p>
+            <div class="form-group">
+                <label>Новый пароль</label>
+                <input type="password" id="change-pwd-input" placeholder="Минимум 6 символов">
+            </div>
+            <input type="hidden" id="change-pwd-user-id">
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeChangePwdModal()">Отмена</button>
+                <button class="save-btn" onclick="changePassword()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="main-container" style="display: none;">
         <div class="header">
-            <div style="display: flex; justify-content: flex-end; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; gap: 8px;">
-                    <button class="refresh-btn" onclick="syncData()" id="sync-btn">Обновить данные</button>
+                    <button class="refresh-btn admin-only" onclick="syncData()" id="sync-btn">Обновить данные</button>
+                </div>
+                <div class="user-panel">
+                    <div class="user-info">
+                        <span class="username" id="current-username"></span>
+                        <span class="role-badge" id="current-role-badge"></span>
+                    </div>
+                    <button class="logout-btn" onclick="doLogout()">Выйти</button>
                 </div>
             </div>
         </div>
@@ -3871,6 +4372,7 @@ HTML_TEMPLATE = '''
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">Аналитика FBO</button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
+                <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">👥 Пользователи</button>
             </div>
 
             <!-- ТАБ: История товара -->
@@ -4014,24 +4516,246 @@ HTML_TEMPLATE = '''
                             </tbody>
                         </table>
                     </div>
-                    <button class="supplies-add-btn" onclick="addSupplyRow()" title="Добавить строку">
+                    <button class="supplies-add-btn admin-only" onclick="addSupplyRow()" title="Добавить строку">
                         <span style="font-size: 20px; line-height: 1;">+</span>
                     </button>
+                </div>
+            </div>
+
+            <!-- ТАБ: Пользователи (только для admin) -->
+            <div id="users" class="tab-content">
+                <div class="users-tab">
+                    <div class="users-header">
+                        <h3>Управление пользователями</h3>
+                        <button class="add-user-btn" onclick="openCreateUserModal()">+ Добавить пользователя</button>
+                    </div>
+                    <table class="users-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Логин</th>
+                                <th>Роль</th>
+                                <th>Создан</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr><td colspan="5" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // ============================================================================
+        // СИСТЕМА АВТОРИЗАЦИИ
+        // ============================================================================
+
+        let authToken = localStorage.getItem('authToken') || '';
+        let currentUser = null;  // {user_id, username, role}
+
+        /**
+         * Проверка авторизации при загрузке страницы.
+         * Если токен есть - проверяет его валидность через /api/me.
+         * Если токена нет или он невалидный - показывает форму логина.
+         */
+        async function checkAuth() {
+            if (!authToken) {
+                showLoginForm();
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/me', {
+                    headers: { 'Authorization': 'Bearer ' + authToken }
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    currentUser = {
+                        user_id: data.user_id,
+                        username: data.username,
+                        role: data.role
+                    };
+                    hideLoginForm();
+                    applyRoleRestrictions();
+                    initApp();
+                } else {
+                    // Токен невалидный
+                    localStorage.removeItem('authToken');
+                    authToken = '';
+                    showLoginForm();
+                }
+            } catch (err) {
+                console.error('Ошибка проверки авторизации:', err);
+                showLoginForm();
+            }
+        }
+
+        /**
+         * Показывает форму входа, скрывает основной контент.
+         */
+        function showLoginForm() {
+            document.getElementById('login-overlay').classList.remove('hidden');
+            document.getElementById('main-container').style.display = 'none';
+            document.getElementById('login-username').focus();
+        }
+
+        /**
+         * Скрывает форму входа, показывает основной контент.
+         */
+        function hideLoginForm() {
+            document.getElementById('login-overlay').classList.add('hidden');
+            document.getElementById('main-container').style.display = 'block';
+
+            // Обновляем панель пользователя
+            document.getElementById('current-username').textContent = currentUser.username;
+            const badge = document.getElementById('current-role-badge');
+            badge.textContent = currentUser.role;
+            badge.className = 'role-badge ' + currentUser.role;
+        }
+
+        /**
+         * Обработчик входа - вызывается по нажатию кнопки "Войти".
+         */
+        async function doLogin() {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            const errorDiv = document.getElementById('login-error');
+            const btn = document.getElementById('login-submit');
+
+            if (!username || !password) {
+                errorDiv.textContent = 'Введите логин и пароль';
+                errorDiv.classList.add('show');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Вход...';
+            errorDiv.classList.remove('show');
+
+            try {
+                const resp = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    currentUser = {
+                        user_id: data.user_id,
+                        username: data.username,
+                        role: data.role
+                    };
+                    hideLoginForm();
+                    applyRoleRestrictions();
+                    initApp();
+                } else {
+                    errorDiv.textContent = data.error || 'Ошибка входа';
+                    errorDiv.classList.add('show');
+                }
+            } catch (err) {
+                errorDiv.textContent = 'Ошибка соединения с сервером';
+                errorDiv.classList.add('show');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Войти';
+            }
+        }
+
+        /**
+         * Выход из системы - очищает токен и показывает форму логина.
+         */
+        function doLogout() {
+            localStorage.removeItem('authToken');
+            authToken = '';
+            currentUser = null;
+            document.body.classList.remove('viewer-mode');
+            showLoginForm();
+            // Очищаем поля формы
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+            document.getElementById('login-error').classList.remove('show');
+        }
+
+        /**
+         * Применяет ограничения UI в зависимости от роли.
+         * Для viewer - скрывает кнопки редактирования.
+         */
+        function applyRoleRestrictions() {
+            if (currentUser.role === 'viewer') {
+                document.body.classList.add('viewer-mode');
+            } else {
+                document.body.classList.remove('viewer-mode');
+            }
+        }
+
+        /**
+         * Обёртка над fetch() с автоматическим добавлением токена авторизации.
+         * При 401 ошибке - показывает форму логина.
+         */
+        async function authFetch(url, options = {}) {
+            options.headers = options.headers || {};
+            if (authToken) {
+                options.headers['Authorization'] = 'Bearer ' + authToken;
+            }
+
+            const resp = await fetch(url, options);
+
+            // Если 401 - токен истёк, выходим
+            if (resp.status === 401) {
+                doLogout();
+                throw new Error('Требуется авторизация');
+            }
+
+            // Если 403 - нет прав
+            if (resp.status === 403) {
+                const data = await resp.json();
+                alert(data.error || 'Недостаточно прав');
+                throw new Error('Недостаточно прав');
+            }
+
+            return resp;
+        }
+
+        // Обработка Enter в форме логина
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const overlay = document.getElementById('login-overlay');
+                if (!overlay.classList.contains('hidden')) {
+                    doLogin();
+                }
+            }
+        });
+
         let allProducts = [];
         let currentHistoryData = null;  // Хранит загруженные данные истории для фильтрации
 
         document.addEventListener('DOMContentLoaded', function() {
+            // Сначала проверяем авторизацию
+            checkAuth();
+        });
+
+        /**
+         * Инициализация приложения после успешной авторизации.
+         */
+        function initApp() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
             const savedTab = location.hash.replace('#', '');
-            const validTabs = ['history', 'fbo', 'supplies'];
+            const validTabs = ['history', 'fbo', 'supplies', 'users'];
 
             if (savedTab && validTabs.includes(savedTab)) {
+                // Для users таба - проверяем роль
+                if (savedTab === 'users' && currentUser.role !== 'admin') {
+                    loadProductsList();
+                    return;
+                }
+
                 // Активируем сохранённый таб
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
@@ -4048,17 +4772,19 @@ HTML_TEMPLATE = '''
                 if (savedTab === 'history') {
                     loadProductsList();
                 } else if (savedTab === 'fbo') {
-                    loadProductsList(); // Список товаров нужен всегда
+                    loadProductsList();
                     loadFboAnalytics();
                 } else if (savedTab === 'supplies') {
                     loadProductsList();
                     loadSupplies();
+                } else if (savedTab === 'users') {
+                    loadUsers();
                 }
             } else {
                 // По умолчанию — первый таб
                 loadProductsList();
             }
-        });
+        }
 
         // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
 
@@ -4072,7 +4798,7 @@ HTML_TEMPLATE = '''
                 btn.innerHTML = '⏳ Обновление...';
                 btn.style.opacity = '0.7';
 
-                const response = await fetch('/api/sync', {
+                const response = await authFetch('/api/sync', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -4143,6 +4869,10 @@ HTML_TEMPLATE = '''
             // Если открыли поставки - загружаем данные
             if (tab === 'supplies') {
                 loadSupplies();
+            }
+            // Если открыли пользователей - загружаем список
+            if (tab === 'users') {
+                loadUsers();
             }
         }
 
@@ -4814,7 +5544,7 @@ HTML_TEMPLATE = '''
                 notes: text
             };
 
-            fetch('/api/history/save-note', {
+            authFetch('/api/history/save-note', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -4851,7 +5581,7 @@ HTML_TEMPLATE = '''
                 orders_plan: value
             };
 
-            fetch('/api/history/save-orders-plan', {
+            authFetch('/api/history/save-orders-plan', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -4880,7 +5610,7 @@ HTML_TEMPLATE = '''
                 cpo_plan: value
             };
 
-            fetch('/api/history/save-cpo-plan', {
+            authFetch('/api/history/save-cpo-plan', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -4909,7 +5639,7 @@ HTML_TEMPLATE = '''
                 price_plan: value
             };
 
-            fetch('/api/history/save-price-plan', {
+            authFetch('/api/history/save-price-plan', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -5682,7 +6412,7 @@ HTML_TEMPLATE = '''
             const priceCny = data.price_cny || 0;
             data.cost_plus_6 = (logistics + priceCny * currentCnyRate) * 1.06;
 
-            fetch('/api/supplies/save', {
+            authFetch('/api/supplies/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -5735,7 +6465,7 @@ HTML_TEMPLATE = '''
                 overlay.remove();
                 unlockSupplyRow(row);
                 // Разблокируем на сервере
-                fetch('/api/supplies/unlock', {
+                authFetch('/api/supplies/unlock', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: row.dataset.supplyId })
@@ -5786,7 +6516,7 @@ HTML_TEMPLATE = '''
 
             // Блокируем на сервере
             if (supplyId && !String(supplyId).startsWith('new_')) {
-                fetch('/api/supplies/lock', {
+                authFetch('/api/supplies/lock', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: supplyId })
@@ -5853,7 +6583,7 @@ HTML_TEMPLATE = '''
 
                 // Удаляем с сервера
                 if (supplyId && !String(supplyId).startsWith('new_')) {
-                    fetch('/api/supplies/delete', {
+                    authFetch('/api/supplies/delete', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id: supplyId })
@@ -6265,6 +6995,181 @@ HTML_TEMPLATE = '''
             });
         }
 
+        // ============================================================================
+        // УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (АДМИН-ПАНЕЛЬ)
+        // ============================================================================
+
+        /**
+         * Загрузить список пользователей.
+         */
+        async function loadUsers() {
+            const tbody = document.getElementById('users-tbody');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>';
+
+            try {
+                const resp = await authFetch('/api/users');
+                const data = await resp.json();
+
+                if (!data.success) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#c33;">Ошибка: ' + (data.error || 'неизвестная') + '</td></tr>';
+                    return;
+                }
+
+                if (!data.users || data.users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">Нет пользователей</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                data.users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    const roleClass = user.role === 'admin' ? 'admin' : 'viewer';
+                    const roleIcon = user.role === 'admin' ? '👑' : '👁';
+                    const canDelete = user.id !== currentUser.user_id;
+
+                    tr.innerHTML = `
+                        <td>${user.id}</td>
+                        <td><strong>${user.username}</strong></td>
+                        <td><span class="role-badge ${roleClass}">${roleIcon} ${user.role}</span></td>
+                        <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
+                        <td class="actions">
+                            <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${user.username}')">🔑</button>
+                            ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${user.username}')">🗑</button>` : ''}
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error('Ошибка загрузки пользователей:', err);
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#c33;">Ошибка загрузки</td></tr>';
+            }
+        }
+
+        /**
+         * Открыть модалку создания пользователя.
+         */
+        function openCreateUserModal() {
+            document.getElementById('new-user-username').value = '';
+            document.getElementById('new-user-password').value = '';
+            document.getElementById('new-user-role').value = 'viewer';
+            document.getElementById('create-user-modal').classList.remove('hidden');
+            document.getElementById('new-user-username').focus();
+        }
+
+        /**
+         * Закрыть модалку создания пользователя.
+         */
+        function closeCreateUserModal() {
+            document.getElementById('create-user-modal').classList.add('hidden');
+        }
+
+        /**
+         * Создать нового пользователя.
+         */
+        async function createUser() {
+            const username = document.getElementById('new-user-username').value.trim();
+            const password = document.getElementById('new-user-password').value;
+            const role = document.getElementById('new-user-role').value;
+
+            if (!username || !password) {
+                alert('Заполните все поля');
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/users/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    closeCreateUserModal();
+                    loadUsers();
+                } else {
+                    alert(data.error || 'Ошибка создания пользователя');
+                }
+            } catch (err) {
+                console.error('Ошибка создания пользователя:', err);
+            }
+        }
+
+        /**
+         * Удалить пользователя.
+         */
+        async function deleteUser(userId, username) {
+            if (!confirm(`Удалить пользователя "${username}"?`)) {
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/users/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    loadUsers();
+                } else {
+                    alert(data.error || 'Ошибка удаления пользователя');
+                }
+            } catch (err) {
+                console.error('Ошибка удаления пользователя:', err);
+            }
+        }
+
+        /**
+         * Открыть модалку смены пароля.
+         */
+        function openChangePwdModal(userId, username) {
+            document.getElementById('change-pwd-user-id').value = userId;
+            document.getElementById('change-pwd-username').textContent = username;
+            document.getElementById('change-pwd-input').value = '';
+            document.getElementById('change-pwd-modal').classList.remove('hidden');
+            document.getElementById('change-pwd-input').focus();
+        }
+
+        /**
+         * Закрыть модалку смены пароля.
+         */
+        function closeChangePwdModal() {
+            document.getElementById('change-pwd-modal').classList.add('hidden');
+        }
+
+        /**
+         * Сменить пароль пользователя.
+         */
+        async function changePassword() {
+            const userId = document.getElementById('change-pwd-user-id').value;
+            const newPassword = document.getElementById('change-pwd-input').value;
+
+            if (!newPassword) {
+                alert('Введите новый пароль');
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/users/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: parseInt(userId), new_password: newPassword })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    closeChangePwdModal();
+                    alert('Пароль успешно изменён');
+                } else {
+                    alert(data.error || 'Ошибка смены пароля');
+                }
+            } catch (err) {
+                console.error('Ошибка смены пароля:', err);
+            }
+        }
+
     </script>
 </body>
 </html>
@@ -6480,6 +7385,7 @@ def get_product_history(sku):
 
 
 @app.route('/api/history/save-note', methods=['POST'])
+@require_auth(['admin'])
 def save_note():
     """Сохранить заметку для товара и даты"""
     try:
@@ -6509,6 +7415,7 @@ def save_note():
 
 
 @app.route('/api/history/save-orders-plan', methods=['POST'])
+@require_auth(['admin'])
 def save_orders_plan():
     """Сохранить плановое количество заказов для товара и даты"""
     try:
@@ -6552,6 +7459,7 @@ def save_orders_plan():
 
 
 @app.route('/api/history/save-cpo-plan', methods=['POST'])
+@require_auth(['admin'])
 def save_cpo_plan():
     """Сохранить плановый CPO для товара и даты"""
     try:
@@ -6595,6 +7503,7 @@ def save_cpo_plan():
 
 
 @app.route('/api/history/save-price-plan', methods=['POST'])
+@require_auth(['admin'])
 def save_price_plan():
     """Сохранить плановую цену для товара и даты"""
     try:
@@ -6638,6 +7547,7 @@ def save_price_plan():
 
 
 @app.route('/api/update-rating/<int:sku>', methods=['POST'])
+@require_auth(['admin'])
 def update_rating(sku):
     """Обновить рейтинг и количество отзывов для товара"""
     try:
@@ -6755,6 +7665,7 @@ def api_parse_status():
 
 
 @app.route('/api/parse-complete', methods=['POST'])
+@require_auth(['admin'])
 def api_parse_complete():
     """
     Вызывается локальным парсером когда работа завершена.
@@ -6781,6 +7692,7 @@ def api_parse_complete():
 
 
 @app.route('/api/parse-start', methods=['POST'])
+@require_auth(['admin'])
 def api_parse_start():
     """
     Вызывается локальным парсером когда он начинает работу.
@@ -6798,7 +7710,278 @@ def api_parse_start():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================================
+# ЭНДПОИНТЫ АУТЕНТИФИКАЦИИ
+# ============================================================================
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """
+    Авторизация пользователя.
+
+    Принимает JSON: {"username": "admin", "password": "password123"}
+    Возвращает: {"success": true, "token": "...", "role": "admin", "username": "admin"}
+    """
+    try:
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+
+        if not username or not password:
+            return jsonify({'success': False, 'error': 'Введите логин и пароль'}), 400
+
+        # Ищем пользователя в БД
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username,))
+        user = cursor.fetchone()
+        conn.close()
+
+        if not user:
+            return jsonify({'success': False, 'error': 'Неверный логин или пароль'}), 401
+
+        # Проверяем пароль
+        if not check_password_hash(user['password_hash'], password):
+            return jsonify({'success': False, 'error': 'Неверный логин или пароль'}), 401
+
+        # Создаём JWT токен
+        token = create_jwt_token(user['id'], user['username'], user['role'])
+
+        return jsonify({
+            'success': True,
+            'token': token,
+            'username': user['username'],
+            'role': user['role']
+        })
+
+    except Exception as e:
+        print(f"❌ Ошибка при авторизации: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/me')
+def api_me():
+    """
+    Получить информацию о текущем пользователе.
+
+    Требует: заголовок Authorization: Bearer <token>
+    Возвращает: {"success": true, "username": "admin", "role": "admin", "user_id": 1}
+    """
+    # Если авторизация отключена - возвращаем admin
+    if not AUTH_ENABLED:
+        return jsonify({
+            'success': True,
+            'username': 'admin',
+            'role': 'admin',
+            'user_id': 0
+        })
+
+    # Получаем токен из заголовка
+    auth_header = request.headers.get('Authorization', '')
+    token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+
+    if not token:
+        return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
+
+    try:
+        # Декодируем JWT токен
+        payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+
+        return jsonify({
+            'success': True,
+            'user_id': payload.get('user_id'),
+            'username': payload.get('username'),
+            'role': payload.get('role')
+        })
+
+    except jwt.ExpiredSignatureError:
+        return jsonify({'success': False, 'error': 'Токен истёк'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'success': False, 'error': 'Недействительный токен'}), 401
+
+
+# ============================================================================
+# ЭНДПОИНТЫ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯМИ (только admin)
+# ============================================================================
+
+@app.route('/api/users')
+@require_auth(['admin'])
+def api_users_list():
+    """
+    Получить список всех пользователей.
+
+    Только для администраторов.
+    Возвращает: {"success": true, "users": [{"id": 1, "username": "admin", "role": "admin", "created_at": "..."}]}
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, username, role, created_at FROM users ORDER BY id')
+        users = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'users': users})
+
+    except Exception as e:
+        print(f"❌ Ошибка при получении списка пользователей: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/users/create', methods=['POST'])
+@require_auth(['admin'])
+def api_users_create():
+    """
+    Создать нового пользователя.
+
+    Принимает JSON: {"username": "new_user", "password": "password123", "role": "viewer"}
+    Роль может быть: "admin" или "viewer"
+    """
+    try:
+        data = request.json or {}
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        role = data.get('role', 'viewer').strip()
+
+        # Валидация
+        if not username:
+            return jsonify({'success': False, 'error': 'Введите логин'}), 400
+        if len(username) < 3:
+            return jsonify({'success': False, 'error': 'Логин должен быть минимум 3 символа'}), 400
+        if not password:
+            return jsonify({'success': False, 'error': 'Введите пароль'}), 400
+        if len(password) < 6:
+            return jsonify({'success': False, 'error': 'Пароль должен быть минимум 6 символов'}), 400
+        if role not in ('admin', 'viewer'):
+            return jsonify({'success': False, 'error': 'Роль должна быть admin или viewer'}), 400
+
+        # Хэшируем пароль
+        password_hash = generate_password_hash(password)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(
+                'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+                (username, password_hash, role)
+            )
+            conn.commit()
+            user_id = cursor.lastrowid
+        except sqlite3.IntegrityError:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Пользователь "{username}" уже существует'}), 400
+
+        conn.close()
+
+        print(f"✅ Создан пользователь: {username} (роль: {role})")
+        return jsonify({
+            'success': True,
+            'user': {'id': user_id, 'username': username, 'role': role}
+        })
+
+    except Exception as e:
+        print(f"❌ Ошибка при создании пользователя: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/users/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_users_delete():
+    """
+    Удалить пользователя.
+
+    Принимает JSON: {"user_id": 2}
+    Нельзя удалить самого себя.
+    """
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Укажите ID пользователя'}), 400
+
+        # Проверяем, не пытается ли админ удалить себя
+        current_user = getattr(request, 'current_user', {})
+        if current_user.get('user_id') == user_id:
+            return jsonify({'success': False, 'error': 'Нельзя удалить самого себя'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+
+        username = user[0]
+        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+
+        print(f"🗑️ Удалён пользователь: {username}")
+        return jsonify({'success': True, 'message': f'Пользователь "{username}" удалён'})
+
+    except Exception as e:
+        print(f"❌ Ошибка при удалении пользователя: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/users/change-password', methods=['POST'])
+@require_auth(['admin'])
+def api_users_change_password():
+    """
+    Сменить пароль пользователя.
+
+    Принимает JSON: {"user_id": 2, "new_password": "newpass123"}
+    """
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        new_password = data.get('new_password', '')
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Укажите ID пользователя'}), 400
+        if not new_password:
+            return jsonify({'success': False, 'error': 'Введите новый пароль'}), 400
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': 'Пароль должен быть минимум 6 символов'}), 400
+
+        # Хэшируем новый пароль
+        password_hash = generate_password_hash(new_password)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+
+        username = user[0]
+        cursor.execute('UPDATE users SET password_hash = ? WHERE id = ?', (password_hash, user_id))
+        conn.commit()
+        conn.close()
+
+        print(f"🔑 Изменён пароль пользователя: {username}")
+        return jsonify({'success': True, 'message': f'Пароль пользователя "{username}" изменён'})
+
+    except Exception as e:
+        print(f"❌ Ошибка при смене пароля: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
 @app.route('/api/sync', methods=['POST'])
+@require_auth(['admin'])
 def api_sync():
     """Обновить данные из Ozon API"""
     try:
@@ -7057,6 +8240,7 @@ def get_supplies():
 
 
 @app.route('/api/supplies/save', methods=['POST'])
+@require_auth(['admin'])
 def save_supply():
     """
     Сохранить или обновить строку поставки.
@@ -7143,6 +8327,7 @@ def save_supply():
 
 
 @app.route('/api/supplies/lock', methods=['POST'])
+@require_auth(['admin'])
 def lock_supply():
     """
     Заблокировать строку поставки (защита от редактирования).
@@ -7163,6 +8348,7 @@ def lock_supply():
 
 
 @app.route('/api/supplies/unlock', methods=['POST'])
+@require_auth(['admin'])
 def unlock_supply():
     """
     Разблокировать строку поставки для редактирования.
@@ -7183,6 +8369,7 @@ def unlock_supply():
 
 
 @app.route('/api/supplies/delete', methods=['POST'])
+@require_auth(['admin'])
 def delete_supply():
     """
     Удалить строку поставки из базы данных.
