@@ -2927,7 +2927,7 @@ HTML_TEMPLATE = '''
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #ffffff;
             min-height: 100vh;
-            padding: 20px;
+            padding: 0;
             margin: 0;
         }
 
@@ -2939,13 +2939,11 @@ HTML_TEMPLATE = '''
         .header {
             background: white;
             padding: 12px 50px;
-            border-radius: 12px;
+            border-radius: 0;
             margin-bottom: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             display: flex;
             align-items: center;
-            margin-left: -20px;
-            margin-right: -20px;
         }
 
         .header h1 {
@@ -2962,11 +2960,9 @@ HTML_TEMPLATE = '''
 
         .table-container {
             background: white;
-            border-radius: 12px;
+            border-radius: 0;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             overflow: hidden;
-            margin-left: -20px;
-            margin-right: -20px;
         }
 
         .table-header {
@@ -3987,6 +3983,231 @@ HTML_TEMPLATE = '''
         }
 
         /* ============================================================================
+           СТИЛИ ВКЛАДКИ СКЛАД (подвкладки)
+           ============================================================================ */
+
+        .warehouse-subtabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #e9ecef;
+            padding: 0 20px;
+            background: #f8f9fa;
+        }
+
+        .subtab-button {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            margin-bottom: -2px;
+        }
+
+        .subtab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: #fff;
+        }
+
+        .subtab-button:hover:not(.active) {
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .warehouse-subtab-content {
+            display: none;
+            padding: 20px;
+        }
+
+        .warehouse-subtab-content.active {
+            display: block;
+        }
+
+        .wh-section-header {
+            margin-bottom: 20px;
+        }
+
+        .wh-section-header h3 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 6px;
+        }
+
+        .wh-section-header p {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .wh-toolbar {
+            margin-bottom: 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .wh-add-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .wh-add-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .wh-refresh-btn {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            color: #333;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .wh-refresh-btn:hover {
+            background: #e9ecef;
+            border-color: #ced4da;
+        }
+
+        .wh-table-wrapper {
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .wh-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .wh-table thead th {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 2px solid #e9ecef;
+            white-space: nowrap;
+        }
+
+        .wh-table tbody td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
+        }
+
+        .wh-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .wh-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .wh-table tfoot td {
+            padding: 12px 16px;
+            background: #f8f9fa;
+            font-weight: 600;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .wh-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .wh-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .wh-input:disabled {
+            background: #f8f9fa;
+            color: #666;
+        }
+
+        .wh-select {
+            width: 100%;
+            min-width: 180px;
+            padding: 8px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .wh-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .wh-delete-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            color: #ccc;
+            padding: 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .wh-delete-btn:hover {
+            color: #ef4444;
+            background: #fef2f2;
+        }
+
+        .wh-empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .wh-empty-state p {
+            margin-bottom: 16px;
+            font-size: 15px;
+        }
+
+        .wh-stock-positive {
+            color: #22c55e;
+            font-weight: 600;
+        }
+
+        .wh-stock-zero {
+            color: #888;
+        }
+
+        .wh-stock-negative {
+            color: #ef4444;
+            font-weight: 600;
+        }
+
+        .wh-sum-cell {
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* ============================================================================
            СТИЛИ ФОРМЫ ЛОГИНА
            ============================================================================ */
         .login-overlay {
@@ -4417,8 +4638,108 @@ HTML_TEMPLATE = '''
 
             <!-- ТАБ: Склад -->
             <div id="warehouse" class="tab-content">
-                <div id="warehouse-content">
-                    <div class="warehouse-loading">Загрузка данных склада...</div>
+                <!-- Подвкладки склада -->
+                <div class="warehouse-subtabs">
+                    <button class="subtab-button active" onclick="switchWarehouseSubtab(event, 'wh-receipt')">Оприходование</button>
+                    <button class="subtab-button" onclick="switchWarehouseSubtab(event, 'wh-shipments')">Отгрузки</button>
+                    <button class="subtab-button" onclick="switchWarehouseSubtab(event, 'wh-stock')">Остатки</button>
+                </div>
+
+                <!-- Подвкладка: Оприходование -->
+                <div id="wh-receipt" class="warehouse-subtab-content active">
+                    <div class="wh-section-header">
+                        <h3>📦 Оприходование товаров</h3>
+                        <p>Регистрация поступления товаров на склад</p>
+                    </div>
+                    <div class="wh-toolbar">
+                        <button class="wh-add-btn" onclick="addReceiptRow()">+ Добавить оприходование</button>
+                    </div>
+                    <div class="wh-table-wrapper">
+                        <table class="wh-table" id="wh-receipt-table">
+                            <thead>
+                                <tr>
+                                    <th>Дата</th>
+                                    <th>Товар</th>
+                                    <th>Количество</th>
+                                    <th>Цена закупки, ₽</th>
+                                    <th>Сумма, ₽</th>
+                                    <th>Комментарий</th>
+                                    <th style="width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="wh-receipt-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="wh-empty-state" id="wh-receipt-empty">
+                        <p>Нет записей об оприходовании</p>
+                        <button class="wh-add-btn" onclick="addReceiptRow()">Добавить первую запись</button>
+                    </div>
+                </div>
+
+                <!-- Подвкладка: Отгрузки -->
+                <div id="wh-shipments" class="warehouse-subtab-content">
+                    <div class="wh-section-header">
+                        <h3>🚚 Отгрузки товаров</h3>
+                        <p>Регистрация отгрузок со склада</p>
+                    </div>
+                    <div class="wh-toolbar">
+                        <button class="wh-add-btn" onclick="addShipmentRow()">+ Добавить отгрузку</button>
+                    </div>
+                    <div class="wh-table-wrapper">
+                        <table class="wh-table" id="wh-shipments-table">
+                            <thead>
+                                <tr>
+                                    <th>Дата</th>
+                                    <th>Товар</th>
+                                    <th>Количество</th>
+                                    <th>Назначение</th>
+                                    <th>Комментарий</th>
+                                    <th style="width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="wh-shipments-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="wh-empty-state" id="wh-shipments-empty">
+                        <p>Нет записей об отгрузках</p>
+                        <button class="wh-add-btn" onclick="addShipmentRow()">Добавить первую запись</button>
+                    </div>
+                </div>
+
+                <!-- Подвкладка: Остатки -->
+                <div id="wh-stock" class="warehouse-subtab-content">
+                    <div class="wh-section-header">
+                        <h3>📊 Остатки на складе</h3>
+                        <p>Текущие остатки товаров с учётом оприходований и отгрузок</p>
+                    </div>
+                    <div class="wh-toolbar">
+                        <button class="wh-refresh-btn" onclick="loadWarehouseStock()">🔄 Обновить</button>
+                    </div>
+                    <div class="wh-table-wrapper">
+                        <table class="wh-table" id="wh-stock-table">
+                            <thead>
+                                <tr>
+                                    <th>Товар</th>
+                                    <th>Артикул</th>
+                                    <th>Оприходовано</th>
+                                    <th>Отгружено</th>
+                                    <th>Остаток на складе</th>
+                                    <th>Ср. цена закупки, ₽</th>
+                                    <th>Стоимость остатка, ₽</th>
+                                </tr>
+                            </thead>
+                            <tbody id="wh-stock-tbody">
+                            </tbody>
+                            <tfoot id="wh-stock-tfoot">
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="wh-empty-state" id="wh-stock-empty">
+                        <p>Нет данных об остатках</p>
+                        <p style="font-size: 13px; color: #888;">Добавьте оприходование товаров для отображения остатков</p>
+                    </div>
                 </div>
             </div>
 
