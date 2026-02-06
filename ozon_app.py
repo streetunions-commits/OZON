@@ -426,6 +426,12 @@ def init_database():
                      "ALTER TABLE products ADD COLUMN price_index TEXT DEFAULT NULL"):
         print("✅ Столбец price_index добавлен в products")
 
+    # ✅ Добавляем колонку для тегов строки (tags)
+    # Хранит JSON массив тегов: ["Самовыкуп", "Реклама"]
+    if ensure_column(cursor, "products_history", "tags",
+                     "ALTER TABLE products_history ADD COLUMN tags TEXT DEFAULT NULL"):
+        print("✅ Столбец tags добавлен в products_history")
+
     # ✅ Таблица fbo_warehouse_stock — остатки по складам/кластерам
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS fbo_warehouse_stock (
@@ -3306,6 +3312,85 @@ HTML_TEMPLATE = '''
         .edit-icon:hover {
             opacity: 1;
         }
+
+        /* ============================================================ */
+        /* ТЕГИ СТРОК (Самовыкуп, ПП, Медиана, Реклама, Цена, Акции, Тест) */
+        /* ============================================================ */
+
+        .tag-cell {
+            width: 120px;
+            min-width: 120px;
+            max-width: 120px;
+            padding: 4px !important;
+        }
+
+        .tag-select {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            background: #fff;
+            transition: all 0.2s;
+        }
+
+        .tag-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .tag-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+
+        .tag-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .tag-badge .tag-remove {
+            margin-left: 4px;
+            font-size: 14px;
+            line-height: 1;
+            opacity: 0.7;
+        }
+
+        .tag-badge .tag-remove:hover {
+            opacity: 1;
+        }
+
+        /* Цвета тегов */
+        .tag-samovykup { background: #ede9fe; color: #7c3aed; }
+        .tag-pp { background: #dbeafe; color: #2563eb; }
+        .tag-mediana { background: #ffedd5; color: #ea580c; }
+        .tag-reklama { background: #fee2e2; color: #dc2626; }
+        .tag-cena { background: #dcfce7; color: #16a34a; }
+        .tag-akcii { background: #fef9c3; color: #ca8a04; }
+        .tag-test { background: #f3f4f6; color: #6b7280; }
+
+        /* Окрашивание строк по тегам */
+        .row-samovykup td:not(.plan-cell) { background: #faf5ff !important; }
+        .row-pp td:not(.plan-cell) { background: #eff6ff !important; }
+        .row-mediana td:not(.plan-cell) { background: #fff7ed !important; }
+        .row-reklama td:not(.plan-cell) { background: #fef2f2 !important; }
+        .row-cena td:not(.plan-cell) { background: #f0fdf4 !important; }
+        .row-akcii td:not(.plan-cell) { background: #fefce8 !important; }
+        .row-test td:not(.plan-cell) { background: #f9fafb !important; }
+
+        /* Ячейки с планами сохраняют свои цвета сравнения */
+        .plan-cell-green { background: #e5ffe5 !important; }
+        .plan-cell-red { background: #ffe5e5 !important; }
+        .plan-cell-neutral { background: #f5f5f5 !important; }
 
         .note-cell {
             width: 200px;
@@ -7596,7 +7681,19 @@ HTML_TEMPLATE = '''
                 }
             }
             
+            // Конфигурация тегов с цветами
+            const TAG_CONFIG = {
+                'Самовыкуп': { class: 'samovykup', color: '#7c3aed' },
+                'ПП': { class: 'pp', color: '#2563eb' },
+                'Медиана': { class: 'mediana', color: '#ea580c' },
+                'Реклама': { class: 'reklama', color: '#dc2626' },
+                'Цена': { class: 'cena', color: '#16a34a' },
+                'Акции': { class: 'akcii', color: '#ca8a04' },
+                'Тест': { class: 'test', color: '#6b7280' }
+            };
+
             let html = '<table><thead><tr>';
+            html += '<th style="width: 120px;">Тег</th>';
             html += '<th>Заметки</th>';
             html += '<th>Дата</th>';
             html += '<th>Название</th>';
@@ -7639,9 +7736,34 @@ HTML_TEMPLATE = '''
 
                 const stockClass = item.fbo_stock < 5 ? 'stock low' : 'stock';
                 const uniqueId = `note_${data.product_sku}_${item.snapshot_date}`;
+                const tagId = `tag_${data.product_sku}_${item.snapshot_date}`;
                 const notes = item.notes || '';
-                
-                html += `<tr>`;
+
+                // Парсим теги из JSON строки
+                let tags = [];
+                try {
+                    tags = item.tags ? JSON.parse(item.tags) : [];
+                } catch(e) { tags = []; }
+
+                // Определяем класс строки по первому тегу (для окрашивания)
+                const firstTag = tags.length > 0 ? tags[0] : null;
+                const rowClass = firstTag && TAG_CONFIG[firstTag] ? 'row-' + TAG_CONFIG[firstTag].class : '';
+
+                html += `<tr class="${rowClass}" data-row-id="${tagId}">`;
+
+                // Ячейка с тегами
+                html += `<td class="tag-cell">
+                    <select class="tag-select" onchange="addTag('${tagId}', ${data.product_sku}, '${item.snapshot_date}', this.value); this.value='';">
+                        <option value="">+ Тег</option>
+                        ${Object.keys(TAG_CONFIG).map(t => `<option value="${t}">${t}</option>`).join('')}
+                    </select>
+                    <div class="tag-badges" id="${tagId}_badges">
+                        ${tags.map(t => {
+                            const cfg = TAG_CONFIG[t] || { class: 'test', color: '#6b7280' };
+                            return `<span class="tag-badge tag-${cfg.class}" onclick="removeTag('${tagId}', ${data.product_sku}, '${item.snapshot_date}', '${t}')">${t}<span class="tag-remove">×</span></span>`;
+                        }).join('')}
+                    </div>
+                </td>`;
                 html += `<td style="width: 220px; min-width: 220px; max-width: 220px; word-wrap: break-word; overflow-wrap: break-word; text-align: left;">
                     <div class="note-cell">
                         <div id="${uniqueId}_display" class="note-display" onclick="startEditNote('${uniqueId}', '${data.product_sku}', '${item.snapshot_date}')">
@@ -7732,7 +7854,7 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                html += `<td style="background-color: ${cellBgColor};">
+                html += `<td class="plan-cell" style="background-color: ${cellBgColor} !important;">
                     <input
                         type="text"
                         id="${planInputId}"
@@ -7780,7 +7902,7 @@ HTML_TEMPLATE = '''
                 // Форматируем значение с пробелами между тысячами для отображения
                 const pricePlanDisplay = pricePlanValue !== '' ? formatNumber(parseInt(pricePlanValue)) : '';
 
-                html += `<td style="background-color: ${pricePlanBgColor};">
+                html += `<td class="plan-cell" style="background-color: ${pricePlanBgColor} !important;">
                     <input
                         type="text"
                         id="${pricePlanInputId}"
@@ -7885,7 +8007,7 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                html += `<td style="background-color: ${cpoPlanBgColor};">
+                html += `<td class="plan-cell" style="background-color: ${cpoPlanBgColor} !important;">
                     <input
                         type="text"
                         id="${cpoPlanInputId}"
@@ -7930,32 +8052,34 @@ HTML_TEMPLATE = '''
             const fullHtml = `
                 <div class="table-controls">
                     <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
-                    <button class="toggle-col-btn" onclick="toggleColumn(1)">Дата</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(2)">Название</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(3)">SKU</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(4)">Рейтинг</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(5)">Отзывы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Индекс цен</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(7)">FBO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(8)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Заказы план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Цена план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Соинвест</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(15)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(17)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(18)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(19)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(21)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(22)">CPO план</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(24)">ДРР</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(25)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(26)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(0)">Тег</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(1)">Заметки</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(2)">Дата</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(3)">Название</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(4)">SKU</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(5)">Рейтинг</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(6)">Отзывы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(7)">Индекс цен</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(8)">FBO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(9)">Заказы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(10)">Заказы план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(11)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(12)">Цена план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(13)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(14)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(15)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(16)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(17)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(18)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(19)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(20)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(21)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(22)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO план</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(24)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(25)">ДРР</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(26)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(27)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -8160,6 +8284,123 @@ HTML_TEMPLATE = '''
                 alert('❌ Ошибка: ' + error);
                 console.error('Ошибка:', error);
             });
+        }
+
+        // ✅ Конфигурация тегов (глобальная для функций)
+        const TAG_CONFIG_GLOBAL = {
+            'Самовыкуп': { class: 'samovykup', color: '#7c3aed' },
+            'ПП': { class: 'pp', color: '#2563eb' },
+            'Медиана': { class: 'mediana', color: '#ea580c' },
+            'Реклама': { class: 'reklama', color: '#dc2626' },
+            'Цена': { class: 'cena', color: '#16a34a' },
+            'Акции': { class: 'akcii', color: '#ca8a04' },
+            'Тест': { class: 'test', color: '#6b7280' }
+        };
+
+        // ✅ Функция добавления тега
+        function addTag(tagId, sku, date, tagName) {
+            if (!tagName) return;
+
+            // Получаем текущие теги из бейджей
+            const badgesContainer = document.getElementById(tagId + '_badges');
+            const existingBadges = badgesContainer.querySelectorAll('.tag-badge');
+            let currentTags = [];
+            existingBadges.forEach(badge => {
+                const text = badge.textContent.replace('×', '').trim();
+                currentTags.push(text);
+            });
+
+            // Проверяем, не добавлен ли уже такой тег
+            if (currentTags.includes(tagName)) {
+                return;
+            }
+
+            // Добавляем новый тег
+            currentTags.push(tagName);
+
+            // Сохраняем на сервер
+            saveTagsToServer(sku, date, currentTags, tagId);
+
+            // Обновляем UI
+            updateTagsUI(tagId, currentTags, sku, date);
+        }
+
+        // ✅ Функция удаления тега
+        function removeTag(tagId, sku, date, tagName) {
+            // Получаем текущие теги из бейджей
+            const badgesContainer = document.getElementById(tagId + '_badges');
+            const existingBadges = badgesContainer.querySelectorAll('.tag-badge');
+            let currentTags = [];
+            existingBadges.forEach(badge => {
+                const text = badge.textContent.replace('×', '').trim();
+                if (text !== tagName) {
+                    currentTags.push(text);
+                }
+            });
+
+            // Сохраняем на сервер
+            saveTagsToServer(sku, date, currentTags, tagId);
+
+            // Обновляем UI
+            updateTagsUI(tagId, currentTags, sku, date);
+        }
+
+        // ✅ Сохранение тегов на сервер
+        function saveTagsToServer(sku, date, tags, tagId) {
+            const payload = {
+                sku: parseInt(sku),
+                date: date,
+                tags: tags
+            };
+
+            authFetch('/api/history/save-tags', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('✅ Теги сохранены:', tags);
+                } else {
+                    alert('❌ Ошибка при сохранении тегов: ' + data.error);
+                }
+            })
+            .catch(error => {
+                alert('❌ Ошибка: ' + error);
+                console.error('Ошибка:', error);
+            });
+        }
+
+        // ✅ Обновление UI тегов
+        function updateTagsUI(tagId, tags, sku, date) {
+            const badgesContainer = document.getElementById(tagId + '_badges');
+            const row = document.querySelector(`tr[data-row-id="${tagId}"]`);
+
+            // Генерируем HTML бейджей
+            let badgesHtml = '';
+            tags.forEach(t => {
+                const cfg = TAG_CONFIG_GLOBAL[t] || { class: 'test', color: '#6b7280' };
+                badgesHtml += `<span class="tag-badge tag-${cfg.class}" onclick="removeTag('${tagId}', ${sku}, '${date}', '${t}')">${t}<span class="tag-remove">×</span></span>`;
+            });
+            badgesContainer.innerHTML = badgesHtml;
+
+            // Обновляем класс строки для окрашивания
+            if (row) {
+                // Удаляем все классы row-*
+                row.className = row.className.replace(/row-\w+/g, '').trim();
+
+                // Добавляем класс по первому тегу
+                if (tags.length > 0) {
+                    const firstTag = tags[0];
+                    const cfg = TAG_CONFIG_GLOBAL[firstTag];
+                    if (cfg) {
+                        row.classList.add('row-' + cfg.class);
+                    }
+                }
+            }
         }
 
         // ✅ Функция для копирования SKU в буфер обмена
@@ -9860,7 +10101,8 @@ def get_product_history(sku):
                 in_transit,
                 in_draft,
                 snapshot_time,
-                notes
+                notes,
+                tags
             FROM products_history
             WHERE sku = ?
             ORDER BY snapshot_date DESC
@@ -9912,6 +10154,39 @@ def save_note():
         conn.close()
 
         return jsonify({'success': True, 'message': 'Заметка сохранена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/history/save-tags', methods=['POST'])
+@require_auth(['admin'])
+def save_tags():
+    """Сохранить теги для товара и даты"""
+    try:
+        data = request.json
+        sku = data.get('sku')
+        snapshot_date = data.get('date')
+        tags = data.get('tags', [])
+
+        if not sku or not snapshot_date:
+            return jsonify({'success': False, 'error': 'Отсутствуют sku или date'})
+
+        # Конвертируем список тегов в JSON строку
+        tags_json = json.dumps(tags, ensure_ascii=False) if tags else None
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE products_history
+            SET tags = ?
+            WHERE sku = ? AND snapshot_date = ?
+        ''', (tags_json, sku, snapshot_date))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Теги сохранены'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
