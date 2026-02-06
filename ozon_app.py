@@ -2938,10 +2938,12 @@ HTML_TEMPLATE = '''
 
         .header {
             background: white;
-            padding: 4px 50px;
+            padding: 12px 50px;
             border-radius: 12px;
             margin-bottom: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
             margin-left: -20px;
             margin-right: -20px;
         }
@@ -4359,7 +4361,7 @@ HTML_TEMPLATE = '''
 
     <div class="container" id="main-container" style="display: none;">
         <div class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="display: flex; gap: 8px;">
                     <button class="refresh-btn admin-only" onclick="syncData()" id="sync-btn">Обновить данные</button>
                 </div>
