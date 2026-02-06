@@ -3669,25 +3669,20 @@ HTML_TEMPLATE = '''
             padding: 0 4px;
         }
 
-        .tag-filter-select {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            background: #fff;
+        /* Активный тег-фильтр в легенде */
+        .tag-badge.active-filter {
+            box-shadow: 0 0 0 2px #333;
+            transform: scale(1.05);
+        }
+
+        .tag-badge-filter {
             cursor: pointer;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            min-width: 140px;
+            transition: all 0.2s;
         }
 
-        .tag-filter-select:hover {
-            border-color: #667eea;
-        }
-
-        .tag-filter-select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        .tag-badge-filter:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.2);
         }
 
         .date-filter-reset {
@@ -5249,15 +5244,6 @@ HTML_TEMPLATE = '''
                         <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
                         <span class="date-separator">—</span>
                         <input type="date" id="date-to" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
-                        <select id="tag-filter" class="tag-filter-select" onchange="applyDateFilter()">
-                            <option value="">Все теги</option>
-                            <option value="Самовыкуп">🟣 Самовыкуп</option>
-                            <option value="Медиана">🟠 Медиана</option>
-                            <option value="Реклама">🔴 Реклама</option>
-                            <option value="Цена">🟢 Цена</option>
-                            <option value="Акции">🟡 Акции</option>
-                            <option value="Тест">⚪ Тест</option>
-                        </select>
                         <button id="date-filter-reset-btn" class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
                     </div>
                     <div>
@@ -5865,6 +5851,7 @@ HTML_TEMPLATE = '''
 
         let allProducts = [];
         let currentHistoryData = null;  // Хранит загруженные данные истории для фильтрации
+        let activeTagFilter = null;     // Активный фильтр по тегу (клик по бейджу в легенде)
 
         document.addEventListener('DOMContentLoaded', function() {
             // Сначала проверяем авторизацию
@@ -8211,12 +8198,12 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(27)">В заявках</button>
                     <div style="margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
                         <span style="font-weight: 600; margin-right: 4px;">Теги:</span>
-                        <span class="tag-badge tag-samovykup">Самовыкуп</span>
-                        <span class="tag-badge tag-mediana">Медиана</span>
-                        <span class="tag-badge tag-reklama">Реклама</span>
-                        <span class="tag-badge tag-cena">Цена</span>
-                        <span class="tag-badge tag-akcii">Акции</span>
-                        <span class="tag-badge tag-test">Тест</span>
+                        <span class="tag-badge tag-badge-filter tag-samovykup" id="filter-tag-Самовыкуп" onclick="toggleTagFilter('Самовыкуп')">Самовыкуп</span>
+                        <span class="tag-badge tag-badge-filter tag-mediana" id="filter-tag-Медиана" onclick="toggleTagFilter('Медиана')">Медиана</span>
+                        <span class="tag-badge tag-badge-filter tag-reklama" id="filter-tag-Реклама" onclick="toggleTagFilter('Реклама')">Реклама</span>
+                        <span class="tag-badge tag-badge-filter tag-cena" id="filter-tag-Цена" onclick="toggleTagFilter('Цена')">Цена</span>
+                        <span class="tag-badge tag-badge-filter tag-akcii" id="filter-tag-Акции" onclick="toggleTagFilter('Акции')">Акции</span>
+                        <span class="tag-badge tag-badge-filter tag-test" id="filter-tag-Тест" onclick="toggleTagFilter('Тест')">Тест</span>
                     </div>
                 </div>
                 <div class="table-wrapper">
@@ -8243,12 +8230,11 @@ HTML_TEMPLATE = '''
 
             const dateFrom = document.getElementById('date-from')?.value;
             const dateTo = document.getElementById('date-to')?.value;
-            const tagFilter = document.getElementById('tag-filter')?.value;
             const resetBtn = document.getElementById('date-filter-reset-btn');
 
             // Обновляем состояние кнопки сброса
             if (resetBtn) {
-                if (dateFrom || dateTo || tagFilter) {
+                if (dateFrom || dateTo || activeTagFilter) {
                     resetBtn.classList.add('active');
                 } else {
                     resetBtn.classList.remove('active');
@@ -8263,14 +8249,14 @@ HTML_TEMPLATE = '''
                     if (dateFrom && itemDate < dateFrom) return false;
                     if (dateTo && itemDate > dateTo) return false;
 
-                    // Фильтр по тегу
-                    if (tagFilter) {
+                    // Фильтр по тегу (из глобальной переменной)
+                    if (activeTagFilter) {
                         let itemTags = [];
                         try {
                             itemTags = item.tags ? JSON.parse(item.tags) : [];
                         } catch(e) { itemTags = []; }
 
-                        if (!itemTags.includes(tagFilter)) return false;
+                        if (!itemTags.includes(activeTagFilter)) return false;
                     }
 
                     return true;
@@ -8278,6 +8264,30 @@ HTML_TEMPLATE = '''
             };
 
             renderHistory(filteredData);
+        }
+
+        /**
+         * Переключает фильтр по тегу (клик по бейджу в легенде).
+         * При повторном клике на тот же тег - сбрасывает фильтр.
+         */
+        function toggleTagFilter(tagName) {
+            // Убираем активный класс со всех бейджей
+            document.querySelectorAll('.tag-badge-filter').forEach(el => {
+                el.classList.remove('active-filter');
+            });
+
+            if (activeTagFilter === tagName) {
+                // Повторный клик - сбрасываем фильтр
+                activeTagFilter = null;
+            } else {
+                // Устанавливаем новый фильтр
+                activeTagFilter = tagName;
+                // Добавляем активный класс выбранному бейджу
+                const badge = document.getElementById('filter-tag-' + tagName);
+                if (badge) badge.classList.add('active-filter');
+            }
+
+            applyDateFilter();
         }
 
         /**
@@ -8289,13 +8299,17 @@ HTML_TEMPLATE = '''
             // Очищаем поля ввода
             const dateFromEl = document.getElementById('date-from');
             const dateToEl = document.getElementById('date-to');
-            const tagFilterEl = document.getElementById('tag-filter');
             const resetBtn = document.getElementById('date-filter-reset-btn');
 
             if (dateFromEl) dateFromEl.value = '';
             if (dateToEl) dateToEl.value = '';
-            if (tagFilterEl) tagFilterEl.value = '';
             if (resetBtn) resetBtn.classList.remove('active');
+
+            // Сбрасываем фильтр по тегу
+            activeTagFilter = null;
+            document.querySelectorAll('.tag-badge-filter').forEach(el => {
+                el.classList.remove('active-filter');
+            });
 
             // Перерисовываем с полными данными
             renderHistory(currentHistoryData);
