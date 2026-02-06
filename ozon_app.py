@@ -4833,6 +4833,93 @@ HTML_TEMPLATE = '''
             background: #f1f3f5;
             color: #333;
         }
+
+        /* МОДАЛЬНОЕ ОКНО ПОСТАВОК ПО SKU */
+        .supplies-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+        .supplies-modal-box {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            max-width: 900px;
+            width: 95%;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .supplies-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid #e9ecef;
+            background: #f8f9fa;
+        }
+        .supplies-modal-header h3 { margin: 0; font-size: 18px; color: #333; }
+        .supplies-modal-header .avg-cost { font-size: 14px; color: #667eea; font-weight: 600; margin-left: 16px; }
+        .supplies-modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+            padding: 4px 8px;
+            line-height: 1;
+        }
+        .supplies-modal-close:hover { color: #333; }
+        .supplies-modal-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
+        .supplies-modal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .supplies-modal-table thead th {
+            background: #f1f3f5;
+            padding: 10px 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 12px;
+            color: #555;
+            border: 1px solid #dee2e6;
+            white-space: nowrap;
+        }
+        .supplies-modal-table tbody td { padding: 8px; border: 1px solid #dee2e6; text-align: center; }
+        .supplies-modal-table tbody tr:hover { background: #f8f9fa; }
+        .supplies-modal-table tfoot td {
+            padding: 10px 8px;
+            background: #e9ecef;
+            font-weight: 700;
+            border: 1px solid #dee2e6;
+            text-align: center;
+        }
+        .supplies-modal-footer { padding: 12px 24px; border-top: 1px solid #e9ecef; text-align: center; background: #f8f9fa; }
+        .supplies-load-more-btn {
+            padding: 10px 24px;
+            background: #667eea;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .supplies-load-more-btn:hover { background: #5a6fd6; }
+        .supplies-load-more-btn:disabled { background: #ccc; cursor: not-allowed; }
+        .supplies-btn-small {
+            padding: 4px 8px;
+            background: #f0f4ff;
+            border: 1px solid #667eea;
+            border-radius: 4px;
+            color: #667eea;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .supplies-btn-small:hover { background: #667eea; color: #fff; }
+        .supplies-empty { text-align: center; padding: 40px; color: #999; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -5514,6 +5601,209 @@ HTML_TEMPLATE = '''
 
         let allProducts = [];
         let currentHistoryData = null;  // Хранит загруженные данные истории для фильтрации
+
+        // ============================================================
+        // МОДАЛЬНОЕ ОКНО ПОСТАВОК ПО SKU
+        // ============================================================
+        let suppliesModalData = {
+            sku: null,
+            productName: '',
+            supplies: [],
+            offset: 0,
+            hasMore: true,
+            avgCost: 0,
+            totalCount: 0
+        };
+
+        /**
+         * Открыть модальное окно с поставками для товара
+         */
+        async function openSuppliesModal(sku, productName) {
+            // Сбрасываем данные
+            suppliesModalData = {
+                sku: sku,
+                productName: productName || 'SKU ' + sku,
+                supplies: [],
+                offset: 0,
+                hasMore: true,
+                avgCost: 0,
+                totalCount: 0
+            };
+
+            // Создаём модальное окно если его ещё нет
+            let modal = document.getElementById('supplies-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'supplies-modal';
+                modal.className = 'supplies-modal-overlay';
+                modal.innerHTML = `
+                    <div class="supplies-modal-box">
+                        <div class="supplies-modal-header">
+                            <div>
+                                <h3 id="supplies-modal-title">Поставки товара</h3>
+                                <span class="avg-cost" id="supplies-modal-avg"></span>
+                            </div>
+                            <button class="supplies-modal-close" onclick="closeSuppliesModal()">&times;</button>
+                        </div>
+                        <div class="supplies-modal-body" id="supplies-modal-body">
+                            <div class="supplies-empty">Загрузка...</div>
+                        </div>
+                        <div class="supplies-modal-footer" id="supplies-modal-footer" style="display:none;">
+                            <button class="supplies-load-more-btn" onclick="loadMoreSupplies()">Загрузить ещё 10</button>
+                        </div>
+                    </div>
+                `;
+                // Закрытие по клику на оверлей
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) closeSuppliesModal();
+                });
+                document.body.appendChild(modal);
+            }
+
+            // Показываем модалку
+            modal.style.display = 'flex';
+            document.getElementById('supplies-modal-title').textContent = 'Поставки: ' + suppliesModalData.productName;
+            document.getElementById('supplies-modal-avg').textContent = '';
+            document.getElementById('supplies-modal-body').innerHTML = '<div class="supplies-empty">Загрузка...</div>';
+            document.getElementById('supplies-modal-footer').style.display = 'none';
+
+            // Загружаем первые 10 поставок
+            await loadMoreSupplies();
+        }
+
+        /**
+         * Закрыть модальное окно поставок
+         */
+        function closeSuppliesModal() {
+            const modal = document.getElementById('supplies-modal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        /**
+         * Загрузить ещё 10 поставок
+         */
+        async function loadMoreSupplies() {
+            if (!suppliesModalData.sku) return;
+
+            try {
+                const url = `/api/supplies/by-sku/${suppliesModalData.sku}?limit=10&offset=${suppliesModalData.offset}`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (!data.success) {
+                    document.getElementById('supplies-modal-body').innerHTML =
+                        '<div class="supplies-empty">Ошибка загрузки: ' + (data.error || 'неизвестная') + '</div>';
+                    return;
+                }
+
+                // Добавляем новые поставки к существующим
+                suppliesModalData.supplies = suppliesModalData.supplies.concat(data.supplies);
+                suppliesModalData.offset = data.offset + data.supplies.length;
+                suppliesModalData.hasMore = data.has_more;
+                suppliesModalData.avgCost = data.avg_cost;
+                suppliesModalData.totalCount = data.total_count;
+
+                // Отрисовываем
+                renderSuppliesModal();
+            } catch (err) {
+                document.getElementById('supplies-modal-body').innerHTML =
+                    '<div class="supplies-empty">Ошибка: ' + err.message + '</div>';
+            }
+        }
+
+        /**
+         * Отрисовать содержимое модального окна поставок
+         */
+        function renderSuppliesModal() {
+            const body = document.getElementById('supplies-modal-body');
+            const footer = document.getElementById('supplies-modal-footer');
+            const avgEl = document.getElementById('supplies-modal-avg');
+
+            // Средняя себестоимость
+            if (suppliesModalData.avgCost > 0) {
+                avgEl.textContent = 'Средняя себестоимость: ' + formatNumberModal(Math.round(suppliesModalData.avgCost)) + ' ₽';
+            }
+
+            if (suppliesModalData.supplies.length === 0) {
+                body.innerHTML = '<div class="supplies-empty">Нет поставок для этого товара</div>';
+                footer.style.display = 'none';
+                return;
+            }
+
+            // Формируем таблицу
+            let html = '<table class="supplies-modal-table">';
+            html += '<thead><tr>';
+            html += '<th>Дата плана</th>';
+            html += '<th>Дата выхода</th>';
+            html += '<th>Дата прихода</th>';
+            html += '<th>План</th>';
+            html += '<th>Выход</th>';
+            html += '<th>Приход</th>';
+            html += '<th>Себест. ₽</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+
+            let totalPlan = 0, totalExit = 0, totalArrival = 0;
+
+            suppliesModalData.supplies.forEach(s => {
+                const planDate = formatDateModal(s.exit_plan_date);
+                const exitDate = formatDateModal(s.exit_factory_date);
+                const arrivalDate = formatDateModal(s.arrival_warehouse_date);
+                const planQty = s.order_qty_plan || 0;
+                const exitQty = s.exit_factory_qty || 0;
+                const arrivalQty = s.arrival_warehouse_qty || 0;
+                const cost = s.cost_plus_6 ? formatNumberModal(Math.round(s.cost_plus_6)) : '—';
+
+                totalPlan += planQty;
+                totalExit += exitQty;
+                totalArrival += arrivalQty;
+
+                html += '<tr>';
+                html += '<td>' + (planDate || '—') + '</td>';
+                html += '<td>' + (exitDate || '—') + '</td>';
+                html += '<td>' + (arrivalDate || '—') + '</td>';
+                html += '<td>' + (planQty || '—') + '</td>';
+                html += '<td>' + (exitQty || '—') + '</td>';
+                html += '<td>' + (arrivalQty || '—') + '</td>';
+                html += '<td>' + cost + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody>';
+            html += '<tfoot><tr>';
+            html += '<td colspan="3"><strong>ИТОГО (' + suppliesModalData.totalCount + ' поставок)</strong></td>';
+            html += '<td><strong>' + totalPlan + '</strong></td>';
+            html += '<td><strong>' + totalExit + '</strong></td>';
+            html += '<td><strong>' + totalArrival + '</strong></td>';
+            html += '<td></td>';
+            html += '</tr></tfoot>';
+            html += '</table>';
+
+            body.innerHTML = html;
+
+            // Показываем/скрываем кнопку "Загрузить ещё"
+            footer.style.display = suppliesModalData.hasMore ? 'block' : 'none';
+        }
+
+        /**
+         * Форматирование даты для модального окна (ДД.ММ.ГГ)
+         */
+        function formatDateModal(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return parts[2] + '.' + parts[1] + '.' + parts[0].slice(-2);
+            }
+            return dateStr;
+        }
+
+        /**
+         * Форматирование числа с пробелами для модального окна
+         */
+        function formatNumberModal(num) {
+            if (num === null || num === undefined) return '0';
+            return String(num).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');
+        }
 
         document.addEventListener('DOMContentLoaded', function() {
             // Сначала проверяем авторизацию
@@ -7008,6 +7298,7 @@ HTML_TEMPLATE = '''
             html += '<th>CPO</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
+            html += '<th>Поставки</th>';
             html += '</tr></thead><tbody>';
 
             data.history.forEach((item, index) => {
@@ -7293,7 +7584,8 @@ HTML_TEMPLATE = '''
                 // В ЗАЯВКАХ - товары из черновиков/новых заявок
                 html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
 
-
+                // КНОПКА ПОСТАВОК - открывает модальное окно с историей поставок
+                html += `<td><button class="supplies-btn-small" onclick="openSuppliesModal(${item.sku}, '${(item.name || '').replace(/'/g, "\\'")}')">📦</button></td>`;
 
                 html += `</tr>`;
             });
@@ -7329,6 +7621,7 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(24)">В пути</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(25)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(26)">Поставки</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -10713,7 +11006,7 @@ def get_destinations():
     Получить список всех назначений отгрузок.
     """
     try:
-        conn = get_db()
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT id, name, is_default FROM shipment_destinations ORDER BY is_default DESC, name')
         rows = cursor.fetchall()
@@ -10736,7 +11029,7 @@ def add_destination():
         if not name:
             return jsonify({'success': False, 'error': 'Название не может быть пустым'})
 
-        conn = get_db()
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Проверяем, существует ли уже такое назначение
@@ -10766,7 +11059,7 @@ def delete_destination():
         if not dest_id:
             return jsonify({'success': False, 'error': 'ID не указан'})
 
-        conn = get_db()
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Не удаляем дефолтные назначения
