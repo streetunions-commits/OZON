@@ -3671,6 +3671,27 @@ HTML_TEMPLATE = '''
             padding: 0 4px;
         }
 
+        .tag-filter-select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            min-width: 140px;
+        }
+
+        .tag-filter-select:hover {
+            border-color: #667eea;
+        }
+
+        .tag-filter-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
         .date-filter-reset {
             padding: 8px 16px;
             margin-left: 4px;
@@ -5230,6 +5251,16 @@ HTML_TEMPLATE = '''
                         <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
                         <span class="date-separator">—</span>
                         <input type="date" id="date-to" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
+                        <select id="tag-filter" class="tag-filter-select" onchange="applyDateFilter()">
+                            <option value="">Все теги</option>
+                            <option value="Самовыкуп">🟣 Самовыкуп</option>
+                            <option value="ПП">🔵 ПП</option>
+                            <option value="Медиана">🟠 Медиана</option>
+                            <option value="Реклама">🔴 Реклама</option>
+                            <option value="Цена">🟢 Цена</option>
+                            <option value="Акции">🟡 Акции</option>
+                            <option value="Тест">⚪ Тест</option>
+                        </select>
                         <button id="date-filter-reset-btn" class="date-filter-reset" onclick="resetDateFilter()">Сбросить</button>
                     </div>
                     <div>
@@ -7866,8 +7897,17 @@ HTML_TEMPLATE = '''
                     />
                 </td>`;
 
-                // Цена в ЛК (с стрелкой, инвертированная логика: меньше = лучше)
-                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong></td>`;
+                // Цена в ЛК (с стрелкой и разницей, инвертированная логика: меньше = лучше)
+                const curPrice = item.price || 0;
+                const prevPrice = prevItem?.price || 0;
+                const priceDiff = (prevItem && prevItem.price !== null && prevItem.price !== undefined && item.price !== null && item.price !== undefined && item.price > 0) ? curPrice - prevPrice : null;
+                let priceDiffHtml = '';
+                if (priceDiff !== null && priceDiff !== 0) {
+                    const diffColor = priceDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = priceDiff > 0 ? '+' : '';
+                    priceDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(priceDiff)} ₽</span>`;
+                }
+                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}${(item.price !== null && item.price !== undefined && item.price > 0) ? getTrendArrow(item.price, prevItem?.price, true) : ''}</strong>${priceDiffHtml}</td>`;
 
                 // Цена план (редактируемое поле, аналогично Заказы план)
                 let pricePlanValue = '';
@@ -7932,14 +7972,39 @@ HTML_TEMPLATE = '''
                     prevCoinvestValue = ((prevItem.price - prevItem.marketing_price) / prevItem.price) * 100;
                 }
 
-                // Добавляем ячейку со стрелкой
-                html += `<td><strong>${coinvest}${coinvestValue !== null && prevCoinvestValue !== null ? getTrendArrow(coinvestValue, prevCoinvestValue) : ''}</strong></td>`;
+                // Добавляем ячейку со стрелкой и разницей
+                const coinvestDiff = (coinvestValue !== null && prevCoinvestValue !== null) ? coinvestValue - prevCoinvestValue : null;
+                let coinvestDiffHtml = '';
+                if (coinvestDiff !== null && coinvestDiff !== 0) {
+                    const diffColor = coinvestDiff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = coinvestDiff > 0 ? '+' : '';
+                    coinvestDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${coinvestDiff.toFixed(1)}%</span>`;
+                }
+                html += `<td><strong>${coinvest}${coinvestValue !== null && prevCoinvestValue !== null ? getTrendArrow(coinvestValue, prevCoinvestValue) : ''}</strong>${coinvestDiffHtml}</td>`;
 
-                // Цена на сайте (с стрелкой, инвертированная логика: меньше = лучше)
-                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong></td>`;
+                // Цена на сайте (с стрелкой и разницей, инвертированная логика: меньше = лучше)
+                const curMarketingPrice = item.marketing_price || 0;
+                const prevMarketingPrice = prevItem?.marketing_price || 0;
+                const marketingPriceDiff = (prevItem && prevItem.marketing_price !== null && prevItem.marketing_price !== undefined && item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? curMarketingPrice - prevMarketingPrice : null;
+                let marketingPriceDiffHtml = '';
+                if (marketingPriceDiff !== null && marketingPriceDiff !== 0) {
+                    const diffColor = marketingPriceDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = marketingPriceDiff > 0 ? '+' : '';
+                    marketingPriceDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(marketingPriceDiff)} ₽</span>`;
+                }
+                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? getTrendArrow(item.marketing_price, prevItem?.marketing_price, true) : ''}</strong>${marketingPriceDiffHtml}</td>`;
 
-                // Ср. позиция (с стрелкой, инвертированная логика: меньше = лучше)
-                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span></td>`;
+                // Ср. позиция (с стрелкой и разницей, инвертированная логика: меньше = лучше)
+                const curPosition = item.avg_position || 0;
+                const prevPosition = prevItem?.avg_position || 0;
+                const positionDiff = (prevItem && prevItem.avg_position !== null && prevItem.avg_position !== undefined && item.avg_position !== null && item.avg_position !== undefined) ? curPosition - prevPosition : null;
+                let positionDiffHtml = '';
+                if (positionDiff !== null && positionDiff !== 0) {
+                    const diffColor = positionDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = positionDiff > 0 ? '+' : '';
+                    positionDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${positionDiff.toFixed(1)}</span>`;
+                }
+                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}${(item.avg_position !== null && item.avg_position !== undefined) ? getTrendArrow(item.avg_position, prevItem?.avg_position, true) : ''}</span>${positionDiffHtml}</td>`;
 
                 // Показы (поиск+кат.) - с стрелкой и разницей от прошлого дня
                 const curViews = item.hits_view_search || 0;
@@ -7953,23 +8018,77 @@ HTML_TEMPLATE = '''
                 }
                 html += `<td><strong>${formatNumber(curViews)}${getTrendArrow(item.hits_view_search, prevItem?.hits_view_search)}</strong>${viewsDiffHtml}</td>`;
 
-                // Посещения - с стрелкой
-                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}${getTrendArrow(item.hits_view_search_pdp, prevItem?.hits_view_search_pdp)}</strong></td>`;
+                // Посещения - с стрелкой и разницей
+                const curPdp = item.hits_view_search_pdp || 0;
+                const prevPdp = prevItem?.hits_view_search_pdp || 0;
+                const pdpDiff = (prevItem && prevItem.hits_view_search_pdp !== null && prevItem.hits_view_search_pdp !== undefined) ? curPdp - prevPdp : null;
+                let pdpDiffHtml = '';
+                if (pdpDiff !== null && pdpDiff !== 0) {
+                    const diffColor = pdpDiff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = pdpDiff > 0 ? '+' : '';
+                    pdpDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(pdpDiff)}</span>`;
+                }
+                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}${getTrendArrow(item.hits_view_search_pdp, prevItem?.hits_view_search_pdp)}</strong>${pdpDiffHtml}</td>`;
 
-                // CTR (%) - с стрелкой
-                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}${(item.search_ctr !== null && item.search_ctr !== undefined) ? getTrendArrow(item.search_ctr, prevItem?.search_ctr) : ''}</strong></td>`;
+                // CTR (%) - с стрелкой и разницей
+                const curCtr = item.search_ctr || 0;
+                const prevCtr = prevItem?.search_ctr || 0;
+                const ctrDiff = (prevItem && prevItem.search_ctr !== null && prevItem.search_ctr !== undefined && item.search_ctr !== null && item.search_ctr !== undefined) ? curCtr - prevCtr : null;
+                let ctrDiffHtml = '';
+                if (ctrDiff !== null && ctrDiff !== 0) {
+                    const diffColor = ctrDiff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = ctrDiff > 0 ? '+' : '';
+                    ctrDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${ctrDiff.toFixed(2)}%</span>`;
+                }
+                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}${(item.search_ctr !== null && item.search_ctr !== undefined) ? getTrendArrow(item.search_ctr, prevItem?.search_ctr) : ''}</strong>${ctrDiffHtml}</td>`;
 
-                // Корзина - с стрелкой
-                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}${getTrendArrow(item.hits_add_to_cart, prevItem?.hits_add_to_cart)}</strong></td>`;
+                // Корзина - с стрелкой и разницей
+                const curCart = item.hits_add_to_cart || 0;
+                const prevCart = prevItem?.hits_add_to_cart || 0;
+                const cartDiff = (prevItem && prevItem.hits_add_to_cart !== null && prevItem.hits_add_to_cart !== undefined) ? curCart - prevCart : null;
+                let cartDiffHtml = '';
+                if (cartDiff !== null && cartDiff !== 0) {
+                    const diffColor = cartDiff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = cartDiff > 0 ? '+' : '';
+                    cartDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(cartDiff)}</span>`;
+                }
+                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}${getTrendArrow(item.hits_add_to_cart, prevItem?.hits_add_to_cart)}</strong>${cartDiffHtml}</td>`;
 
-                // CR1 (%) - с стрелкой
-                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}${(item.cr1 !== null && item.cr1 !== undefined) ? getTrendArrow(item.cr1, prevItem?.cr1) : ''}</strong></td>`;
+                // CR1 (%) - с стрелкой и разницей
+                const curCr1 = item.cr1 || 0;
+                const prevCr1 = prevItem?.cr1 || 0;
+                const cr1Diff = (prevItem && prevItem.cr1 !== null && prevItem.cr1 !== undefined && item.cr1 !== null && item.cr1 !== undefined) ? curCr1 - prevCr1 : null;
+                let cr1DiffHtml = '';
+                if (cr1Diff !== null && cr1Diff !== 0) {
+                    const diffColor = cr1Diff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = cr1Diff > 0 ? '+' : '';
+                    cr1DiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${cr1Diff.toFixed(2)}%</span>`;
+                }
+                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}${(item.cr1 !== null && item.cr1 !== undefined) ? getTrendArrow(item.cr1, prevItem?.cr1) : ''}</strong>${cr1DiffHtml}</td>`;
 
-                // CR2 (%) - с стрелкой
-                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}${(item.cr2 !== null && item.cr2 !== undefined) ? getTrendArrow(item.cr2, prevItem?.cr2) : ''}</strong></td>`;
+                // CR2 (%) - с стрелкой и разницей
+                const curCr2 = item.cr2 || 0;
+                const prevCr2 = prevItem?.cr2 || 0;
+                const cr2Diff = (prevItem && prevItem.cr2 !== null && prevItem.cr2 !== undefined && item.cr2 !== null && item.cr2 !== undefined) ? curCr2 - prevCr2 : null;
+                let cr2DiffHtml = '';
+                if (cr2Diff !== null && cr2Diff !== 0) {
+                    const diffColor = cr2Diff > 0 ? '#22c55e' : '#ef4444'; // Больше = лучше
+                    const diffSign = cr2Diff > 0 ? '+' : '';
+                    cr2DiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${cr2Diff.toFixed(2)}%</span>`;
+                }
+                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}${(item.cr2 !== null && item.cr2 !== undefined) ? getTrendArrow(item.cr2, prevItem?.cr2) : ''}</strong>${cr2DiffHtml}</td>`;
 
-                // Расходы - с стрелкой
-                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong></td>`;
+                // Расходы - с стрелкой и разницей (меньше = лучше)
+                const curSpend = item.adv_spend || 0;
+                const prevSpend = prevItem?.adv_spend || 0;
+                const spendDiff = (prevItem && prevItem.adv_spend !== null && prevItem.adv_spend !== undefined && item.adv_spend !== null && item.adv_spend !== undefined) ? curSpend - prevSpend : null;
+                let spendDiffHtml = '';
+                if (spendDiff !== null && spendDiff !== 0) {
+                    const diffColor = spendDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = spendDiff > 0 ? '+' : '';
+                    spendDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${formatNumber(Math.round(spendDiff))} ₽</span>`;
+                }
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}${(item.adv_spend !== null && item.adv_spend !== undefined) ? getTrendArrow(item.adv_spend, prevItem?.adv_spend) : ''}</strong>${spendDiffHtml}</td>`;
 
                 // CPO план (редактируемое поле, аналогично Заказы план)
                 // Если у текущей даты нет плана — ищем последнее установленное значение
@@ -8019,11 +8138,18 @@ HTML_TEMPLATE = '''
                     />
                 </td>`;
 
-                // CPO (Cost Per Order) - с стрелкой (меньше = лучше)
+                // CPO (Cost Per Order) - с стрелкой и разницей (меньше = лучше)
                 const prevCpo = (prevItem?.adv_spend !== null && prevItem?.adv_spend !== undefined && prevItem?.orders_qty > 0)
                     ? Math.round(prevItem.adv_spend / prevItem.orders_qty)
                     : null;
-                html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong></td>`;
+                const cpoDiff = (cpo !== null && prevCpo !== null) ? cpo - prevCpo : null;
+                let cpoDiffHtml = '';
+                if (cpoDiff !== null && cpoDiff !== 0) {
+                    const diffColor = cpoDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = cpoDiff > 0 ? '+' : '';
+                    cpoDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${cpoDiff} ₽</span>`;
+                }
+                html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong>${cpoDiffHtml}</td>`;
 
                 // ДРР (Доля Рекламных Расходов) = (Расходы / (Заказы × Цена)) × 100%
                 // Используем marketing_price (цена на сайте) для расчёта выручки
@@ -8035,7 +8161,14 @@ HTML_TEMPLATE = '''
                 const prevDrr = (prevItem?.adv_spend !== null && prevItem?.adv_spend !== undefined && prevRevenue > 0)
                     ? ((prevItem.adv_spend / prevRevenue) * 100)
                     : null;
-                html += `<td><strong>${drr !== null ? drr.toFixed(1) + '%' : '—'}${drr !== null ? getTrendArrow(drr, prevDrr, true) : ''}</strong></td>`;
+                const drrDiff = (drr !== null && prevDrr !== null) ? drr - prevDrr : null;
+                let drrDiffHtml = '';
+                if (drrDiff !== null && drrDiff !== 0) {
+                    const diffColor = drrDiff < 0 ? '#22c55e' : '#ef4444'; // Меньше = лучше
+                    const diffSign = drrDiff > 0 ? '+' : '';
+                    drrDiffHtml = `<br><span style="font-size: 11px; color: ${diffColor}; font-weight: 400;">${diffSign}${drrDiff.toFixed(1)}%</span>`;
+                }
+                html += `<td><strong>${drr !== null ? drr.toFixed(1) + '%' : '—'}${drr !== null ? getTrendArrow(drr, prevDrr, true) : ''}</strong>${drrDiffHtml}</td>`;
 
                 // В ПУТИ - товары из заявок со статусом "в пути"
                 html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}</span></td>`;
@@ -8097,19 +8230,20 @@ HTML_TEMPLATE = '''
         // ============================================================================
 
         /**
-         * Применяет фильтр по дате к данным истории.
-         * Фильтрует записи по диапазону дат и перерисовывает таблицу.
+         * Применяет фильтры (дата + тег) к данным истории.
+         * Фильтрует записи по диапазону дат и тегу, перерисовывает таблицу.
          */
         function applyDateFilter() {
             if (!currentHistoryData) return;
 
             const dateFrom = document.getElementById('date-from')?.value;
             const dateTo = document.getElementById('date-to')?.value;
+            const tagFilter = document.getElementById('tag-filter')?.value;
             const resetBtn = document.getElementById('date-filter-reset-btn');
 
             // Обновляем состояние кнопки сброса
             if (resetBtn) {
-                if (dateFrom || dateTo) {
+                if (dateFrom || dateTo || tagFilter) {
                     resetBtn.classList.add('active');
                 } else {
                     resetBtn.classList.remove('active');
@@ -8123,6 +8257,17 @@ HTML_TEMPLATE = '''
                     const itemDate = item.snapshot_date;
                     if (dateFrom && itemDate < dateFrom) return false;
                     if (dateTo && itemDate > dateTo) return false;
+
+                    // Фильтр по тегу
+                    if (tagFilter) {
+                        let itemTags = [];
+                        try {
+                            itemTags = item.tags ? JSON.parse(item.tags) : [];
+                        } catch(e) { itemTags = []; }
+
+                        if (!itemTags.includes(tagFilter)) return false;
+                    }
+
                     return true;
                 })
             };
@@ -8131,7 +8276,7 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Сбрасывает фильтры по дате и показывает все записи.
+         * Сбрасывает все фильтры и показывает все записи.
          */
         function resetDateFilter() {
             if (!currentHistoryData) return;
@@ -8139,10 +8284,12 @@ HTML_TEMPLATE = '''
             // Очищаем поля ввода
             const dateFromEl = document.getElementById('date-from');
             const dateToEl = document.getElementById('date-to');
+            const tagFilterEl = document.getElementById('tag-filter');
             const resetBtn = document.getElementById('date-filter-reset-btn');
 
             if (dateFromEl) dateFromEl.value = '';
             if (dateToEl) dateToEl.value = '';
+            if (tagFilterEl) tagFilterEl.value = '';
             if (resetBtn) resetBtn.classList.remove('active');
 
             // Перерисовываем с полными данными
