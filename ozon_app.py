@@ -5310,9 +5310,17 @@ HTML_TEMPLATE = '''
 
                 <!-- Под-вкладка: Сводная -->
                 <div id="summary" class="sub-tab-content">
-                    <div class="empty-state" style="padding: 60px 30px;">
-                        <p style="font-size: 18px; color: #666;">Сводная таблица</p>
-                        <p style="font-size: 14px; color: #999; margin-top: 10px;">Раздел в разработке</p>
+                    <div class="table-header">
+                        <div class="date-filters-inline">
+                            <label style="font-weight: 500; margin-right: 10px;">Дата:</label>
+                            <input type="date" id="summary-date" class="date-filter-input" onclick="this.showPicker()" onchange="loadSummary()">
+                        </div>
+                        <div style="font-size: 14px; color: #666;">
+                            Всего товаров: <strong id="summary-count">0</strong>
+                        </div>
+                    </div>
+                    <div id="summary-content">
+                        <div class="loading">Загрузка данных...</div>
                     </div>
                 </div>
             </div>
@@ -6075,6 +6083,322 @@ HTML_TEMPLATE = '''
             // Показываем нужную под-вкладку
             document.getElementById(subTab).classList.add('active');
             e.target.classList.add('active');
+
+            // Если открыли сводную - загружаем данные
+            if (subTab === 'summary') {
+                loadSummary();
+            }
+        }
+
+        // ============================================================
+        // СВОДНАЯ ТАБЛИЦА — ВСЕ ТОВАРЫ ЗА ВЫБРАННУЮ ДАТУ
+        // ============================================================
+
+        let summaryDataLoaded = false;
+
+        /**
+         * Загрузить сводные данные по всем товарам за выбранную дату.
+         * Если дата не выбрана - используется текущий день.
+         */
+        function loadSummary() {
+            const dateInput = document.getElementById('summary-date');
+            const summaryContent = document.getElementById('summary-content');
+
+            // Если дата не установлена - устанавливаем сегодня
+            if (!dateInput.value) {
+                const today = new Date();
+                const yyyy = today.getFullYear();
+                const mm = String(today.getMonth() + 1).padStart(2, '0');
+                const dd = String(today.getDate()).padStart(2, '0');
+                dateInput.value = `${yyyy}-${mm}-${dd}`;
+            }
+
+            summaryContent.innerHTML = '<div class="loading">Загрузка данных...</div>';
+
+            const selectedDate = dateInput.value;
+
+            authFetch(`/api/summary/${selectedDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('summary-count').textContent = data.count || 0;
+                        renderSummary(data);
+                        summaryDataLoaded = true;
+                    } else {
+                        summaryContent.innerHTML = '<div class="error">' + (data.error || 'Ошибка загрузки') + '</div>';
+                    }
+                })
+                .catch(error => {
+                    summaryContent.innerHTML = '<div class="error">❌ Ошибка при загрузке: ' + error + '</div>';
+                });
+        }
+
+        /**
+         * Отрисовка сводной таблицы с данными по всем товарам.
+         * Аналогична renderHistory, но без столбцов Тег и Заметки,
+         * и показывает все товары, а не историю одного.
+         */
+        function renderSummary(data) {
+            const summaryContent = document.getElementById('summary-content');
+
+            if (!data.products || data.products.length === 0) {
+                summaryContent.innerHTML = '<div class="empty-state">Нет данных за выбранную дату</div>';
+                return;
+            }
+
+            // ✅ Функция для форматирования чисел с пробелами
+            function formatNumber(num) {
+                if (num === null || num === undefined || num === 0) return '0';
+                return String(Math.round(num)).replace(/\\B(?=(\d{3})+(?!\\d))/g, ' ');
+            }
+
+            let html = '<table><thead><tr>';
+            html += '<th>Артикул</th>';
+            html += '<th>Название</th>';
+            html += '<th>SKU</th>';
+            html += '<th>Рейтинг</th>';
+            html += '<th>Отзывы</th>';
+            html += '<th>Индекс цен</th>';
+            html += '<th>FBO остаток</th>';
+            html += '<th>Заказы</th>';
+            html += '<th>Цена в ЛК</th>';
+            html += '<th>Соинвест</th>';
+            html += '<th>Цена на сайте</th>';
+            html += '<th>Ср. позиция</th>';
+            html += '<th>Показы</th>';
+            html += '<th>Посещения</th>';
+            html += '<th>CTR (%)</th>';
+            html += '<th>Корзина</th>';
+            html += '<th>CR1 (%)</th>';
+            html += '<th>CR2 (%)</th>';
+            html += '<th>Расходы</th>';
+            html += '<th>CPO</th>';
+            html += '<th>ДРР (%)</th>';
+            html += '<th>В пути</th>';
+            html += '<th>В заявках</th>';
+            html += '</tr></thead><tbody>';
+
+            data.products.forEach((item) => {
+                const stockClass = item.fbo_stock < 5 ? 'stock low' : 'stock';
+
+                html += '<tr>';
+
+                // Артикул (offer_id)
+                html += `<td><strong>${item.offer_id || '—'}</strong></td>`;
+
+                // Название
+                html += `<td><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.name || '—'}</span></td>`;
+
+                // SKU
+                html += `<td><span class="sku" onclick="copySKU(this, '${item.sku}')" style="cursor: pointer;" title="Нажмите чтобы скопировать">${item.sku}</span></td>`;
+
+                // Рейтинг
+                const rating = item.rating !== null && item.rating !== undefined ? item.rating.toFixed(1) : '—';
+                html += `<td><strong>${rating}</strong></td>`;
+
+                // Отзывы
+                const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
+                html += `<td><strong>${reviewCount}</strong></td>`;
+
+                // Индекс цены
+                const priceIndexMap = {
+                    'SUPER': { text: 'Супер', color: '#22c55e' },
+                    'GREEN': { text: 'Выгодная', color: '#22c55e' },
+                    'GOOD': { text: 'Хорошая', color: '#84cc16' },
+                    'YELLOW': { text: 'Умеренная', color: '#f59e0b' },
+                    'AVG': { text: 'Средняя', color: '#f59e0b' },
+                    'RED': { text: 'Невыгодная', color: '#ef4444' },
+                    'BAD': { text: 'Плохая', color: '#ef4444' },
+                    'WITHOUT_INDEX': { text: 'Без индекса', color: '#6b7280' }
+                };
+                const priceIndexValue = item.price_index || null;
+                const priceIndexDisplay = priceIndexValue && priceIndexMap[priceIndexValue]
+                    ? `<span style="color: ${priceIndexMap[priceIndexValue].color}; font-weight: 500;">${priceIndexMap[priceIndexValue].text}</span>`
+                    : '—';
+                html += `<td>${priceIndexDisplay}</td>`;
+
+                // FBO остаток
+                html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
+
+                // Заказы
+                html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}</span></td>`;
+
+                // Цена в ЛК
+                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}</strong></td>`;
+
+                // Соинвест
+                let coinvest = '—';
+                if (item.price !== null && item.price !== undefined && item.price > 0 &&
+                    item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
+                    const coinvestValue = ((item.price - item.marketing_price) / item.price) * 100;
+                    coinvest = coinvestValue.toFixed(1) + '%';
+                }
+                html += `<td><strong>${coinvest}</strong></td>`;
+
+                // Цена на сайте
+                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}</strong></td>`;
+
+                // Ср. позиция
+                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}</span></td>`;
+
+                // Показы
+                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}</strong></td>`;
+
+                // Посещения
+                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}</strong></td>`;
+
+                // CTR
+                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}</strong></td>`;
+
+                // Корзина
+                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
+
+                // CR1
+                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}</strong></td>`;
+
+                // CR2
+                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}</strong></td>`;
+
+                // Расходы на рекламу
+                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined && item.adv_spend > 0) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}</strong></td>`;
+
+                // CPO (Cost Per Order)
+                const cpo = (item.adv_spend !== null && item.adv_spend !== undefined && item.orders_qty > 0)
+                    ? Math.round(item.adv_spend / item.orders_qty)
+                    : null;
+                html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}</strong></td>`;
+
+                // ДРР (%)
+                let drr = '—';
+                if (item.adv_spend !== null && item.adv_spend !== undefined && item.adv_spend > 0 &&
+                    item.orders_qty > 0 && item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
+                    const revenue = item.orders_qty * item.marketing_price;
+                    const drrValue = (item.adv_spend / revenue) * 100;
+                    drr = drrValue.toFixed(1) + '%';
+                }
+                html += `<td><strong>${drr}</strong></td>`;
+
+                // В пути
+                html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}</span></td>`;
+
+                // В заявках
+                html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
+
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            // Обворачиваем таблицу в контейнер для скролла с кнопками видимости столбцов
+            const fullHtml = `
+                <div class="table-controls">
+                    <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(0)">Артикул</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(1)">Название</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(2)">SKU</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(3)">Рейтинг</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(4)">Отзывы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(5)">Индекс цен</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(6)">FBO</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(7)">Заказы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(8)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(9)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(10)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(11)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(12)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(13)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(14)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(15)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(16)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(17)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(18)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(19)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(20)">ДРР</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(21)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(22)">В заявках</button>
+                </div>
+                <div class="table-wrapper">
+                    ${html}
+                </div>
+            `;
+
+            summaryContent.innerHTML = fullHtml;
+
+            // Инициализируем изменение ширины столбцов
+            initSummaryColumnResize();
+        }
+
+        /**
+         * Скрыть/показать столбец в сводной таблице
+         */
+        function toggleSummaryColumn(colIndex) {
+            const table = document.querySelector('#summary-content table');
+            if (!table) return;
+
+            const rows = table.querySelectorAll('tr');
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('th, td');
+                if (cells[colIndex]) {
+                    cells[colIndex].classList.toggle('col-hidden');
+                }
+            });
+
+            // Обновляем кнопку
+            const buttons = document.querySelectorAll('#summary-content .toggle-col-btn');
+            if (buttons[colIndex]) {
+                buttons[colIndex].classList.toggle('hidden');
+            }
+        }
+
+        /**
+         * Инициализация изменения ширины столбцов для сводной таблицы
+         */
+        function initSummaryColumnResize() {
+            const table = document.querySelector('#summary-content table');
+            if (!table) return;
+
+            const headers = table.querySelectorAll('th');
+
+            headers.forEach((header, index) => {
+                // Добавляем handle для изменения ширины
+                const handle = document.createElement('div');
+                handle.className = 'resize-handle';
+                header.appendChild(handle);
+                header.classList.add('resizable');
+
+                header.style.width = 'auto';
+
+                let isResizing = false;
+                let startX = 0;
+                let startWidth = 0;
+
+                handle.addEventListener('mousedown', (e) => {
+                    isResizing = true;
+                    startX = e.clientX;
+                    startWidth = header.offsetWidth;
+                    e.preventDefault();
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!isResizing) return;
+
+                    const delta = e.clientX - startX;
+                    const newWidth = Math.max(30, startWidth + delta);
+
+                    header.style.width = newWidth + 'px';
+                    header.style.minWidth = newWidth + 'px';
+
+                    const cells = table.querySelectorAll(`tbody tr td:nth-child(${index + 1})`);
+                    cells.forEach(cell => {
+                        cell.style.width = newWidth + 'px';
+                        cell.style.minWidth = newWidth + 'px';
+                    });
+                });
+
+                document.addEventListener('mouseup', () => {
+                    isResizing = false;
+                });
+            });
         }
 
         // ============================================================
@@ -10361,6 +10685,77 @@ def get_product_history(sku):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'history': []})
+
+
+@app.route('/api/summary')
+@app.route('/api/summary/<date>')
+def get_summary(date=None):
+    """
+    Получить сводные данные по ВСЕМ активным товарам за указанную дату.
+
+    Если дата не указана - возвращает данные за сегодня.
+    Показывает только активные товары (с историей).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Если дата не указана - используем сегодня
+        if not date:
+            date = get_snapshot_date()
+
+        # Получаем данные всех товаров за указанную дату
+        cursor.execute('''
+            SELECT
+                ph.snapshot_date,
+                ph.name,
+                ph.offer_id,
+                ph.sku,
+                ph.fbo_stock,
+                ph.orders_qty,
+                ph.rating,
+                ph.review_count,
+                ph.price_index,
+                ph.price,
+                ph.marketing_price,
+                ph.avg_position,
+                ph.hits_view_search,
+                ph.hits_view_search_pdp,
+                ph.search_ctr,
+                ph.hits_add_to_cart,
+                ph.cr1,
+                ph.cr2,
+                ph.adv_spend,
+                ph.in_transit,
+                ph.in_draft
+            FROM products_history ph
+            WHERE ph.snapshot_date = ?
+            ORDER BY ph.fbo_stock DESC, ph.name
+        ''', (date,))
+
+        products = [dict(row) for row in cursor.fetchall()]
+
+        # Получаем список доступных дат для выпадающего списка
+        cursor.execute('''
+            SELECT DISTINCT snapshot_date
+            FROM products_history
+            ORDER BY snapshot_date DESC
+            LIMIT 90
+        ''')
+        available_dates = [row[0] for row in cursor.fetchall()]
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'date': date,
+            'products': products,
+            'available_dates': available_dates,
+            'count': len(products)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'products': []})
 
 
 @app.route('/api/history/save-note', methods=['POST'])
