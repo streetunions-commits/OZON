@@ -4722,7 +4722,7 @@ HTML_TEMPLATE = '''
     <!-- ============================================================================
          ФОРМА ВХОДА (показывается если не авторизован)
          ============================================================================ -->
-    <div id="login-overlay" class="login-overlay">
+    <div id="login-overlay" class="login-overlay hidden" style="display:none;">
         <div class="login-box">
             <h2>Ozon Tracker</h2>
             <p class="subtitle">Войдите для продолжения</p>
@@ -5185,7 +5185,9 @@ HTML_TEMPLATE = '''
          * Показывает форму входа, скрывает основной контент.
          */
         function showLoginForm() {
-            document.getElementById('login-overlay').classList.remove('hidden');
+            const overlay = document.getElementById('login-overlay');
+            overlay.classList.remove('hidden');
+            overlay.style.display = 'flex';
             document.getElementById('main-container').style.display = 'none';
             document.getElementById('login-username').focus();
         }
@@ -5194,7 +5196,9 @@ HTML_TEMPLATE = '''
          * Скрывает форму входа, показывает основной контент.
          */
         function hideLoginForm() {
-            document.getElementById('login-overlay').classList.add('hidden');
+            const overlay = document.getElementById('login-overlay');
+            overlay.classList.add('hidden');
+            overlay.style.display = 'none';
             document.getElementById('main-container').style.display = 'block';
 
             // Обновляем панель пользователя
