@@ -3784,6 +3784,143 @@ HTML_TEMPLATE = '''
         }
 
         /* ============================================================ */
+        /* АККОРДЕОН ДЛЯ ОСТАТКОВ СКЛАДА                                */
+        /* ============================================================ */
+
+        .wh-stock-row {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .wh-stock-row:hover {
+            background: #f0f4ff;
+        }
+
+        .wh-stock-row .wh-stock-arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+            margin-right: 6px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .wh-stock-row.expanded {
+            background: #e8f0fe;
+        }
+
+        .wh-stock-row.expanded .wh-stock-arrow {
+            transform: rotate(90deg);
+        }
+
+        .wh-stock-accordion {
+            display: none;
+        }
+
+        .wh-stock-accordion.visible {
+            display: table-row;
+        }
+
+        .wh-accordion-cell {
+            padding: 0 !important;
+            background: #fafbfc;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .wh-accordion-content {
+            padding: 16px 20px;
+        }
+
+        .wh-accordion-header {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .wh-accordion-header .avg-cost {
+            font-size: 13px;
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .wh-accordion-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            background: #fff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .wh-accordion-table thead th {
+            background: #667eea;
+            color: #fff;
+            padding: 10px 8px;
+            font-weight: 500;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .wh-accordion-table tbody td {
+            padding: 8px;
+            border: 1px solid #e9ecef;
+            text-align: center;
+        }
+
+        .wh-accordion-table tbody tr:hover {
+            background: #f8f9fa;
+        }
+
+        .wh-accordion-table tfoot td {
+            padding: 10px 8px;
+            background: #f1f3f5;
+            font-weight: 600;
+            border: 1px solid #e9ecef;
+            text-align: center;
+        }
+
+        .wh-accordion-loading {
+            text-align: center;
+            padding: 20px;
+            color: #888;
+            font-size: 13px;
+        }
+
+        .wh-accordion-empty {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 13px;
+            font-style: italic;
+        }
+
+        .wh-accordion-more-btn {
+            display: block;
+            margin: 12px auto 0;
+            padding: 8px 20px;
+            background: #667eea;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .wh-accordion-more-btn:hover {
+            background: #5a6fd6;
+        }
+
+        .wh-accordion-more-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* ============================================================ */
         /* ВКЛАДКА ПОСТАВКИ                                             */
         /* ============================================================ */
 
@@ -7011,15 +7148,26 @@ HTML_TEMPLATE = '''
                 }).catch(() => document.getElementById('wh-stock-empty').style.display = 'block');
         }
 
+        // Кэш загруженных поставок для аккордеона на вкладке Остатки
+        let stockSuppliesCache = {};
+
         function renderStockTable(stock) {
             const tbody = document.getElementById('wh-stock-tbody');
             const tfoot = document.getElementById('wh-stock-tfoot');
             tbody.innerHTML = '';
+            stockSuppliesCache = {}; // Очищаем кэш
             let totalReceived = 0, totalShipped = 0, totalStock = 0, totalValue = 0;
 
             stock.forEach(item => {
+                const sku = item.sku;
+                const productName = item.product_name || 'SKU ' + sku;
+
+                // Основная строка товара (кликабельная)
                 const row = document.createElement('tr');
-                row.innerHTML = '<td>' + (item.product_name || 'SKU ' + item.sku) + '</td>' +
+                row.className = 'wh-stock-row';
+                row.id = 'wh-stock-row-' + sku;
+                row.onclick = function() { toggleStockAccordion(sku, productName); };
+                row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + productName + '</td>' +
                     '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
@@ -7027,6 +7175,14 @@ HTML_TEMPLATE = '''
                     '<td style="text-align:right;">' + (item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.avg_purchase_price)) + ' ₽' : '—') + '</td>' +
                     '<td style="text-align:right;font-weight:600;">' + (item.stock_balance > 0 && item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.stock_balance * item.avg_purchase_price)) + ' ₽' : '—') + '</td>';
                 tbody.appendChild(row);
+
+                // Строка-аккордеон с поставками (скрыта по умолчанию)
+                const accordionRow = document.createElement('tr');
+                accordionRow.className = 'wh-stock-accordion';
+                accordionRow.id = 'wh-stock-accordion-' + sku;
+                accordionRow.innerHTML = '<td colspan="7" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка поставок...</div></div></td>';
+                tbody.appendChild(accordionRow);
+
                 totalReceived += item.total_received;
                 totalShipped += item.total_shipped;
                 totalStock += item.stock_balance;
@@ -7039,6 +7195,175 @@ HTML_TEMPLATE = '''
                 '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
                 '<td></td>' +
                 '<td style="text-align:right;font-weight:600;">' + (totalValue > 0 ? formatNumberWithSpaces(Math.round(totalValue)) + ' ₽' : '—') + '</td></tr>';
+        }
+
+        /**
+         * Переключить аккордеон поставок для товара на вкладке Остатки
+         */
+        async function toggleStockAccordion(sku, productName) {
+            const row = document.getElementById('wh-stock-row-' + sku);
+            const accordion = document.getElementById('wh-stock-accordion-' + sku);
+            const content = document.getElementById('wh-accordion-content-' + sku);
+
+            if (!row || !accordion) return;
+
+            const isExpanded = row.classList.contains('expanded');
+
+            // Закрываем все другие аккордеоны
+            document.querySelectorAll('.wh-stock-row.expanded').forEach(r => {
+                r.classList.remove('expanded');
+            });
+            document.querySelectorAll('.wh-stock-accordion.visible').forEach(a => {
+                a.classList.remove('visible');
+            });
+
+            if (isExpanded) {
+                // Закрываем текущий
+                return;
+            }
+
+            // Открываем текущий
+            row.classList.add('expanded');
+            accordion.classList.add('visible');
+
+            // Если данные уже загружены — используем кэш
+            if (stockSuppliesCache[sku]) {
+                renderStockAccordionContent(sku, stockSuppliesCache[sku]);
+                return;
+            }
+
+            // Загружаем данные
+            content.innerHTML = '<div class="wh-accordion-loading">Загрузка поставок...</div>';
+
+            try {
+                const response = await fetch('/api/supplies/by-sku/' + sku + '?limit=10&offset=0');
+                const data = await response.json();
+
+                if (data.success) {
+                    stockSuppliesCache[sku] = {
+                        supplies: data.supplies,
+                        avgCost: data.avg_cost,
+                        totalCount: data.total_count,
+                        hasMore: data.has_more,
+                        offset: data.supplies.length
+                    };
+                    renderStockAccordionContent(sku, stockSuppliesCache[sku]);
+                } else {
+                    content.innerHTML = '<div class="wh-accordion-empty">Ошибка загрузки: ' + (data.error || 'неизвестная') + '</div>';
+                }
+            } catch (err) {
+                content.innerHTML = '<div class="wh-accordion-empty">Ошибка: ' + err.message + '</div>';
+            }
+        }
+
+        /**
+         * Загрузить ещё поставок для аккордеона
+         */
+        async function loadMoreStockSupplies(sku) {
+            const cache = stockSuppliesCache[sku];
+            if (!cache || !cache.hasMore) return;
+
+            try {
+                const response = await fetch('/api/supplies/by-sku/' + sku + '?limit=10&offset=' + cache.offset);
+                const data = await response.json();
+
+                if (data.success) {
+                    cache.supplies = cache.supplies.concat(data.supplies);
+                    cache.hasMore = data.has_more;
+                    cache.offset = cache.offset + data.supplies.length;
+                    renderStockAccordionContent(sku, cache);
+                }
+            } catch (err) {
+                console.error('Ошибка загрузки поставок:', err);
+            }
+        }
+
+        /**
+         * Отрисовать содержимое аккордеона поставок
+         */
+        function renderStockAccordionContent(sku, data) {
+            const content = document.getElementById('wh-accordion-content-' + sku);
+            if (!content) return;
+
+            if (!data.supplies || data.supplies.length === 0) {
+                content.innerHTML = '<div class="wh-accordion-empty">Нет поставок для этого товара</div>';
+                return;
+            }
+
+            let html = '<div class="wh-accordion-header">';
+            html += '<span>📦 Поставки (' + data.totalCount + ')</span>';
+            if (data.avgCost > 0) {
+                html += '<span class="wh-accordion-avg">Средняя себестоимость: ' + formatNumberWithSpaces(Math.round(data.avgCost)) + ' ₽</span>';
+            }
+            html += '</div>';
+
+            html += '<table class="wh-accordion-table">';
+            html += '<thead><tr>';
+            html += '<th>Дата плана</th>';
+            html += '<th>Дата выхода</th>';
+            html += '<th>Дата прихода</th>';
+            html += '<th>План</th>';
+            html += '<th>Выход</th>';
+            html += '<th>Приход</th>';
+            html += '<th>Себест. ₽</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+
+            let totalPlan = 0, totalExit = 0, totalArrival = 0;
+
+            data.supplies.forEach(s => {
+                const planDate = formatDateShort(s.exit_plan_date);
+                const exitDate = formatDateShort(s.exit_factory_date);
+                const arrivalDate = formatDateShort(s.arrival_warehouse_date);
+                const planQty = s.order_qty_plan || 0;
+                const exitQty = s.exit_factory_qty || 0;
+                const arrivalQty = s.arrival_warehouse_qty || 0;
+                const cost = s.cost_plus_6 ? formatNumberWithSpaces(Math.round(s.cost_plus_6)) : '—';
+
+                totalPlan += planQty;
+                totalExit += exitQty;
+                totalArrival += arrivalQty;
+
+                html += '<tr>';
+                html += '<td>' + (planDate || '—') + '</td>';
+                html += '<td>' + (exitDate || '—') + '</td>';
+                html += '<td>' + (arrivalDate || '—') + '</td>';
+                html += '<td>' + (planQty || '—') + '</td>';
+                html += '<td>' + (exitQty || '—') + '</td>';
+                html += '<td>' + (arrivalQty || '—') + '</td>';
+                html += '<td>' + cost + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody>';
+            html += '<tfoot><tr>';
+            html += '<td colspan="3"><strong>Итого</strong></td>';
+            html += '<td><strong>' + totalPlan + '</strong></td>';
+            html += '<td><strong>' + totalExit + '</strong></td>';
+            html += '<td><strong>' + totalArrival + '</strong></td>';
+            html += '<td></td>';
+            html += '</tr></tfoot>';
+            html += '</table>';
+
+            if (data.hasMore) {
+                html += '<div class="wh-accordion-footer">';
+                html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreStockSupplies(' + sku + ');">Загрузить ещё 10</button>';
+                html += '</div>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        /**
+         * Форматирование даты ДД.ММ.ГГ
+         */
+        function formatDateShort(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return parts[2] + '.' + parts[1] + '.' + parts[0].slice(-2);
+            }
+            return dateStr;
         }
 
         // ============================================================
