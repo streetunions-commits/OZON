@@ -521,6 +521,12 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем колонку doc_id если её нет (для старых БД)
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipts ADD COLUMN doc_id INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
