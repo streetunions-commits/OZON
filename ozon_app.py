@@ -537,18 +537,41 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # Колонка уже существует
 
+    # Документы отгрузок (шапка документа: дата/время, назначение, комментарий, автор)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS warehouse_shipment_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shipment_datetime TEXT NOT NULL,
+            destination TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            updated_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Позиции отгрузок (строки документа: товар, количество)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shipments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id INTEGER,
             sku INTEGER NOT NULL,
             shipment_date DATE NOT NULL,
             quantity INTEGER DEFAULT 0,
             destination TEXT DEFAULT '',
             comment TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (doc_id) REFERENCES warehouse_shipment_docs(id)
         )
     ''')
+
+    # Миграция: добавляем колонку doc_id в warehouse_shipments если её нет
+    try:
+        cursor.execute('ALTER TABLE warehouse_shipments ADD COLUMN doc_id INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
 
     # ============================================================================
     # ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ — для аутентификации и ролей
@@ -4931,11 +4954,20 @@ HTML_TEMPLATE = '''
                     <div class="receipt-history">
                         <div class="receipt-history-header">
                             <h4>📋 История приходов</h4>
+                            <!-- Фильтр по датам -->
+                            <div class="receipt-date-filter" style="display: flex; gap: 10px; align-items: center; margin-top: 12px;">
+                                <label style="font-size: 13px; color: #666;">Период:</label>
+                                <input type="date" id="receipt-date-from" class="wh-input" style="width: 140px;" onchange="filterReceiptHistory()">
+                                <span style="color: #999;">—</span>
+                                <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px;" onchange="filterReceiptHistory()">
+                                <button class="wh-clear-btn" onclick="resetReceiptDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
+                            </div>
                         </div>
                         <div class="wh-table-wrapper" id="receipt-history-wrapper" style="display: none;">
                             <table class="wh-table" id="wh-receipt-history-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 60px;">№</th>
                                         <th>Дата/время</th>
                                         <th>Товаров</th>
                                         <th>Общее кол-во</th>
@@ -4960,30 +4992,89 @@ HTML_TEMPLATE = '''
                 <div id="wh-shipments" class="warehouse-subtab-content">
                     <div class="wh-section-header">
                         <h3>🚚 Отгрузки товаров</h3>
-                        <p>Регистрация отгрузок со склада</p>
+                        <p>Создание документа отгрузки со склада</p>
                     </div>
-                    <div class="wh-toolbar">
-                        <button class="wh-add-btn" onclick="addShipmentRow()">+ Добавить отгрузку</button>
+
+                    <!-- Форма новой отгрузки -->
+                    <div class="receipt-form" id="shipment-form">
+                        <div class="receipt-form-header">
+                            <div class="receipt-form-row">
+                                <div class="receipt-form-field">
+                                    <label>Назначение</label>
+                                    <select id="shipment-destination" class="wh-select">
+                                        <option value="">— Выберите —</option>
+                                        <option value="FBO">FBO (Ozon)</option>
+                                        <option value="FBS">FBS (свой склад)</option>
+                                        <option value="RETURN">Возврат поставщику</option>
+                                        <option value="OTHER">Другое</option>
+                                    </select>
+                                </div>
+                                <div class="receipt-form-field" style="flex: 2;">
+                                    <label>Комментарий к отгрузке</label>
+                                    <input type="text" id="shipment-comment" class="wh-input" placeholder="Например: Отгрузка на склад Ozon">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="receipt-items-header">
+                            <h4>Товары в отгрузке</h4>
+                            <button class="wh-add-btn-small" onclick="addShipmentItemRow()">+ Добавить товар</button>
+                        </div>
+
+                        <div class="wh-table-wrapper">
+                            <table class="wh-table" id="wh-shipment-items-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">№</th>
+                                        <th>Товар</th>
+                                        <th style="width: 150px;">Количество</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wh-shipment-items-tbody">
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="2" style="text-align: right; font-weight: 600;">Итого:</td>
+                                        <td style="text-align: center; font-weight: 600;" id="shipment-total-qty">0</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="receipt-form-actions">
+                            <button class="wh-save-receipt-btn wh-save-shipment-btn" onclick="saveShipment()">💾 Сохранить отгрузку</button>
+                            <button class="wh-clear-btn" onclick="clearShipmentForm()">Очистить форму</button>
+                        </div>
                     </div>
-                    <div class="wh-table-wrapper">
-                        <table class="wh-table" id="wh-shipments-table">
-                            <thead>
-                                <tr>
-                                    <th>Дата</th>
-                                    <th>Товар</th>
-                                    <th>Количество</th>
-                                    <th>Назначение</th>
-                                    <th>Комментарий</th>
-                                    <th style="width: 40px;"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="wh-shipments-tbody">
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="wh-empty-state" id="wh-shipments-empty">
-                        <p>Нет записей об отгрузках</p>
-                        <button class="wh-add-btn" onclick="addShipmentRow()">Добавить первую запись</button>
+
+                    <!-- История отгрузок -->
+                    <div class="receipt-history">
+                        <div class="receipt-history-header">
+                            <h4>📋 История отгрузок</h4>
+                        </div>
+                        <div class="wh-table-wrapper" id="shipment-history-wrapper" style="display: none;">
+                            <table class="wh-table" id="wh-shipment-history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Дата/время</th>
+                                        <th>Назначение</th>
+                                        <th>Товаров</th>
+                                        <th>Общее кол-во</th>
+                                        <th>Комментарий</th>
+                                        <th>Создал</th>
+                                        <th>Изменено</th>
+                                        <th style="width: 80px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wh-shipment-history-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="wh-empty-state" id="wh-shipment-history-empty">
+                            <p>Нет сохранённых отгрузок</p>
+                        </div>
                     </div>
                 </div>
 
@@ -5761,23 +5852,71 @@ HTML_TEMPLATE = '''
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.docs && data.docs.length > 0) {
+                        // Сохраняем все приходы для фильтрации
+                        allReceiptDocs = data.docs;
                         renderReceiptHistory(data.docs);
                         document.getElementById('receipt-history-wrapper').style.display = 'block';
                         document.getElementById('wh-receipt-history-empty').style.display = 'none';
                     } else {
+                        allReceiptDocs = [];
                         document.getElementById('receipt-history-wrapper').style.display = 'none';
                         document.getElementById('wh-receipt-history-empty').style.display = 'block';
                     }
                 })
                 .catch(err => {
                     console.error('Ошибка загрузки истории:', err);
+                    allReceiptDocs = [];
                     document.getElementById('receipt-history-wrapper').style.display = 'none';
                     document.getElementById('wh-receipt-history-empty').style.display = 'block';
                 });
         }
 
+        // Фильтрация истории приходов по датам
+        function filterReceiptHistory() {
+            const dateFrom = document.getElementById('receipt-date-from').value;
+            const dateTo = document.getElementById('receipt-date-to').value;
+
+            if (!allReceiptDocs || allReceiptDocs.length === 0) return;
+
+            const filtered = allReceiptDocs.filter(doc => {
+                const dt = new Date(doc.receipt_datetime);
+                const docDate = dt.toISOString().split('T')[0]; // YYYY-MM-DD
+
+                if (dateFrom && docDate < dateFrom) return false;
+                if (dateTo && docDate > dateTo) return false;
+                return true;
+            });
+
+            if (filtered.length > 0) {
+                renderReceiptHistory(filtered);
+                document.getElementById('receipt-history-wrapper').style.display = 'block';
+                document.getElementById('wh-receipt-history-empty').style.display = 'none';
+            } else {
+                document.getElementById('wh-receipt-history-tbody').innerHTML = '';
+                document.getElementById('receipt-history-wrapper').style.display = 'block';
+                document.getElementById('wh-receipt-history-empty').style.display = 'block';
+                document.getElementById('wh-receipt-history-empty').querySelector('p').textContent = 'Нет приходов за выбранный период';
+            }
+        }
+
+        // Сбросить фильтр по датам
+        function resetReceiptDateFilter() {
+            document.getElementById('receipt-date-from').value = '';
+            document.getElementById('receipt-date-to').value = '';
+
+            if (allReceiptDocs && allReceiptDocs.length > 0) {
+                renderReceiptHistory(allReceiptDocs);
+                document.getElementById('receipt-history-wrapper').style.display = 'block';
+                document.getElementById('wh-receipt-history-empty').style.display = 'none';
+                document.getElementById('wh-receipt-history-empty').querySelector('p').textContent = 'Нет сохранённых приходов';
+            }
+        }
+
         // ID редактируемого документа (null = новый приход)
         let editingDocId = null;
+
+        // Хранилище всех приходов для фильтрации
+        let allReceiptDocs = [];
 
         // Отрисовать таблицу истории приходов
         function renderReceiptHistory(docs) {
@@ -5786,10 +5925,20 @@ HTML_TEMPLATE = '''
 
             docs.forEach(doc => {
                 const row = document.createElement('tr');
+                const dt = new Date(doc.receipt_datetime);
+                // Сохраняем дату для фильтрации (формат YYYY-MM-DD)
+                row.dataset.date = dt.toISOString().split('T')[0];
+
+                // № прихода
+                const tdNum = document.createElement('td');
+                tdNum.style.textAlign = 'center';
+                tdNum.style.fontWeight = '600';
+                tdNum.style.color = '#667eea';
+                tdNum.textContent = doc.id;
+                row.appendChild(tdNum);
 
                 // Дата/время
                 const tdDate = document.createElement('td');
-                const dt = new Date(doc.receipt_datetime);
                 tdDate.textContent = dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                 row.appendChild(tdDate);
 
@@ -10049,6 +10198,172 @@ def delete_warehouse_shipment():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('DELETE FROM warehouse_shipments WHERE id = ?', (shipment_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ДОКУМЕНТОВ ОТГРУЗОК (новый формат с шапкой и позициями)
+# ============================================================================
+
+@app.route('/api/warehouse/shipment-docs')
+@require_auth(['admin', 'viewer'])
+def get_shipment_docs():
+    """
+    Получить список документов отгрузок с агрегированными данными.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT
+                d.id,
+                d.shipment_datetime,
+                d.destination,
+                d.comment,
+                d.created_by,
+                d.updated_by,
+                d.created_at,
+                d.updated_at,
+                COUNT(s.id) as items_count,
+                COALESCE(SUM(s.quantity), 0) as total_qty
+            FROM warehouse_shipment_docs d
+            LEFT JOIN warehouse_shipments s ON s.doc_id = d.id
+            GROUP BY d.id
+            ORDER BY d.shipment_datetime DESC, d.created_at DESC
+        ''')
+
+        docs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'docs': docs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'docs': []})
+
+
+@app.route('/api/warehouse/shipment-docs/<int:doc_id>')
+@require_auth(['admin', 'viewer'])
+def get_shipment_doc(doc_id):
+    """
+    Получить детальную информацию о документе отгрузки для редактирования.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, shipment_datetime, destination, comment, created_by, updated_by, created_at, updated_at
+            FROM warehouse_shipment_docs WHERE id = ?
+        ''', (doc_id,))
+        doc = cursor.fetchone()
+
+        if not doc:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Документ не найден'})
+
+        cursor.execute('''
+            SELECT id, sku, quantity
+            FROM warehouse_shipments WHERE doc_id = ?
+        ''', (doc_id,))
+        items = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'doc': dict(doc),
+            'items': items
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/shipments/save-doc', methods=['POST'])
+@require_auth(['admin'])
+def save_shipment_doc():
+    """
+    Сохранить или обновить документ отгрузки с позициями.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        destination = data.get('destination', '')
+        comment = data.get('comment', '')
+        items = data.get('items', [])
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
+
+        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+
+        from datetime import datetime
+        now = datetime.now()
+        shipment_datetime = now.strftime('%Y-%m-%dT%H:%M')
+        shipment_date = now.strftime('%Y-%m-%d')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        if doc_id:
+            cursor.execute('''
+                UPDATE warehouse_shipment_docs
+                SET destination = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (destination, comment, username, doc_id))
+
+            cursor.execute('DELETE FROM warehouse_shipments WHERE doc_id = ?', (doc_id,))
+        else:
+            cursor.execute('''
+                INSERT INTO warehouse_shipment_docs (shipment_datetime, destination, comment, created_by, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (shipment_datetime, destination, comment, username, username))
+            doc_id = cursor.lastrowid
+
+        for item in items:
+            cursor.execute('''
+                INSERT INTO warehouse_shipments (doc_id, sku, shipment_date, quantity, destination, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                doc_id,
+                item.get('sku', 0),
+                shipment_date,
+                item.get('quantity', 0),
+                destination
+            ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/shipment-docs/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_shipment_doc():
+    """
+    Удалить документ отгрузки вместе со всеми позициями.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID документа'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM warehouse_shipments WHERE doc_id = ?', (doc_id,))
+        cursor.execute('DELETE FROM warehouse_shipment_docs WHERE id = ?', (doc_id,))
+
         conn.commit()
         conn.close()
 
