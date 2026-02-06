@@ -534,7 +534,7 @@ def _get_product_name(sku):
 def save_to_local_db(sku, rating, review_count):
     """
     Сохраняет рейтинг в локальную БД (products_history).
-    Обновляет запись за сегодняшнюю дату.
+    Обновляет запись за сегодняшнюю дату или создаёт новую если её нет.
 
     Аргументы:
         sku (int): SKU товара
@@ -542,13 +542,14 @@ def save_to_local_db(sku, rating, review_count):
         review_count (int): Количество отзывов
     """
     try:
-        from datetime import date
+        from datetime import date, datetime
         today = date.today().isoformat()
+        now = datetime.now().isoformat()
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Обновляем в products_history за сегодня
+        # Сначала пробуем обновить существующую запись
         cursor.execute('''
             UPDATE products_history
             SET rating = ?, review_count = ?
@@ -558,7 +559,19 @@ def save_to_local_db(sku, rating, review_count):
         if cursor.rowcount > 0:
             print(f"    ✅ Сохранено в локальную БД (дата: {today})")
         else:
-            print(f"    ⚠️  Нет записи в истории за {today} для SKU {sku}")
+            # Записи нет — создаём новую с минимальными данными
+            # Получаем имя товара из таблицы products
+            cursor.execute('SELECT name, offer_id FROM products WHERE sku = ?', (sku,))
+            row = cursor.fetchone()
+            name = row[0] if row else ''
+            offer_id = row[1] if row else None
+
+            cursor.execute('''
+                INSERT INTO products_history (sku, name, offer_id, rating, review_count, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (sku, name, offer_id, float(rating), int(review_count), today, now))
+
+            print(f"    ✅ Создана новая запись в локальной БД (дата: {today})")
 
         conn.commit()
         conn.close()
