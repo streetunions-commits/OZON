@@ -3666,6 +3666,12 @@ HTML_TEMPLATE = '''
             color: #888;
         }
 
+        .warehouse-loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
         .fbo-stock-val {
             font-weight: 600;
         }
@@ -4370,7 +4376,8 @@ HTML_TEMPLATE = '''
         <div class="table-container">
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
-                <button class="tab-button" onclick="switchTab(event, 'fbo')">Аналитика FBO</button>
+                <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
+                <button class="tab-button" onclick="switchTab(event, 'warehouse')">СКЛАД</button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">👥 Пользователи</button>
             </div>
@@ -4403,6 +4410,13 @@ HTML_TEMPLATE = '''
             <div id="fbo" class="tab-content">
                 <div id="fbo-content">
                     <div class="fbo-loading">Загрузка данных...</div>
+                </div>
+            </div>
+
+            <!-- ТАБ: Склад -->
+            <div id="warehouse" class="tab-content">
+                <div id="warehouse-content">
+                    <div class="warehouse-loading">Загрузка данных склада...</div>
                 </div>
             </div>
 
@@ -4747,7 +4761,7 @@ HTML_TEMPLATE = '''
         function initApp() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
             const savedTab = location.hash.replace('#', '');
-            const validTabs = ['history', 'fbo', 'supplies', 'users'];
+            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'users'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -4774,6 +4788,9 @@ HTML_TEMPLATE = '''
                 } else if (savedTab === 'fbo') {
                     loadProductsList();
                     loadFboAnalytics();
+                } else if (savedTab === 'warehouse') {
+                    loadProductsList();
+                    loadWarehouse();
                 } else if (savedTab === 'supplies') {
                     loadProductsList();
                     loadSupplies();
@@ -4866,6 +4883,10 @@ HTML_TEMPLATE = '''
             if (tab === 'fbo') {
                 loadFboAnalytics();
             }
+            // Если открыли склад - загружаем данные
+            if (tab === 'warehouse') {
+                loadWarehouse();
+            }
             // Если открыли поставки - загружаем данные
             if (tab === 'supplies') {
                 loadSupplies();
@@ -4874,6 +4895,29 @@ HTML_TEMPLATE = '''
             if (tab === 'users') {
                 loadUsers();
             }
+        }
+
+        // ============================================================
+        // СКЛАД — ВКЛАДКА
+        // ============================================================
+
+        let warehouseDataLoaded = false;
+
+        function loadWarehouse() {
+            const container = document.getElementById('warehouse-content');
+            if (warehouseDataLoaded) return; // Не перезагружаем если уже загружено
+
+            container.innerHTML = '<div class="warehouse-loading">Загрузка данных склада...</div>';
+
+            // Пока заглушка — вкладка в разработке
+            warehouseDataLoaded = true;
+            container.innerHTML = `
+                <div style="text-align: center; padding: 60px 30px; color: #666;">
+                    <h2 style="color: #333; margin-bottom: 16px;">🏭 СКЛАД</h2>
+                    <p style="font-size: 16px;">Вкладка в разработке</p>
+                    <p style="font-size: 14px; color: #999; margin-top: 8px;">Здесь будет информация о складских остатках</p>
+                </div>
+            `;
         }
 
         // ============================================================
