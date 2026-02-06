@@ -2654,11 +2654,9 @@ def sync_products():
             offer_id = price_data.get("offer_id", None)
             price_index = price_data.get("price_index", None)
 
-            # Рейтинг и отзывы - пока оставляем пустыми
-            # (парсинг не работает с сервера из-за блокировки Ozon)
-            # Используйте API endpoint /api/update-rating для ручного обновления
-            rating = None
-            review_count = None
+            # Рейтинг и отзывы — берём из данных API (load_product_prices)
+            rating = price_data.get("rating", None)
+            review_count = price_data.get("review_count", None)
 
             # 1️⃣ Обновляем текущие остатки
             cursor.execute('''
@@ -6651,16 +6649,32 @@ def update_rating(sku):
             return jsonify({'success': False, 'error': 'Отсутствуют rating или review_count'})
 
         snapshot_date = get_snapshot_date()
+        snapshot_time = get_snapshot_time()
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Обновляем в истории для сегодняшнего дня
+        # Сначала пробуем обновить существующую запись
         cursor.execute('''
             UPDATE products_history
             SET rating = ?, review_count = ?
             WHERE sku = ? AND snapshot_date = ?
         ''', (float(rating), int(review_count), sku, snapshot_date))
+
+        if cursor.rowcount == 0:
+            # Записи нет — создаём новую с минимальными данными
+            # Получаем имя товара из таблицы products
+            cursor.execute('SELECT name, offer_id FROM products WHERE sku = ?', (sku,))
+            row = cursor.fetchone()
+            name = row[0] if row else ''
+            offer_id = row[1] if row else None
+
+            cursor.execute('''
+                INSERT INTO products_history (sku, name, offer_id, rating, review_count, snapshot_date, snapshot_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (sku, name, offer_id, float(rating), int(review_count), snapshot_date, snapshot_time))
+
+            print(f"  ✅ Создана новая запись в products_history для SKU {sku}")
 
         conn.commit()
         conn.close()
