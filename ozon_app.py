@@ -3314,7 +3314,7 @@ HTML_TEMPLATE = '''
         }
 
         /* ============================================================ */
-        /* ТЕГИ СТРОК (Самовыкуп, ПП, Медиана, Реклама, Цена, Акции, Тест) */
+        /* ТЕГИ СТРОК (Самовыкуп, Медиана, Реклама, Цена, Акции, Тест) */
         /* ============================================================ */
 
         .tag-cell {
@@ -3371,7 +3371,6 @@ HTML_TEMPLATE = '''
 
         /* Цвета тегов */
         .tag-samovykup { background: #ede9fe; color: #7c3aed; }
-        .tag-pp { background: #dbeafe; color: #2563eb; }
         .tag-mediana { background: #ffedd5; color: #ea580c; }
         .tag-reklama { background: #fee2e2; color: #dc2626; }
         .tag-cena { background: #dcfce7; color: #16a34a; }
@@ -3380,7 +3379,6 @@ HTML_TEMPLATE = '''
 
         /* Окрашивание строк по тегам */
         .row-samovykup td:not(.plan-cell) { background: #faf5ff !important; }
-        .row-pp td:not(.plan-cell) { background: #eff6ff !important; }
         .row-mediana td:not(.plan-cell) { background: #fff7ed !important; }
         .row-reklama td:not(.plan-cell) { background: #fef2f2 !important; }
         .row-cena td:not(.plan-cell) { background: #f0fdf4 !important; }
@@ -5254,7 +5252,6 @@ HTML_TEMPLATE = '''
                         <select id="tag-filter" class="tag-filter-select" onchange="applyDateFilter()">
                             <option value="">Все теги</option>
                             <option value="Самовыкуп">🟣 Самовыкуп</option>
-                            <option value="ПП">🔵 ПП</option>
                             <option value="Медиана">🟠 Медиана</option>
                             <option value="Реклама">🔴 Реклама</option>
                             <option value="Цена">🟢 Цена</option>
@@ -7715,7 +7712,6 @@ HTML_TEMPLATE = '''
             // Конфигурация тегов с цветами
             const TAG_CONFIG = {
                 'Самовыкуп': { class: 'samovykup', color: '#7c3aed' },
-                'ПП': { class: 'pp', color: '#2563eb' },
                 'Медиана': { class: 'mediana', color: '#ea580c' },
                 'Реклама': { class: 'reklama', color: '#dc2626' },
                 'Цена': { class: 'cena', color: '#16a34a' },
@@ -8216,7 +8212,6 @@ HTML_TEMPLATE = '''
                     <div style="margin-top: 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
                         <span style="font-weight: 600; margin-right: 4px;">Теги:</span>
                         <span class="tag-badge tag-samovykup">Самовыкуп</span>
-                        <span class="tag-badge tag-pp">ПП</span>
                         <span class="tag-badge tag-mediana">Медиана</span>
                         <span class="tag-badge tag-reklama">Реклама</span>
                         <span class="tag-badge tag-cena">Цена</span>
@@ -8446,7 +8441,6 @@ HTML_TEMPLATE = '''
         // ✅ Конфигурация тегов (глобальная для функций)
         const TAG_CONFIG_GLOBAL = {
             'Самовыкуп': { class: 'samovykup', color: '#7c3aed' },
-            'ПП': { class: 'pp', color: '#2563eb' },
             'Медиана': { class: 'mediana', color: '#ea580c' },
             'Реклама': { class: 'reklama', color: '#dc2626' },
             'Цена': { class: 'cena', color: '#16a34a' },
