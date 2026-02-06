@@ -11433,7 +11433,49 @@ def save_shipment_doc():
         shipment_date = now.strftime('%Y-%m-%d')
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # ========== ПРОВЕРКА ОСТАТКОВ ПРИ ПРОВЕДЕНИИ ==========
+        # Если отгрузка проводится (is_completed=1), проверяем наличие товара на складе
+        if is_completed:
+            # Получаем текущие остатки: оприходовано - проведённые отгрузки
+            # При редактировании исключаем текущий документ из расчёта
+            exclude_doc_clause = f"AND d.id != {doc_id}" if doc_id else ""
+
+            stock_errors = []
+            for item in items:
+                sku = item.get('sku')
+                qty_needed = item.get('quantity', 0)
+
+                # Получаем количество оприходований
+                cursor.execute('SELECT COALESCE(SUM(quantity), 0) as total FROM warehouse_receipts WHERE sku = ?', (sku,))
+                total_received = cursor.fetchone()['total']
+
+                # Получаем количество проведённых отгрузок (исключая текущий документ при редактировании)
+                cursor.execute(f'''
+                    SELECT COALESCE(SUM(s.quantity), 0) as total
+                    FROM warehouse_shipments s
+                    JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+                    WHERE s.sku = ? AND d.is_completed = 1 {exclude_doc_clause}
+                ''', (sku,))
+                total_shipped = cursor.fetchone()['total']
+
+                available = total_received - total_shipped
+
+                if qty_needed > available:
+                    # Получаем название товара
+                    cursor.execute('SELECT name FROM products WHERE sku = ?', (sku,))
+                    product = cursor.fetchone()
+                    product_name = product['name'] if product else f'SKU {sku}'
+                    stock_errors.append(f'{product_name}: нужно {qty_needed}, доступно {available}')
+
+            if stock_errors:
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'Недостаточно товара на складе:\n' + '\n'.join(stock_errors)
+                })
 
         if doc_id:
             cursor.execute('''
@@ -11517,7 +11559,49 @@ def toggle_shipment_completed():
         username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # ========== ПРОВЕРКА ОСТАТКОВ ПРИ ПРОВЕДЕНИИ ==========
+        # Если переключаем на "проведено" (is_completed=1), проверяем наличие товара
+        if is_completed:
+            # Получаем позиции документа
+            cursor.execute('SELECT sku, quantity FROM warehouse_shipments WHERE doc_id = ?', (doc_id,))
+            items = cursor.fetchall()
+
+            stock_errors = []
+            for item in items:
+                sku = item['sku']
+                qty_needed = item['quantity']
+
+                # Получаем количество оприходований
+                cursor.execute('SELECT COALESCE(SUM(quantity), 0) as total FROM warehouse_receipts WHERE sku = ?', (sku,))
+                total_received = cursor.fetchone()['total']
+
+                # Получаем количество проведённых отгрузок (исключая текущий документ)
+                cursor.execute('''
+                    SELECT COALESCE(SUM(s.quantity), 0) as total
+                    FROM warehouse_shipments s
+                    JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+                    WHERE s.sku = ? AND d.is_completed = 1 AND d.id != ?
+                ''', (sku, doc_id))
+                total_shipped = cursor.fetchone()['total']
+
+                available = total_received - total_shipped
+
+                if qty_needed > available:
+                    # Получаем название товара
+                    cursor.execute('SELECT name FROM products WHERE sku = ?', (sku,))
+                    product = cursor.fetchone()
+                    product_name = product['name'] if product else f'SKU {sku}'
+                    stock_errors.append(f'{product_name}: нужно {qty_needed}, доступно {available}')
+
+            if stock_errors:
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'Недостаточно товара на складе:\n' + '\n'.join(stock_errors)
+                })
 
         cursor.execute('''
             UPDATE warehouse_shipment_docs
