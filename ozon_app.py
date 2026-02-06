@@ -142,9 +142,10 @@ print(f"\n📊 Используется поле остатка: {STOCK_FIELD}\n
 # ============================================================================
 
 # JWT настройки
-JWT_SECRET = os.environ.get("JWT_SECRET", "default-secret-change-me")
+# Фиксированный секрет - НЕ менять, иначе все сессии станут недействительными
+JWT_SECRET = os.environ.get("JWT_SECRET", "ozon-tracker-permanent-secret-2024-do-not-change")
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
-JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+# Токены бессрочные - пользователь выходит только вручную
 
 print(f"🔐 Аутентификация: {'ВКЛЮЧЕНА' if AUTH_ENABLED else 'ОТКЛЮЧЕНА'}")
 
@@ -193,8 +194,6 @@ def require_auth(allowed_roles=None):
                     'role': user_role
                 }
 
-            except jwt.ExpiredSignatureError:
-                return jsonify({'success': False, 'error': 'Токен истёк'}), 401
             except jwt.InvalidTokenError:
                 return jsonify({'success': False, 'error': 'Недействительный токен'}), 401
 
@@ -206,6 +205,9 @@ def require_auth(allowed_roles=None):
 def create_jwt_token(user_id, username, role):
     """
     Создаёт JWT токен для пользователя.
+
+    Токен БЕССРОЧНЫЙ - не истекает автоматически.
+    Пользователь выходит только при нажатии "Выйти".
 
     Параметры:
         user_id: ID пользователя в БД
@@ -219,8 +221,8 @@ def create_jwt_token(user_id, username, role):
         'user_id': user_id,
         'username': username,
         'role': role,
-        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         'iat': datetime.utcnow()
+        # НЕТ 'exp' - токен бессрочный
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
@@ -486,6 +488,35 @@ def init_database():
             rate REAL NOT NULL,
             fetch_date DATE NOT NULL,
             UNIQUE(currency_code, fetch_date)
+        )
+    ''')
+
+    # ============================================================================
+    # ТАБЛИЦЫ СКЛАДА — оприходование и отгрузки
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS warehouse_receipts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku INTEGER NOT NULL,
+            receipt_date DATE NOT NULL,
+            quantity INTEGER DEFAULT 0,
+            purchase_price REAL DEFAULT 0,
+            comment TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS warehouse_shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku INTEGER NOT NULL,
+            shipment_date DATE NOT NULL,
+            quantity INTEGER DEFAULT 0,
+            destination TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -5221,26 +5252,344 @@ HTML_TEMPLATE = '''
         }
 
         // ============================================================
-        // СКЛАД — ВКЛАДКА
+        // СКЛАД — ВКЛАДКА С ПОДВКЛАДКАМИ
         // ============================================================
 
         let warehouseDataLoaded = false;
+        let warehouseProducts = [];
 
         function loadWarehouse() {
-            const container = document.getElementById('warehouse-content');
-            if (warehouseDataLoaded) return; // Не перезагружаем если уже загружено
+            if (warehouseDataLoaded) return;
 
-            container.innerHTML = '<div class="warehouse-loading">Загрузка данных склада...</div>';
+            fetch('/api/products/list')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        warehouseProducts = data.products;
+                    }
+                });
 
-            // Пока заглушка — вкладка в разработке
+            loadWarehouseReceipts();
+            loadWarehouseShipments();
+            loadWarehouseStock();
             warehouseDataLoaded = true;
-            container.innerHTML = `
-                <div style="text-align: center; padding: 60px 30px; color: #666;">
-                    <h2 style="color: #333; margin-bottom: 16px;">🏭 СКЛАД</h2>
-                    <p style="font-size: 16px;">Вкладка в разработке</p>
-                    <p style="font-size: 14px; color: #999; margin-top: 8px;">Здесь будет информация о складских остатках</p>
-                </div>
-            `;
+        }
+
+        function switchWarehouseSubtab(e, subtab) {
+            document.querySelectorAll('.warehouse-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.subtab-button').forEach(el => el.classList.remove('active'));
+            document.getElementById(subtab).classList.add('active');
+            e.target.classList.add('active');
+        }
+
+        function loadWarehouseReceipts() {
+            fetch('/api/warehouse/receipts')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.receipts.length > 0) {
+                        renderReceiptsTable(data.receipts);
+                        document.getElementById('wh-receipt-empty').style.display = 'none';
+                        document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'block';
+                    } else {
+                        document.getElementById('wh-receipt-empty').style.display = 'block';
+                        document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'none';
+                    }
+                }).catch(() => {
+                    document.getElementById('wh-receipt-empty').style.display = 'block';
+                });
+        }
+
+        function renderReceiptsTable(receipts) {
+            const tbody = document.getElementById('wh-receipt-tbody');
+            tbody.innerHTML = '';
+            receipts.forEach(r => tbody.appendChild(createReceiptRow(r)));
+        }
+
+        function createReceiptRow(data) {
+            const row = document.createElement('tr');
+            row.dataset.receiptId = data ? data.id : 'new_' + Date.now();
+
+            const tdDate = document.createElement('td');
+            const inputDate = document.createElement('input');
+            inputDate.type = 'date';
+            inputDate.className = 'wh-input';
+            inputDate.style.width = '140px';
+            inputDate.value = data ? data.receipt_date : new Date().toISOString().split('T')[0];
+            inputDate.onchange = () => saveReceiptRow(row);
+            tdDate.appendChild(inputDate);
+            row.appendChild(tdDate);
+
+            const tdProduct = document.createElement('td');
+            const selectProduct = document.createElement('select');
+            selectProduct.className = 'wh-select';
+            selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
+            warehouseProducts.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.sku;
+                opt.textContent = p.offer_id || p.sku;
+                if (data && data.sku == p.sku) opt.selected = true;
+                selectProduct.appendChild(opt);
+            });
+            selectProduct.onchange = () => saveReceiptRow(row);
+            tdProduct.appendChild(selectProduct);
+            row.appendChild(tdProduct);
+
+            const tdQty = document.createElement('td');
+            const inputQty = document.createElement('input');
+            inputQty.type = 'text';
+            inputQty.className = 'wh-input';
+            inputQty.style.cssText = 'width:100px;text-align:center;';
+            inputQty.value = data ? data.quantity : '';
+            inputQty.oninput = function() { this.value = this.value.replace(/[^0-9]/g, ''); };
+            inputQty.onblur = () => { saveReceiptRow(row); updateReceiptSum(row); };
+            tdQty.appendChild(inputQty);
+            row.appendChild(tdQty);
+
+            const tdPrice = document.createElement('td');
+            const inputPrice = document.createElement('input');
+            inputPrice.type = 'text';
+            inputPrice.className = 'wh-input';
+            inputPrice.style.cssText = 'width:120px;text-align:right;';
+            inputPrice.value = data && data.purchase_price ? formatNumberWithSpaces(Math.round(data.purchase_price)) : '';
+            inputPrice.oninput = function() { const raw = this.value.replace(/[^0-9]/g, ''); this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : ''; };
+            inputPrice.onblur = () => { saveReceiptRow(row); updateReceiptSum(row); };
+            tdPrice.appendChild(inputPrice);
+            row.appendChild(tdPrice);
+
+            const tdSum = document.createElement('td');
+            tdSum.className = 'wh-sum-cell';
+            tdSum.style.textAlign = 'right';
+            const qty = data ? (parseInt(data.quantity) || 0) : 0;
+            const price = data ? (parseFloat(data.purchase_price) || 0) : 0;
+            tdSum.textContent = qty * price > 0 ? formatNumberWithSpaces(Math.round(qty * price)) + ' ₽' : '—';
+            row.appendChild(tdSum);
+
+            const tdComment = document.createElement('td');
+            const inputComment = document.createElement('input');
+            inputComment.type = 'text';
+            inputComment.className = 'wh-input';
+            inputComment.placeholder = 'Комментарий...';
+            inputComment.value = data ? (data.comment || '') : '';
+            inputComment.onblur = () => saveReceiptRow(row);
+            tdComment.appendChild(inputComment);
+            row.appendChild(tdComment);
+
+            const tdDel = document.createElement('td');
+            const delBtn = document.createElement('button');
+            delBtn.className = 'wh-delete-btn';
+            delBtn.textContent = '✕';
+            delBtn.onclick = () => deleteReceiptRow(row);
+            tdDel.appendChild(delBtn);
+            row.appendChild(tdDel);
+
+            return row;
+        }
+
+        function updateReceiptSum(row) {
+            const inputs = row.querySelectorAll('input[type="text"]');
+            const qty = parseInt((inputs[0]?.value || '').replace(/\\s/g, '')) || 0;
+            const price = parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0;
+            const sumCell = row.querySelector('.wh-sum-cell');
+            if (sumCell) sumCell.textContent = qty * price > 0 ? formatNumberWithSpaces(qty * price) + ' ₽' : '—';
+        }
+
+        function addReceiptRow() {
+            const tbody = document.getElementById('wh-receipt-tbody');
+            tbody.appendChild(createReceiptRow(null));
+            document.getElementById('wh-receipt-empty').style.display = 'none';
+            document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'block';
+        }
+
+        function saveReceiptRow(row) {
+            const inputs = row.querySelectorAll('input');
+            const select = row.querySelector('select');
+            const data = {
+                id: row.dataset.receiptId,
+                receipt_date: inputs[0].value,
+                sku: parseInt(select.value) || 0,
+                quantity: parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0,
+                purchase_price: parseInt((inputs[2]?.value || '').replace(/\\s/g, '')) || 0,
+                comment: inputs[3]?.value || ''
+            };
+            if (!data.sku) return;
+            fetch('/api/warehouse/receipts/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                .then(r => r.json())
+                .then(result => { if (result.success && result.id) row.dataset.receiptId = result.id; loadWarehouseStock(); });
+        }
+
+        function deleteReceiptRow(row) {
+            if (!confirm('Удалить эту запись?')) return;
+            const id = row.dataset.receiptId;
+            row.remove();
+            if (id && !String(id).startsWith('new_')) fetch('/api/warehouse/receipts/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).then(() => loadWarehouseStock());
+            if (!document.getElementById('wh-receipt-tbody').children.length) { document.getElementById('wh-receipt-empty').style.display = 'block'; document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'none'; }
+        }
+
+        function loadWarehouseShipments() {
+            fetch('/api/warehouse/shipments')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.shipments.length > 0) {
+                        renderShipmentsTable(data.shipments);
+                        document.getElementById('wh-shipments-empty').style.display = 'none';
+                        document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'block';
+                    } else {
+                        document.getElementById('wh-shipments-empty').style.display = 'block';
+                        document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'none';
+                    }
+                }).catch(() => document.getElementById('wh-shipments-empty').style.display = 'block');
+        }
+
+        function renderShipmentsTable(shipments) {
+            const tbody = document.getElementById('wh-shipments-tbody');
+            tbody.innerHTML = '';
+            shipments.forEach(s => tbody.appendChild(createShipmentRow(s)));
+        }
+
+        function createShipmentRow(data) {
+            const row = document.createElement('tr');
+            row.dataset.shipmentId = data ? data.id : 'new_' + Date.now();
+
+            const tdDate = document.createElement('td');
+            const inputDate = document.createElement('input');
+            inputDate.type = 'date';
+            inputDate.className = 'wh-input';
+            inputDate.style.width = '140px';
+            inputDate.value = data ? data.shipment_date : new Date().toISOString().split('T')[0];
+            inputDate.onchange = () => saveShipmentRow(row);
+            tdDate.appendChild(inputDate);
+            row.appendChild(tdDate);
+
+            const tdProduct = document.createElement('td');
+            const selectProduct = document.createElement('select');
+            selectProduct.className = 'wh-select';
+            selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
+            warehouseProducts.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.sku;
+                opt.textContent = p.offer_id || p.sku;
+                if (data && data.sku == p.sku) opt.selected = true;
+                selectProduct.appendChild(opt);
+            });
+            selectProduct.onchange = () => saveShipmentRow(row);
+            tdProduct.appendChild(selectProduct);
+            row.appendChild(tdProduct);
+
+            const tdQty = document.createElement('td');
+            const inputQty = document.createElement('input');
+            inputQty.type = 'text';
+            inputQty.className = 'wh-input';
+            inputQty.style.cssText = 'width:100px;text-align:center;';
+            inputQty.value = data ? data.quantity : '';
+            inputQty.oninput = function() { this.value = this.value.replace(/[^0-9]/g, ''); };
+            inputQty.onblur = () => saveShipmentRow(row);
+            tdQty.appendChild(inputQty);
+            row.appendChild(tdQty);
+
+            const tdDest = document.createElement('td');
+            const selectDest = document.createElement('select');
+            selectDest.className = 'wh-select';
+            selectDest.innerHTML = '<option value="">— Назначение —</option><option value="FBO"' + (data && data.destination === 'FBO' ? ' selected' : '') + '>FBO (Ozon)</option><option value="FBS"' + (data && data.destination === 'FBS' ? ' selected' : '') + '>FBS (свой склад)</option><option value="RETURN"' + (data && data.destination === 'RETURN' ? ' selected' : '') + '>Возврат поставщику</option><option value="OTHER"' + (data && data.destination === 'OTHER' ? ' selected' : '') + '>Другое</option>';
+            selectDest.onchange = () => saveShipmentRow(row);
+            tdDest.appendChild(selectDest);
+            row.appendChild(tdDest);
+
+            const tdComment = document.createElement('td');
+            const inputComment = document.createElement('input');
+            inputComment.type = 'text';
+            inputComment.className = 'wh-input';
+            inputComment.placeholder = 'Комментарий...';
+            inputComment.value = data ? (data.comment || '') : '';
+            inputComment.onblur = () => saveShipmentRow(row);
+            tdComment.appendChild(inputComment);
+            row.appendChild(tdComment);
+
+            const tdDel = document.createElement('td');
+            const delBtn = document.createElement('button');
+            delBtn.className = 'wh-delete-btn';
+            delBtn.textContent = '✕';
+            delBtn.onclick = () => deleteShipmentRow(row);
+            tdDel.appendChild(delBtn);
+            row.appendChild(tdDel);
+
+            return row;
+        }
+
+        function addShipmentRow() {
+            const tbody = document.getElementById('wh-shipments-tbody');
+            tbody.appendChild(createShipmentRow(null));
+            document.getElementById('wh-shipments-empty').style.display = 'none';
+            document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'block';
+        }
+
+        function saveShipmentRow(row) {
+            const inputs = row.querySelectorAll('input');
+            const selects = row.querySelectorAll('select');
+            const data = {
+                id: row.dataset.shipmentId,
+                shipment_date: inputs[0].value,
+                sku: parseInt(selects[0].value) || 0,
+                quantity: parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0,
+                destination: selects[1].value,
+                comment: inputs[2]?.value || ''
+            };
+            if (!data.sku) return;
+            fetch('/api/warehouse/shipments/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                .then(r => r.json())
+                .then(result => { if (result.success && result.id) row.dataset.shipmentId = result.id; loadWarehouseStock(); });
+        }
+
+        function deleteShipmentRow(row) {
+            if (!confirm('Удалить эту запись?')) return;
+            const id = row.dataset.shipmentId;
+            row.remove();
+            if (id && !String(id).startsWith('new_')) fetch('/api/warehouse/shipments/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).then(() => loadWarehouseStock());
+            if (!document.getElementById('wh-shipments-tbody').children.length) { document.getElementById('wh-shipments-empty').style.display = 'block'; document.querySelector('#wh-shipments .wh-table-wrapper').style.display = 'none'; }
+        }
+
+        function loadWarehouseStock() {
+            fetch('/api/warehouse/stock')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.stock.length > 0) {
+                        renderStockTable(data.stock);
+                        document.getElementById('wh-stock-empty').style.display = 'none';
+                        document.querySelector('#wh-stock .wh-table-wrapper').style.display = 'block';
+                    } else {
+                        document.getElementById('wh-stock-empty').style.display = 'block';
+                        document.querySelector('#wh-stock .wh-table-wrapper').style.display = 'none';
+                    }
+                }).catch(() => document.getElementById('wh-stock-empty').style.display = 'block');
+        }
+
+        function renderStockTable(stock) {
+            const tbody = document.getElementById('wh-stock-tbody');
+            const tfoot = document.getElementById('wh-stock-tfoot');
+            tbody.innerHTML = '';
+            let totalReceived = 0, totalShipped = 0, totalStock = 0, totalValue = 0;
+
+            stock.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td>' + (item.product_name || 'SKU ' + item.sku) + '</td>' +
+                    '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
+                    '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
+                    '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
+                    '<td style="text-align:center;" class="' + (item.stock_balance > 0 ? 'wh-stock-positive' : (item.stock_balance < 0 ? 'wh-stock-negative' : 'wh-stock-zero')) + '">' + formatNumberWithSpaces(item.stock_balance) + '</td>' +
+                    '<td style="text-align:right;">' + (item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.avg_purchase_price)) + ' ₽' : '—') + '</td>' +
+                    '<td style="text-align:right;font-weight:600;">' + (item.stock_balance > 0 && item.avg_purchase_price > 0 ? formatNumberWithSpaces(Math.round(item.stock_balance * item.avg_purchase_price)) + ' ₽' : '—') + '</td>';
+                tbody.appendChild(row);
+                totalReceived += item.total_received;
+                totalShipped += item.total_shipped;
+                totalStock += item.stock_balance;
+                totalValue += item.stock_balance > 0 && item.avg_purchase_price > 0 ? item.stock_balance * item.avg_purchase_price : 0;
+            });
+
+            tfoot.innerHTML = '<tr><td colspan="2" style="text-align:right;font-weight:600;">Итого:</td>' +
+                '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalReceived) + '</td>' +
+                '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalShipped) + '</td>' +
+                '<td style="text-align:center;font-weight:600;" class="' + (totalStock > 0 ? 'wh-stock-positive' : 'wh-stock-zero') + '">' + formatNumberWithSpaces(totalStock) + '</td>' +
+                '<td></td>' +
+                '<td style="text-align:right;font-weight:600;">' + (totalValue > 0 ? formatNumberWithSpaces(Math.round(totalValue)) + ' ₽' : '—') + '</td></tr>';
         }
 
         // ============================================================
@@ -8163,8 +8512,6 @@ def api_me():
             'role': payload.get('role')
         })
 
-    except jwt.ExpiredSignatureError:
-        return jsonify({'success': False, 'error': 'Токен истёк'}), 401
     except jwt.InvalidTokenError:
         return jsonify({'success': False, 'error': 'Недействительный токен'}), 401
 
@@ -8754,6 +9101,263 @@ def delete_supply():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API СКЛАДА — оприходование, отгрузки, остатки
+# ============================================================================
+
+@app.route('/api/warehouse/receipts')
+@require_auth(['admin', 'viewer'])
+def get_warehouse_receipts():
+    """Получить все оприходования"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM warehouse_receipts
+            ORDER BY receipt_date DESC, created_at DESC
+        ''')
+
+        receipts = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'receipts': receipts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'receipts': []})
+
+
+@app.route('/api/warehouse/receipts/save', methods=['POST'])
+@require_auth(['admin'])
+def save_warehouse_receipt():
+    """Сохранить или обновить оприходование"""
+    try:
+        data = request.json
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        receipt_id = data.get('id', '')
+        is_new = str(receipt_id).startswith('new_') or not receipt_id
+
+        if is_new:
+            cursor.execute('''
+                INSERT INTO warehouse_receipts (sku, receipt_date, quantity, purchase_price, comment, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                data.get('sku', 0),
+                data.get('receipt_date', ''),
+                data.get('quantity', 0),
+                data.get('purchase_price', 0),
+                data.get('comment', '')
+            ))
+            new_id = cursor.lastrowid
+        else:
+            cursor.execute('''
+                UPDATE warehouse_receipts SET
+                    sku = ?, receipt_date = ?, quantity = ?, purchase_price = ?, comment = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (
+                data.get('sku', 0),
+                data.get('receipt_date', ''),
+                data.get('quantity', 0),
+                data.get('purchase_price', 0),
+                data.get('comment', ''),
+                int(receipt_id)
+            ))
+            new_id = int(receipt_id)
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/receipts/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_warehouse_receipt():
+    """Удалить оприходование"""
+    try:
+        data = request.json
+        receipt_id = data.get('id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM warehouse_receipts WHERE id = ?', (receipt_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/shipments')
+@require_auth(['admin', 'viewer'])
+def get_warehouse_shipments():
+    """Получить все отгрузки"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM warehouse_shipments
+            ORDER BY shipment_date DESC, created_at DESC
+        ''')
+
+        shipments = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'shipments': shipments})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'shipments': []})
+
+
+@app.route('/api/warehouse/shipments/save', methods=['POST'])
+@require_auth(['admin'])
+def save_warehouse_shipment():
+    """Сохранить или обновить отгрузку"""
+    try:
+        data = request.json
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        shipment_id = data.get('id', '')
+        is_new = str(shipment_id).startswith('new_') or not shipment_id
+
+        if is_new:
+            cursor.execute('''
+                INSERT INTO warehouse_shipments (sku, shipment_date, quantity, destination, comment, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                data.get('sku', 0),
+                data.get('shipment_date', ''),
+                data.get('quantity', 0),
+                data.get('destination', ''),
+                data.get('comment', '')
+            ))
+            new_id = cursor.lastrowid
+        else:
+            cursor.execute('''
+                UPDATE warehouse_shipments SET
+                    sku = ?, shipment_date = ?, quantity = ?, destination = ?, comment = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (
+                data.get('sku', 0),
+                data.get('shipment_date', ''),
+                data.get('quantity', 0),
+                data.get('destination', ''),
+                data.get('comment', ''),
+                int(shipment_id)
+            ))
+            new_id = int(shipment_id)
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/shipments/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_warehouse_shipment():
+    """Удалить отгрузку"""
+    try:
+        data = request.json
+        shipment_id = data.get('id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM warehouse_shipments WHERE id = ?', (shipment_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/stock')
+@require_auth(['admin', 'viewer'])
+def get_warehouse_stock():
+    """
+    Получить текущие остатки на складе.
+
+    Расчёт: оприходовано - отгружено = остаток
+    Средняя цена закупки рассчитывается как средневзвешенная по количеству.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем сумму оприходований и средневзвешенную цену по каждому SKU
+        cursor.execute('''
+            SELECT
+                sku,
+                SUM(quantity) as total_received,
+                CASE WHEN SUM(quantity) > 0
+                    THEN SUM(quantity * purchase_price) / SUM(quantity)
+                    ELSE 0
+                END as avg_purchase_price
+            FROM warehouse_receipts
+            GROUP BY sku
+        ''')
+        receipts_data = {row['sku']: dict(row) for row in cursor.fetchall()}
+
+        # Получаем сумму отгрузок по каждому SKU
+        cursor.execute('''
+            SELECT sku, SUM(quantity) as total_shipped
+            FROM warehouse_shipments
+            GROUP BY sku
+        ''')
+        shipments_data = {row['sku']: row['total_shipped'] for row in cursor.fetchall()}
+
+        # Получаем информацию о товарах
+        cursor.execute('''
+            SELECT sku, name, offer_id FROM products
+        ''')
+        products_data = {row['sku']: {'name': row['name'], 'offer_id': row['offer_id']} for row in cursor.fetchall()}
+
+        conn.close()
+
+        # Собираем результат
+        stock = []
+        all_skus = set(receipts_data.keys()) | set(shipments_data.keys())
+
+        for sku in all_skus:
+            receipt_info = receipts_data.get(sku, {'total_received': 0, 'avg_purchase_price': 0})
+            shipped = shipments_data.get(sku, 0)
+            product_info = products_data.get(sku, {'name': '', 'offer_id': ''})
+
+            total_received = receipt_info['total_received'] or 0
+            avg_price = receipt_info['avg_purchase_price'] or 0
+            stock_balance = total_received - shipped
+
+            stock.append({
+                'sku': sku,
+                'product_name': product_info['name'],
+                'offer_id': product_info['offer_id'],
+                'total_received': total_received,
+                'total_shipped': shipped,
+                'stock_balance': stock_balance,
+                'avg_purchase_price': avg_price
+            })
+
+        # Сортируем по остатку (от большего к меньшему)
+        stock.sort(key=lambda x: -x['stock_balance'])
+
+        return jsonify({'success': True, 'stock': stock})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'stock': []})
 
 
 # ============================================================================
