@@ -11458,11 +11458,14 @@ def save_shipment_doc():
                 total_received = cursor.fetchone()['total']
 
                 # Получаем количество проведённых отгрузок (исключая текущий документ при редактировании)
+                # Включаем: без doc_id, с is_completed = NULL, с is_completed = 1
                 cursor.execute(f'''
                     SELECT COALESCE(SUM(s.quantity), 0) as total
                     FROM warehouse_shipments s
-                    JOIN warehouse_shipment_docs d ON s.doc_id = d.id
-                    WHERE s.sku = ? AND d.is_completed = 1 {exclude_doc_clause}
+                    LEFT JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+                    WHERE s.sku = ?
+                      AND (s.doc_id IS NULL OR d.is_completed IS NULL OR d.is_completed = 1)
+                      {exclude_doc_clause}
                 ''', (sku,))
                 total_shipped = cursor.fetchone()['total']
 
@@ -11584,11 +11587,14 @@ def toggle_shipment_completed():
                 total_received = cursor.fetchone()['total']
 
                 # Получаем количество проведённых отгрузок (исключая текущий документ)
+                # Включаем: без doc_id, с is_completed = NULL, с is_completed = 1
                 cursor.execute('''
                     SELECT COALESCE(SUM(s.quantity), 0) as total
                     FROM warehouse_shipments s
-                    JOIN warehouse_shipment_docs d ON s.doc_id = d.id
-                    WHERE s.sku = ? AND d.is_completed = 1 AND d.id != ?
+                    LEFT JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+                    WHERE s.sku = ?
+                      AND (s.doc_id IS NULL OR d.is_completed IS NULL OR d.is_completed = 1)
+                      AND (s.doc_id IS NULL OR d.id != ?)
                 ''', (sku, doc_id))
                 total_shipped = cursor.fetchone()['total']
 
@@ -11650,19 +11656,24 @@ def get_warehouse_stock():
         ''')
         receipts_data = {row['sku']: dict(row) for row in cursor.fetchall()}
 
-        # Получаем сумму проведённых отгрузок по каждому SKU (is_completed = 1)
-        # Только проведённые отгрузки вычитаются из остатков
+        # Получаем сумму проведённых отгрузок по каждому SKU
+        # Включаем:
+        # - Отгрузки с is_completed = 1 (явно проведённые)
+        # - Отгрузки без doc_id (старые записи, до внедрения документов)
+        # - Отгрузки с is_completed = NULL (созданы до миграции)
         cursor.execute('''
             SELECT s.sku, SUM(s.quantity) as total_shipped
             FROM warehouse_shipments s
-            JOIN warehouse_shipment_docs d ON s.doc_id = d.id
-            WHERE d.is_completed = 1
+            LEFT JOIN warehouse_shipment_docs d ON s.doc_id = d.id
+            WHERE s.doc_id IS NULL
+               OR d.is_completed IS NULL
+               OR d.is_completed = 1
             GROUP BY s.sku
         ''')
         shipments_data = {row['sku']: row['total_shipped'] for row in cursor.fetchall()}
 
-        # Получаем сумму забронированных товаров (не проведённые отгрузки, is_completed = 0)
-        # Эти товары ещё не списаны со склада, но зарезервированы под отгрузку
+        # Получаем сумму забронированных товаров (только явно не проведённые отгрузки)
+        # is_completed = 0 означает что товар зарезервирован, но ещё не списан
         cursor.execute('''
             SELECT s.sku, SUM(s.quantity) as total_reserved
             FROM warehouse_shipments s
