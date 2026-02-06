@@ -494,16 +494,30 @@ def init_database():
     # ============================================================================
     # ТАБЛИЦЫ СКЛАДА — оприходование и отгрузки
     # ============================================================================
+
+    # Документы оприходования (шапка документа: дата/время, комментарий)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS warehouse_receipt_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            receipt_datetime TEXT NOT NULL,
+            comment TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Позиции оприходования (строки документа: товар, количество, цена)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_receipts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id INTEGER,
             sku INTEGER NOT NULL,
             receipt_date DATE NOT NULL,
             quantity INTEGER DEFAULT 0,
             purchase_price REAL DEFAULT 0,
             comment TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (doc_id) REFERENCES warehouse_receipt_docs(id)
         )
     ''')
 
@@ -4238,6 +4252,155 @@ HTML_TEMPLATE = '''
             color: #333;
         }
 
+        /* Форма прихода */
+        .receipt-form {
+            background: #f8f9fb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+
+        .receipt-form-header {
+            margin-bottom: 20px;
+        }
+
+        .receipt-form-row {
+            display: flex;
+            gap: 16px;
+            align-items: flex-end;
+        }
+
+        .receipt-form-field {
+            flex: 1;
+        }
+
+        .receipt-form-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 13px;
+            color: #555;
+        }
+
+        .receipt-items-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .receipt-items-header h4 {
+            font-size: 15px;
+            color: #333;
+            margin: 0;
+        }
+
+        .wh-add-btn-small {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .wh-add-btn-small:hover {
+            background: #5568d3;
+        }
+
+        .receipt-form-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .wh-save-receipt-btn {
+            padding: 14px 32px;
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .wh-save-receipt-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+        }
+
+        .wh-clear-btn {
+            padding: 14px 24px;
+            background: #f1f3f5;
+            color: #666;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .wh-clear-btn:hover {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .receipt-history {
+            margin-top: 32px;
+        }
+
+        .receipt-history-header {
+            margin-bottom: 12px;
+        }
+
+        .receipt-history-header h4 {
+            font-size: 16px;
+            color: #333;
+            margin: 0;
+        }
+
+        .receipt-row-num {
+            color: #888;
+            font-weight: 500;
+        }
+
+        .receipt-view-btn {
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-right: 4px;
+        }
+
+        .receipt-view-btn:hover {
+            background: #5568d3;
+        }
+
+        .receipt-delete-history-btn {
+            padding: 6px 12px;
+            background: #fee2e2;
+            color: #dc2626;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .receipt-delete-history-btn:hover {
+            background: #fecaca;
+        }
+
         /* ============================================================================
            СТИЛИ ФОРМЫ ЛОГИНА
            ============================================================================ */
@@ -4680,31 +4843,85 @@ HTML_TEMPLATE = '''
                 <div id="wh-receipt" class="warehouse-subtab-content active">
                     <div class="wh-section-header">
                         <h3>📦 Оприходование товаров</h3>
-                        <p>Регистрация поступления товаров на склад</p>
+                        <p>Создание документа прихода на склад</p>
                     </div>
-                    <div class="wh-toolbar">
-                        <button class="wh-add-btn" onclick="addReceiptRow()">+ Добавить оприходование</button>
+
+                    <!-- Форма нового прихода -->
+                    <div class="receipt-form" id="receipt-form">
+                        <div class="receipt-form-header">
+                            <div class="receipt-form-row">
+                                <div class="receipt-form-field">
+                                    <label>Дата и время прихода</label>
+                                    <input type="datetime-local" id="receipt-datetime" class="wh-input">
+                                </div>
+                                <div class="receipt-form-field" style="flex: 2;">
+                                    <label>Комментарий к приходу</label>
+                                    <input type="text" id="receipt-comment" class="wh-input" placeholder="Например: Поставка от поставщика X">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="receipt-items-header">
+                            <h4>Товары в приходе</h4>
+                            <button class="wh-add-btn-small" onclick="addReceiptItemRow()">+ Добавить товар</button>
+                        </div>
+
+                        <div class="wh-table-wrapper">
+                            <table class="wh-table" id="wh-receipt-items-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">№</th>
+                                        <th>Товар</th>
+                                        <th style="width: 120px;">Количество</th>
+                                        <th style="width: 140px;">Цена закупки, ₽</th>
+                                        <th style="width: 140px;">Сумма, ₽</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wh-receipt-items-tbody">
+                                </tbody>
+                                <tfoot id="wh-receipt-items-tfoot">
+                                    <tr>
+                                        <td colspan="2" style="text-align: right; font-weight: 600;">Итого:</td>
+                                        <td style="text-align: center; font-weight: 600;" id="receipt-total-qty">0</td>
+                                        <td></td>
+                                        <td style="text-align: right; font-weight: 600;" id="receipt-total-sum">0 ₽</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="receipt-form-actions">
+                            <button class="wh-save-receipt-btn" onclick="saveReceipt()">💾 Сохранить приход</button>
+                            <button class="wh-clear-btn" onclick="clearReceiptForm()">Очистить форму</button>
+                        </div>
                     </div>
-                    <div class="wh-table-wrapper">
-                        <table class="wh-table" id="wh-receipt-table">
-                            <thead>
-                                <tr>
-                                    <th>Дата</th>
-                                    <th>Товар</th>
-                                    <th>Количество</th>
-                                    <th>Цена закупки, ₽</th>
-                                    <th>Сумма, ₽</th>
-                                    <th>Комментарий</th>
-                                    <th style="width: 40px;"></th>
-                                </tr>
-                            </thead>
-                            <tbody id="wh-receipt-tbody">
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="wh-empty-state" id="wh-receipt-empty">
-                        <p>Нет записей об оприходовании</p>
-                        <button class="wh-add-btn" onclick="addReceiptRow()">Добавить первую запись</button>
+
+                    <!-- История приходов -->
+                    <div class="receipt-history">
+                        <div class="receipt-history-header">
+                            <h4>📋 История приходов</h4>
+                        </div>
+                        <div class="wh-table-wrapper" id="receipt-history-wrapper" style="display: none;">
+                            <table class="wh-table" id="wh-receipt-history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Дата/время</th>
+                                        <th>Товаров</th>
+                                        <th>Общее кол-во</th>
+                                        <th>Общая сумма</th>
+                                        <th>Комментарий</th>
+                                        <th style="width: 80px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wh-receipt-history-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="wh-empty-state" id="wh-receipt-history-empty">
+                            <p>Нет сохранённых приходов</p>
+                        </div>
                     </div>
                 </div>
 
@@ -5266,10 +5483,12 @@ HTML_TEMPLATE = '''
                 .then(data => {
                     if (data.success) {
                         warehouseProducts = data.products;
+                        // Инициализируем форму после загрузки товаров
+                        initReceiptForm();
                     }
                 });
 
-            loadWarehouseReceipts();
+            loadReceiptHistory();
             loadWarehouseShipments();
             loadWarehouseStock();
             warehouseDataLoaded = true;
@@ -5282,43 +5501,38 @@ HTML_TEMPLATE = '''
             e.target.classList.add('active');
         }
 
-        function loadWarehouseReceipts() {
-            fetch('/api/warehouse/receipts')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success && data.receipts.length > 0) {
-                        renderReceiptsTable(data.receipts);
-                        document.getElementById('wh-receipt-empty').style.display = 'none';
-                        document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'block';
-                    } else {
-                        document.getElementById('wh-receipt-empty').style.display = 'block';
-                        document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'none';
-                    }
-                }).catch(() => {
-                    document.getElementById('wh-receipt-empty').style.display = 'block';
-                });
+        // ============================================================
+        // ОПРИХОДОВАНИЕ — ДОКУМЕНТ-ФОРМАТ
+        // ============================================================
+
+        let receiptItemCounter = 0;
+
+        // Инициализация формы прихода
+        function initReceiptForm() {
+            // Устанавливаем текущую дату и время
+            const now = new Date();
+            const datetime = now.toISOString().slice(0, 16);
+            document.getElementById('receipt-datetime').value = datetime;
+
+            // Добавляем первую пустую строку товара
+            addReceiptItemRow();
         }
 
-        function renderReceiptsTable(receipts) {
-            const tbody = document.getElementById('wh-receipt-tbody');
-            tbody.innerHTML = '';
-            receipts.forEach(r => tbody.appendChild(createReceiptRow(r)));
-        }
+        // Добавить строку товара в форму прихода
+        function addReceiptItemRow() {
+            const tbody = document.getElementById('wh-receipt-items-tbody');
+            receiptItemCounter++;
 
-        function createReceiptRow(data) {
             const row = document.createElement('tr');
-            row.dataset.receiptId = data ? data.id : 'new_' + Date.now();
+            row.dataset.itemId = 'item_' + receiptItemCounter;
 
-            const tdDate = document.createElement('td');
-            const inputDate = document.createElement('input');
-            inputDate.type = 'date';
-            inputDate.className = 'wh-input';
-            inputDate.style.width = '140px';
-            inputDate.value = data ? data.receipt_date : new Date().toISOString().split('T')[0];
-            inputDate.onchange = () => saveReceiptRow(row);
-            tdDate.appendChild(inputDate);
-            row.appendChild(tdDate);
+            // № п/п
+            const tdNum = document.createElement('td');
+            tdNum.style.textAlign = 'center';
+            tdNum.textContent = tbody.children.length + 1;
+            row.appendChild(tdNum);
 
+            // Товар (выпадающий список)
             const tdProduct = document.createElement('td');
             const selectProduct = document.createElement('select');
             selectProduct.className = 'wh-select';
@@ -5327,102 +5541,278 @@ HTML_TEMPLATE = '''
                 const opt = document.createElement('option');
                 opt.value = p.sku;
                 opt.textContent = p.offer_id || p.sku;
-                if (data && data.sku == p.sku) opt.selected = true;
                 selectProduct.appendChild(opt);
             });
-            selectProduct.onchange = () => saveReceiptRow(row);
             tdProduct.appendChild(selectProduct);
             row.appendChild(tdProduct);
 
+            // Количество
             const tdQty = document.createElement('td');
             const inputQty = document.createElement('input');
             inputQty.type = 'text';
             inputQty.className = 'wh-input';
-            inputQty.style.cssText = 'width:100px;text-align:center;';
-            inputQty.value = data ? data.quantity : '';
-            inputQty.oninput = function() { this.value = this.value.replace(/[^0-9]/g, ''); };
-            inputQty.onblur = () => { saveReceiptRow(row); updateReceiptSum(row); };
+            inputQty.style.cssText = 'width:100%;text-align:center;';
+            inputQty.placeholder = '0';
+            inputQty.oninput = function() {
+                this.value = this.value.replace(/[^0-9]/g, '');
+                updateReceiptItemSum(row);
+                updateReceiptTotals();
+            };
             tdQty.appendChild(inputQty);
             row.appendChild(tdQty);
 
+            // Цена закупки
             const tdPrice = document.createElement('td');
             const inputPrice = document.createElement('input');
             inputPrice.type = 'text';
             inputPrice.className = 'wh-input';
-            inputPrice.style.cssText = 'width:120px;text-align:right;';
-            inputPrice.value = data && data.purchase_price ? formatNumberWithSpaces(Math.round(data.purchase_price)) : '';
-            inputPrice.oninput = function() { const raw = this.value.replace(/[^0-9]/g, ''); this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : ''; };
-            inputPrice.onblur = () => { saveReceiptRow(row); updateReceiptSum(row); };
+            inputPrice.style.cssText = 'width:100%;text-align:right;';
+            inputPrice.placeholder = '0';
+            inputPrice.oninput = function() {
+                const raw = this.value.replace(/[^0-9]/g, '');
+                this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : '';
+                updateReceiptItemSum(row);
+                updateReceiptTotals();
+            };
             tdPrice.appendChild(inputPrice);
             row.appendChild(tdPrice);
 
+            // Сумма (расчётное поле)
             const tdSum = document.createElement('td');
             tdSum.className = 'wh-sum-cell';
             tdSum.style.textAlign = 'right';
-            const qty = data ? (parseInt(data.quantity) || 0) : 0;
-            const price = data ? (parseFloat(data.purchase_price) || 0) : 0;
-            tdSum.textContent = qty * price > 0 ? formatNumberWithSpaces(Math.round(qty * price)) + ' ₽' : '—';
+            tdSum.textContent = '—';
             row.appendChild(tdSum);
 
-            const tdComment = document.createElement('td');
-            const inputComment = document.createElement('input');
-            inputComment.type = 'text';
-            inputComment.className = 'wh-input';
-            inputComment.placeholder = 'Комментарий...';
-            inputComment.value = data ? (data.comment || '') : '';
-            inputComment.onblur = () => saveReceiptRow(row);
-            tdComment.appendChild(inputComment);
-            row.appendChild(tdComment);
-
+            // Кнопка удаления
             const tdDel = document.createElement('td');
             const delBtn = document.createElement('button');
             delBtn.className = 'wh-delete-btn';
             delBtn.textContent = '✕';
-            delBtn.onclick = () => deleteReceiptRow(row);
+            delBtn.onclick = () => removeReceiptItemRow(row);
             tdDel.appendChild(delBtn);
             row.appendChild(tdDel);
 
-            return row;
+            tbody.appendChild(row);
+            updateRowNumbers();
         }
 
-        function updateReceiptSum(row) {
-            const inputs = row.querySelectorAll('input[type="text"]');
-            const qty = parseInt((inputs[0]?.value || '').replace(/\\s/g, '')) || 0;
-            const price = parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0;
-            const sumCell = row.querySelector('.wh-sum-cell');
-            if (sumCell) sumCell.textContent = qty * price > 0 ? formatNumberWithSpaces(qty * price) + ' ₽' : '—';
-        }
-
-        function addReceiptRow() {
-            const tbody = document.getElementById('wh-receipt-tbody');
-            tbody.appendChild(createReceiptRow(null));
-            document.getElementById('wh-receipt-empty').style.display = 'none';
-            document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'block';
-        }
-
-        function saveReceiptRow(row) {
-            const inputs = row.querySelectorAll('input');
-            const select = row.querySelector('select');
-            const data = {
-                id: row.dataset.receiptId,
-                receipt_date: inputs[0].value,
-                sku: parseInt(select.value) || 0,
-                quantity: parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0,
-                purchase_price: parseInt((inputs[2]?.value || '').replace(/\\s/g, '')) || 0,
-                comment: inputs[3]?.value || ''
-            };
-            if (!data.sku) return;
-            fetch('/api/warehouse/receipts/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                .then(r => r.json())
-                .then(result => { if (result.success && result.id) row.dataset.receiptId = result.id; loadWarehouseStock(); });
-        }
-
-        function deleteReceiptRow(row) {
-            if (!confirm('Удалить эту запись?')) return;
-            const id = row.dataset.receiptId;
+        // Удалить строку товара
+        function removeReceiptItemRow(row) {
+            const tbody = document.getElementById('wh-receipt-items-tbody');
+            if (tbody.children.length <= 1) {
+                alert('Должна быть хотя бы одна строка товара');
+                return;
+            }
             row.remove();
-            if (id && !String(id).startsWith('new_')) fetch('/api/warehouse/receipts/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).then(() => loadWarehouseStock());
-            if (!document.getElementById('wh-receipt-tbody').children.length) { document.getElementById('wh-receipt-empty').style.display = 'block'; document.querySelector('#wh-receipt .wh-table-wrapper').style.display = 'none'; }
+            updateRowNumbers();
+            updateReceiptTotals();
+        }
+
+        // Обновить номера строк после удаления
+        function updateRowNumbers() {
+            const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
+            rows.forEach((row, idx) => {
+                row.cells[0].textContent = idx + 1;
+            });
+        }
+
+        // Обновить сумму строки
+        function updateReceiptItemSum(row) {
+            const inputs = row.querySelectorAll('input[type="text"]');
+            const qty = parseInt((inputs[0]?.value || '').replace(/\s/g, '')) || 0;
+            const price = parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0;
+            const sumCell = row.querySelector('.wh-sum-cell');
+            if (sumCell) {
+                const sum = qty * price;
+                sumCell.textContent = sum > 0 ? formatNumberWithSpaces(sum) + ' ₽' : '—';
+            }
+        }
+
+        // Обновить итоги (общее количество и сумма)
+        function updateReceiptTotals() {
+            const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
+            let totalQty = 0;
+            let totalSum = 0;
+
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input[type="text"]');
+                const qty = parseInt((inputs[0]?.value || '').replace(/\s/g, '')) || 0;
+                const price = parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0;
+                totalQty += qty;
+                totalSum += qty * price;
+            });
+
+            document.getElementById('receipt-total-qty').textContent = totalQty;
+            document.getElementById('receipt-total-sum').textContent = totalSum > 0 ? formatNumberWithSpaces(totalSum) + ' ₽' : '0 ₽';
+        }
+
+        // Сохранить документ прихода
+        function saveReceipt() {
+            const datetime = document.getElementById('receipt-datetime').value;
+            const comment = document.getElementById('receipt-comment').value;
+
+            if (!datetime) {
+                alert('Укажите дату и время прихода');
+                return;
+            }
+
+            const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
+            const items = [];
+
+            rows.forEach(row => {
+                const select = row.querySelector('select');
+                const inputs = row.querySelectorAll('input[type="text"]');
+                const sku = parseInt(select?.value) || 0;
+                const qty = parseInt((inputs[0]?.value || '').replace(/\s/g, '')) || 0;
+                const price = parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0;
+
+                if (sku > 0 && qty > 0) {
+                    items.push({ sku, quantity: qty, purchase_price: price });
+                }
+            });
+
+            if (items.length === 0) {
+                alert('Добавьте хотя бы один товар с количеством');
+                return;
+            }
+
+            const data = {
+                receipt_datetime: datetime,
+                comment: comment,
+                items: items
+            };
+
+            fetch('/api/warehouse/receipts/save-doc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    alert('Приход успешно сохранён!');
+                    clearReceiptForm();
+                    loadReceiptHistory();
+                    loadWarehouseStock();
+                } else {
+                    alert('Ошибка сохранения: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => {
+                alert('Ошибка сети: ' + err);
+            });
+        }
+
+        // Очистить форму прихода
+        function clearReceiptForm() {
+            // Сбросить дату на текущую
+            const now = new Date();
+            document.getElementById('receipt-datetime').value = now.toISOString().slice(0, 16);
+
+            // Очистить комментарий
+            document.getElementById('receipt-comment').value = '';
+
+            // Очистить таблицу товаров
+            const tbody = document.getElementById('wh-receipt-items-tbody');
+            tbody.innerHTML = '';
+            receiptItemCounter = 0;
+
+            // Добавить одну пустую строку
+            addReceiptItemRow();
+
+            // Сбросить итоги
+            updateReceiptTotals();
+        }
+
+        // Загрузить историю приходов
+        function loadReceiptHistory() {
+            fetch('/api/warehouse/receipt-docs')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.docs && data.docs.length > 0) {
+                        renderReceiptHistory(data.docs);
+                        document.getElementById('receipt-history-wrapper').style.display = 'block';
+                        document.getElementById('wh-receipt-history-empty').style.display = 'none';
+                    } else {
+                        document.getElementById('receipt-history-wrapper').style.display = 'none';
+                        document.getElementById('wh-receipt-history-empty').style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('receipt-history-wrapper').style.display = 'none';
+                    document.getElementById('wh-receipt-history-empty').style.display = 'block';
+                });
+        }
+
+        // Отрисовать таблицу истории приходов
+        function renderReceiptHistory(docs) {
+            const tbody = document.getElementById('wh-receipt-history-tbody');
+            tbody.innerHTML = '';
+
+            docs.forEach(doc => {
+                const row = document.createElement('tr');
+
+                // Дата/время
+                const tdDate = document.createElement('td');
+                const dt = new Date(doc.receipt_datetime);
+                tdDate.textContent = dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                row.appendChild(tdDate);
+
+                // Кол-во товаров
+                const tdItems = document.createElement('td');
+                tdItems.style.textAlign = 'center';
+                tdItems.textContent = doc.items_count || 0;
+                row.appendChild(tdItems);
+
+                // Общее количество
+                const tdQty = document.createElement('td');
+                tdQty.style.textAlign = 'center';
+                tdQty.textContent = doc.total_qty || 0;
+                row.appendChild(tdQty);
+
+                // Общая сумма
+                const tdSum = document.createElement('td');
+                tdSum.style.textAlign = 'right';
+                tdSum.textContent = doc.total_sum > 0 ? formatNumberWithSpaces(Math.round(doc.total_sum)) + ' ₽' : '—';
+                row.appendChild(tdSum);
+
+                // Комментарий
+                const tdComment = document.createElement('td');
+                tdComment.textContent = doc.comment || '';
+                row.appendChild(tdComment);
+
+                // Действия
+                const tdActions = document.createElement('td');
+                const delBtn = document.createElement('button');
+                delBtn.className = 'wh-delete-btn';
+                delBtn.textContent = '✕';
+                delBtn.onclick = () => deleteReceiptDoc(doc.id);
+                tdActions.appendChild(delBtn);
+                row.appendChild(tdActions);
+
+                tbody.appendChild(row);
+            });
+        }
+
+        // Удалить документ прихода
+        function deleteReceiptDoc(docId) {
+            if (!confirm('Удалить этот приход? Все позиции будут удалены.')) return;
+
+            fetch('/api/warehouse/receipt-docs/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: docId })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    loadReceiptHistory();
+                    loadWarehouseStock();
+                } else {
+                    alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            });
         }
 
         function loadWarehouseShipments() {
@@ -5529,7 +5919,7 @@ HTML_TEMPLATE = '''
                 id: row.dataset.shipmentId,
                 shipment_date: inputs[0].value,
                 sku: parseInt(selects[0].value) || 0,
-                quantity: parseInt((inputs[1]?.value || '').replace(/\\s/g, '')) || 0,
+                quantity: parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0,
                 destination: selects[1].value,
                 comment: inputs[2]?.value || ''
             };
@@ -6012,8 +6402,8 @@ HTML_TEMPLATE = '''
                         value="${pricePlanDisplay}"
                         style="width: 80px; padding: 4px; text-align: center; font-size: 14px; border: 1px solid #ddd; border-radius: 4px; background-color: ${isPast ? '#e5e5e5' : '#fff'};"
                         ${isPast ? 'readonly' : ''}
-                        oninput="this.value = this.value.replace(/[^0-9\\s]/g, '').replace(/\\s/g, ''); this.value = this.value.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');"
-                        onblur="savePricePlan('${data.product_sku}', '${item.snapshot_date}', this.value.replace(/\\s/g, ''))"
+                        oninput="this.value = this.value.replace(/[^0-9\\s]/g, '').replace(/\s/g, ''); this.value = this.value.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');"
+                        onblur="savePricePlan('${data.product_sku}', '${item.snapshot_date}', this.value.replace(/\s/g, ''))"
                     />
                 </td>`;
 
@@ -6587,7 +6977,7 @@ HTML_TEMPLATE = '''
          */
         function parseNumberFromSpaces(str) {
             if (!str) return 0;
-            return parseInt(str.replace(/\\s/g, '')) || 0;
+            return parseInt(str.replace(/\s/g, '')) || 0;
         }
 
         /**
@@ -9187,6 +9577,144 @@ def delete_warehouse_receipt():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('DELETE FROM warehouse_receipts WHERE id = ?', (receipt_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ДОКУМЕНТОВ ПРИХОДОВ (новый формат с шапкой и позициями)
+# ============================================================================
+
+@app.route('/api/warehouse/receipt-docs')
+@require_auth(['admin', 'viewer'])
+def get_receipt_docs():
+    """
+    Получить список документов приходов с агрегированными данными.
+
+    Возвращает:
+        - id: ID документа
+        - receipt_datetime: дата и время прихода
+        - comment: комментарий
+        - items_count: количество позиций (товаров)
+        - total_qty: общее количество единиц
+        - total_sum: общая сумма
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT
+                d.id,
+                d.receipt_datetime,
+                d.comment,
+                d.created_at,
+                COUNT(r.id) as items_count,
+                COALESCE(SUM(r.quantity), 0) as total_qty,
+                COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum
+            FROM warehouse_receipt_docs d
+            LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
+            GROUP BY d.id
+            ORDER BY d.receipt_datetime DESC, d.created_at DESC
+        ''')
+
+        docs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'docs': docs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'docs': []})
+
+
+@app.route('/api/warehouse/receipts/save-doc', methods=['POST'])
+@require_auth(['admin'])
+def save_receipt_doc():
+    """
+    Сохранить документ прихода с позициями.
+
+    Ожидает JSON:
+    {
+        "receipt_datetime": "2024-01-15T10:30",
+        "comment": "Поставка от поставщика X",
+        "items": [
+            {"sku": 123, "quantity": 10, "purchase_price": 500},
+            {"sku": 456, "quantity": 5, "purchase_price": 1000}
+        ]
+    }
+    """
+    try:
+        data = request.json
+        receipt_datetime = data.get('receipt_datetime', '')
+        comment = data.get('comment', '')
+        items = data.get('items', [])
+
+        if not receipt_datetime:
+            return jsonify({'success': False, 'error': 'Укажите дату и время прихода'})
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Создаём документ (шапку)
+        cursor.execute('''
+            INSERT INTO warehouse_receipt_docs (receipt_datetime, comment)
+            VALUES (?, ?)
+        ''', (receipt_datetime, comment))
+
+        doc_id = cursor.lastrowid
+
+        # Создаём позиции (строки)
+        receipt_date = receipt_datetime.split('T')[0]  # Извлекаем дату для совместимости
+
+        for item in items:
+            cursor.execute('''
+                INSERT INTO warehouse_receipts (doc_id, sku, receipt_date, quantity, purchase_price, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                doc_id,
+                item.get('sku', 0),
+                receipt_date,
+                item.get('quantity', 0),
+                item.get('purchase_price', 0)
+            ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/receipt-docs/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_receipt_doc():
+    """
+    Удалить документ прихода вместе со всеми позициями.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID документа'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Удаляем позиции
+        cursor.execute('DELETE FROM warehouse_receipts WHERE doc_id = ?', (doc_id,))
+
+        # Удаляем документ
+        cursor.execute('DELETE FROM warehouse_receipt_docs WHERE id = ?', (doc_id,))
+
         conn.commit()
         conn.close()
 
