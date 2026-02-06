@@ -5812,6 +5812,7 @@ HTML_TEMPLATE = '''
 
             const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
             const items = [];
+            let hasItemWithoutPrice = false;
 
             rows.forEach(row => {
                 const select = row.querySelector('select');
@@ -5821,12 +5822,20 @@ HTML_TEMPLATE = '''
                 const price = parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0;
 
                 if (sku > 0 && qty > 0) {
+                    if (price <= 0) {
+                        hasItemWithoutPrice = true;
+                    }
                     items.push({ sku, quantity: qty, purchase_price: price });
                 }
             });
 
             if (items.length === 0) {
                 alert('Добавьте хотя бы один товар с количеством');
+                return;
+            }
+
+            if (hasItemWithoutPrice) {
+                alert('Укажите цену закупки для всех товаров');
                 return;
             }
 
