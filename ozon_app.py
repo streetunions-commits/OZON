@@ -7621,6 +7621,7 @@ HTML_TEMPLATE = '''
             html += '<th>Расходы</th>';
             html += '<th>CPO план</th>';
             html += '<th>CPO</th>';
+            html += '<th>ДРР (%)</th>';
             html += '<th>В пути</th>';
             html += '<th>В заявках</th>';
             html += '</tr></thead><tbody>';
@@ -7902,6 +7903,18 @@ HTML_TEMPLATE = '''
                     : null;
                 html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}${cpo !== null ? getTrendArrow(cpo, prevCpo, true) : ''}</strong></td>`;
 
+                // ДРР (Доля Рекламных Расходов) = (Расходы / (Заказы × Цена)) × 100%
+                // Используем marketing_price (цена на сайте) для расчёта выручки
+                const revenue = (item.orders_qty || 0) * (item.marketing_price || 0);
+                const drr = (item.adv_spend !== null && item.adv_spend !== undefined && revenue > 0)
+                    ? ((item.adv_spend / revenue) * 100)
+                    : null;
+                const prevRevenue = (prevItem?.orders_qty || 0) * (prevItem?.marketing_price || 0);
+                const prevDrr = (prevItem?.adv_spend !== null && prevItem?.adv_spend !== undefined && prevRevenue > 0)
+                    ? ((prevItem.adv_spend / prevRevenue) * 100)
+                    : null;
+                html += `<td><strong>${drr !== null ? drr.toFixed(1) + '%' : '—'}${drr !== null ? getTrendArrow(drr, prevDrr, true) : ''}</strong></td>`;
+
                 // В ПУТИ - товары из заявок со статусом "в пути"
                 html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}</span></td>`;
 
@@ -7940,8 +7953,9 @@ HTML_TEMPLATE = '''
                     <button class="toggle-col-btn" onclick="toggleColumn(21)">Расходы</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(22)">CPO план</button>
                     <button class="toggle-col-btn" onclick="toggleColumn(23)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(24)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleColumn(25)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(24)">ДРР</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(25)">В пути</button>
+                    <button class="toggle-col-btn" onclick="toggleColumn(26)">В заявках</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
