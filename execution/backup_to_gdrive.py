@@ -41,7 +41,7 @@ from pathlib import Path
 RCLONE_REMOTE = "gdrive"
 
 # Папка на Google Drive для бэкапов
-GDRIVE_BACKUP_FOLDER = "OZON_Backups"
+GDRIVE_BACKUP_FOLDER = "ТОВАРКА/БЭКАПЫ"
 
 # Сколько бэкапов хранить (старые удаляются)
 MAX_BACKUPS = 7
