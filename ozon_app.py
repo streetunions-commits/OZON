@@ -4850,11 +4850,7 @@ HTML_TEMPLATE = '''
                     <div class="receipt-form" id="receipt-form">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
-                                <div class="receipt-form-field">
-                                    <label>Дата и время прихода</label>
-                                    <input type="datetime-local" id="receipt-datetime" class="wh-input">
-                                </div>
-                                <div class="receipt-form-field" style="flex: 2;">
+                                <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий к приходу</label>
                                     <input type="text" id="receipt-comment" class="wh-input" placeholder="Например: Поставка от поставщика X">
                                 </div>
@@ -5509,11 +5505,6 @@ HTML_TEMPLATE = '''
 
         // Инициализация формы прихода
         function initReceiptForm() {
-            // Устанавливаем текущую дату и время
-            const now = new Date();
-            const datetime = now.toISOString().slice(0, 16);
-            document.getElementById('receipt-datetime').value = datetime;
-
             // Добавляем первую пустую строку товара
             addReceiptItemRow();
         }
@@ -5649,13 +5640,7 @@ HTML_TEMPLATE = '''
 
         // Сохранить документ прихода
         function saveReceipt() {
-            const datetime = document.getElementById('receipt-datetime').value;
             const comment = document.getElementById('receipt-comment').value;
-
-            if (!datetime) {
-                alert('Укажите дату и время прихода');
-                return;
-            }
 
             const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
             const items = [];
@@ -5677,8 +5662,8 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            // Дата и время сохраняются автоматически на сервере
             const data = {
-                receipt_datetime: datetime,
                 comment: comment,
                 items: items
             };
@@ -5706,10 +5691,6 @@ HTML_TEMPLATE = '''
 
         // Очистить форму прихода
         function clearReceiptForm() {
-            // Сбросить дату на текущую
-            const now = new Date();
-            document.getElementById('receipt-datetime').value = now.toISOString().slice(0, 16);
-
             // Очистить комментарий
             document.getElementById('receipt-comment').value = '';
 
@@ -9636,10 +9617,10 @@ def get_receipt_docs():
 def save_receipt_doc():
     """
     Сохранить документ прихода с позициями.
+    Дата и время сохраняются автоматически (текущее серверное время).
 
     Ожидает JSON:
     {
-        "receipt_datetime": "2024-01-15T10:30",
         "comment": "Поставка от поставщика X",
         "items": [
             {"sku": 123, "quantity": 10, "purchase_price": 500},
@@ -9649,15 +9630,17 @@ def save_receipt_doc():
     """
     try:
         data = request.json
-        receipt_datetime = data.get('receipt_datetime', '')
         comment = data.get('comment', '')
         items = data.get('items', [])
 
-        if not receipt_datetime:
-            return jsonify({'success': False, 'error': 'Укажите дату и время прихода'})
-
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
+
+        # Используем текущее серверное время
+        from datetime import datetime
+        now = datetime.now()
+        receipt_datetime = now.strftime('%Y-%m-%dT%H:%M')
+        receipt_date = now.strftime('%Y-%m-%d')
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -9669,9 +9652,6 @@ def save_receipt_doc():
         ''', (receipt_datetime, comment))
 
         doc_id = cursor.lastrowid
-
-        # Создаём позиции (строки)
-        receipt_date = receipt_datetime.split('T')[0]  # Извлекаем дату для совместимости
 
         for item in items:
             cursor.execute('''
