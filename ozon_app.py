@@ -6204,7 +6204,8 @@ HTML_TEMPLATE = '''
                 let bgColor = '#f0f0f0';  // Базовый серый фон
                 let diffHtml = '';
 
-                if (previous > 0 && diff !== 0) {
+                // Показываем разницу если есть изменение (даже если вчера было 0)
+                if (diff !== 0) {
                     const isPositive = lessIsBetter ? (diff < 0) : (diff > 0);
                     bgColor = isPositive ? '#d4edda' : '#f8d7da';  // Более насыщенные цвета для заголовка
                     const textColor = isPositive ? '#155724' : '#721c24';
