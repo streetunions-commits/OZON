@@ -13152,12 +13152,12 @@ def get_products_for_telegram():
                 LIMIT 20
             ''', (search, f'%{search}%', f'%{search}%'))
         else:
-            # Топ-20 товаров по заказам
+            # Топ-100 товаров по заказам (для пагинации в боте)
             cursor.execute('''
                 SELECT sku, name, offer_id
                 FROM products
                 ORDER BY orders_qty DESC
-                LIMIT 20
+                LIMIT 100
             ''')
 
         products = [dict(row) for row in cursor.fetchall()]

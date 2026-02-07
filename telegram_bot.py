@@ -170,7 +170,7 @@ def format_product_list(items: list) -> str:
 
     lines = []
     for i, item in enumerate(items, 1):
-        lines.append(f"{i}. {item['name']} × {item['quantity']} шт.")
+        lines.append(f"{i}. {item['offer_id']} × {item['quantity']} шт.")
 
     return "\n".join(lines)
 
@@ -393,12 +393,12 @@ async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_
     end = start + PAGE_SIZE
     page_products = products[start:end]
 
-    # Создаём кнопки с товарами
+    # Создаём кнопки с товарами (показываем артикул)
     keyboard = []
     for product in page_products:
-        name = product['name'][:40] + '...' if len(product['name']) > 40 else product['name']
+        offer_id = product['offer_id'][:40] + '...' if len(product['offer_id']) > 40 else product['offer_id']
         keyboard.append([
-            InlineKeyboardButton(name, callback_data=f"product:{product['sku']}")
+            InlineKeyboardButton(offer_id, callback_data=f"product:{product['sku']}")
         ])
 
     # Кнопки навигации
@@ -483,7 +483,7 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data['current_product'] = product
 
     await query.edit_message_text(
-        f"✅ *{product['name']}*\n"
+        f"✅ *{product['offer_id']}*\n"
         f"SKU: `{product['sku']}`\n\n"
         "📊 Введите количество (шт.):",
         parse_mode='Markdown'
@@ -517,19 +517,19 @@ async def product_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data['current_product'] = product
 
         await update.message.reply_text(
-            f"✅ *{product['name']}*\n"
+            f"✅ *{product['offer_id']}*\n"
             f"SKU: `{product['sku']}`\n\n"
             "📊 Введите количество (шт.):",
             parse_mode='Markdown'
         )
         return STATE_ENTER_QUANTITY
 
-    # Несколько результатов — показываем кнопки
+    # Несколько результатов — показываем кнопки (артикулы)
     keyboard = []
     for product in products[:10]:
-        name = product['name'][:40] + '...' if len(product['name']) > 40 else product['name']
+        offer_id = product['offer_id'][:40] + '...' if len(product['offer_id']) > 40 else product['offer_id']
         keyboard.append([
-            InlineKeyboardButton(name, callback_data=f"product:{product['sku']}")
+            InlineKeyboardButton(offer_id, callback_data=f"product:{product['sku']}")
         ])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -564,7 +564,7 @@ async def quantity_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Добавляем товар в список
     context.user_data['receipt']['items'].append({
         'sku': product['sku'],
-        'name': product['name'],
+        'offer_id': product['offer_id'],
         'quantity': quantity
     })
 
@@ -580,7 +580,7 @@ async def quantity_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     items = context.user_data['receipt']['items']
 
     await update.message.reply_text(
-        f"✅ Добавлено: *{product['name']}* × {quantity} шт.\n\n"
+        f"✅ Добавлено: *{product['offer_id']}* × {quantity} шт.\n\n"
         f"────────────────────────\n"
         f"📋 *В документе:*\n"
         f"{format_product_list(items)}\n"
