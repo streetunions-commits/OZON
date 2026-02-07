@@ -6138,6 +6138,11 @@ HTML_TEMPLATE = '''
          * Аналогична renderHistory, но без столбцов Тег и Заметки,
          * и показывает все товары, а не историю одного.
          */
+        // Текущая сортировка для сводной таблицы
+        let summarySortField = 'orders_qty';  // По умолчанию сортировка по заказам
+        let summarySortAsc = false;  // По умолчанию от большего к меньшему
+        let summaryData = null;  // Хранение данных для пересортировки
+
         function renderSummary(data) {
             const summaryContent = document.getElementById('summary-content');
 
@@ -6146,21 +6151,37 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            // Сохраняем данные для пересортировки
+            summaryData = data;
+
+            // Сортируем данные
+            const sortedProducts = [...data.products].sort((a, b) => {
+                let valA = a[summarySortField] || 0;
+                let valB = b[summarySortField] || 0;
+                if (summarySortAsc) {
+                    return valA - valB;
+                } else {
+                    return valB - valA;
+                }
+            });
+
             // ✅ Функция для форматирования чисел с пробелами
             function formatNumber(num) {
                 if (num === null || num === undefined || num === 0) return '0';
                 return String(Math.round(num)).replace(/\\B(?=(\d{3})+(?!\\d))/g, ' ');
             }
 
-            let html = '<table><thead><tr>';
+            // Определяем стрелку сортировки
+            const ordersSortArrow = summarySortField === 'orders_qty' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
+            const spendSortArrow = summarySortField === 'adv_spend' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
+
+            let html = '<table id="summary-table"><thead><tr>';
             html += '<th>Артикул</th>';
-            html += '<th>Название</th>';
-            html += '<th>SKU</th>';
             html += '<th>Рейтинг</th>';
             html += '<th>Отзывы</th>';
             html += '<th>Индекс цен</th>';
             html += '<th>FBO остаток</th>';
-            html += '<th>Заказы</th>';
+            html += `<th class="sortable-header" onclick="sortSummaryTable('orders_qty')" style="cursor: pointer;">Заказы${ordersSortArrow}</th>`;
             html += '<th>Цена в ЛК</th>';
             html += '<th>Соинвест</th>';
             html += '<th>Цена на сайте</th>';
@@ -6171,26 +6192,18 @@ HTML_TEMPLATE = '''
             html += '<th>Корзина</th>';
             html += '<th>CR1 (%)</th>';
             html += '<th>CR2 (%)</th>';
-            html += '<th>Расходы</th>';
+            html += `<th class="sortable-header" onclick="sortSummaryTable('adv_spend')" style="cursor: pointer;">Расходы${spendSortArrow}</th>`;
             html += '<th>CPO</th>';
             html += '<th>ДРР (%)</th>';
-            html += '<th>В пути</th>';
-            html += '<th>В заявках</th>';
             html += '</tr></thead><tbody>';
 
-            data.products.forEach((item) => {
+            sortedProducts.forEach((item) => {
                 const stockClass = item.fbo_stock < 5 ? 'stock low' : 'stock';
 
                 html += '<tr>';
 
-                // Артикул (offer_id)
-                html += `<td><strong>${item.offer_id || '—'}</strong></td>`;
-
-                // Название
-                html += `<td><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.name || '—'}</span></td>`;
-
-                // SKU
-                html += `<td><span class="sku" onclick="copySKU(this, '${item.sku}')" style="cursor: pointer;" title="Нажмите чтобы скопировать">${item.sku}</span></td>`;
+                // Артикул (offer_id) - кликабельный для открытия на Ozon
+                html += `<td><strong><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.offer_id || '—'}</span></strong></td>`;
 
                 // Рейтинг
                 const rating = item.rating !== null && item.rating !== undefined ? item.rating.toFixed(1) : '—';
@@ -6278,12 +6291,6 @@ HTML_TEMPLATE = '''
                 }
                 html += `<td><strong>${drr}</strong></td>`;
 
-                // В пути
-                html += `<td><span class="stock">${formatNumber(item.in_transit || 0)}</span></td>`;
-
-                // В заявках
-                html += `<td><span class="stock">${formatNumber(item.in_draft || 0)}</span></td>`;
-
                 html += '</tr>';
             });
 
@@ -6294,28 +6301,24 @@ HTML_TEMPLATE = '''
                 <div class="table-controls">
                     <span style="font-weight: 600; margin-right: 8px;">Видимые столбцы:</span>
                     <button class="toggle-col-btn" onclick="toggleSummaryColumn(0)">Артикул</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(1)">Название</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(2)">SKU</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(3)">Рейтинг</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(4)">Отзывы</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(5)">Индекс цен</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(6)">FBO</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(7)">Заказы</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(8)">Цена в ЛК</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(9)">Соинвест</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(10)">Цена на сайте</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(11)">Ср. позиция</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(12)">Показы</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(13)">Посещения</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(14)">CTR</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(15)">Корзина</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(16)">CR1</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(17)">CR2</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(18)">Расходы</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(19)">CPO</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(20)">ДРР</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(21)">В пути</button>
-                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(22)">В заявках</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(1)">Рейтинг</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(2)">Отзывы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(3)">Индекс цен</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(4)">FBO</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(5)">Заказы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(6)">Цена в ЛК</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(7)">Соинвест</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(8)">Цена на сайте</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(9)">Ср. позиция</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(10)">Показы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(11)">Посещения</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(12)">CTR</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(13)">Корзина</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(14)">CR1</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(15)">CR2</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(16)">Расходы</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(17)">CPO</button>
+                    <button class="toggle-col-btn" onclick="toggleSummaryColumn(18)">ДРР</button>
                 </div>
                 <div class="table-wrapper">
                     ${html}
@@ -6326,6 +6329,24 @@ HTML_TEMPLATE = '''
 
             // Инициализируем изменение ширины столбцов
             initSummaryColumnResize();
+        }
+
+        /**
+         * Сортировка таблицы сводной по указанному полю
+         */
+        function sortSummaryTable(field) {
+            if (summarySortField === field) {
+                // Если уже сортируем по этому полю - меняем направление
+                summarySortAsc = !summarySortAsc;
+            } else {
+                // Новое поле - сортируем от большего к меньшему
+                summarySortField = field;
+                summarySortAsc = false;
+            }
+            // Перерисовываем таблицу
+            if (summaryData) {
+                renderSummary(summaryData);
+            }
         }
 
         /**
