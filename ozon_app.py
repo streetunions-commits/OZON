@@ -5027,6 +5027,229 @@ HTML_TEMPLATE = '''
             cursor: pointer;
         }
 
+        /* === Вкладка Сообщения === */
+        .messages-tab {
+            padding: 20px;
+        }
+
+        .messages-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .messages-header h3 {
+            margin: 0;
+            font-size: 20px;
+            color: #1f2937;
+        }
+
+        .messages-filters {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .filter-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .filter-checkbox input {
+            cursor: pointer;
+        }
+
+        .messages-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px 20px;
+            transition: box-shadow 0.2s;
+        }
+
+        .message-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .message-card.unread {
+            border-left: 4px solid #ef4444;
+            background: #fef2f2;
+        }
+
+        .message-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+            gap: 15px;
+        }
+
+        .message-card-info {
+            flex: 1;
+        }
+
+        .message-card-doc {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 4px;
+        }
+
+        .message-card-sender {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .message-card-time {
+            font-size: 12px;
+            color: #9ca3af;
+            white-space: nowrap;
+        }
+
+        .message-card-text {
+            font-size: 14px;
+            color: #1f2937;
+            line-height: 1.5;
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+
+        .message-card-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .message-btn {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .message-btn-reply {
+            background: #667eea;
+            color: white;
+        }
+
+        .message-btn-reply:hover {
+            background: #5a67d8;
+        }
+
+        .message-btn-read {
+            background: #e5e7eb;
+            color: #4b5563;
+        }
+
+        .message-btn-read:hover {
+            background: #d1d5db;
+        }
+
+        .message-btn-open {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .message-btn-open:hover {
+            background: #a7f3d0;
+        }
+
+        .messages-empty {
+            text-align: center;
+            color: #9ca3af;
+            padding: 40px;
+            font-size: 14px;
+        }
+
+        /* Модальное окно ответа */
+        .reply-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .reply-modal.active {
+            display: flex;
+        }
+
+        .reply-modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+
+        .reply-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .reply-modal-header h4 {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .reply-modal-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #6b7280;
+        }
+
+        .reply-modal-original {
+            background: #f3f4f6;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: #4b5563;
+        }
+
+        .reply-modal-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 100px;
+            margin-bottom: 16px;
+        }
+
+        .reply-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
         .wh-save-receipt-btn {
             padding: 14px 32px;
             background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
@@ -5505,6 +5728,7 @@ HTML_TEMPLATE = '''
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД <span id="warehouse-badge" class="tab-badge" style="display:none;"></span></button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
+                <button class="tab-button" onclick="switchTab(event, 'messages')" id="messages-tab-btn">Сообщения <span id="messages-badge" class="tab-badge" style="display:none;"></span></button>
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
 
@@ -5985,6 +6209,41 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
+            <!-- ТАБ: Сообщения (чат с Telegram) -->
+            <div id="messages" class="tab-content">
+                <div class="messages-tab">
+                    <div class="messages-header">
+                        <h3>💬 Сообщения из Telegram</h3>
+                        <div class="messages-filters">
+                            <label class="filter-checkbox">
+                                <input type="checkbox" id="messages-filter-unread" onchange="loadAllMessages()">
+                                <span>Только непрочитанные</span>
+                            </label>
+                            <button class="wh-clear-btn" onclick="markAllMessagesRead()">Отметить все прочитанными</button>
+                        </div>
+                    </div>
+                    <div class="messages-list" id="messages-list">
+                        <div class="loading">Загрузка сообщений...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Модальное окно ответа на сообщение -->
+            <div class="reply-modal" id="reply-modal" onclick="if(event.target===this)closeReplyModal()">
+                <div class="reply-modal-content">
+                    <div class="reply-modal-header">
+                        <h4>💬 Ответить на сообщение</h4>
+                        <button class="reply-modal-close" onclick="closeReplyModal()">&times;</button>
+                    </div>
+                    <div class="reply-modal-original" id="reply-original-text"></div>
+                    <textarea class="reply-modal-input" id="reply-textarea" placeholder="Введите ваш ответ..."></textarea>
+                    <div class="reply-modal-actions">
+                        <button class="message-btn message-btn-read" onclick="closeReplyModal()">Отмена</button>
+                        <button class="message-btn message-btn-reply" onclick="sendReplyFromModal()">📱 Отправить в Telegram</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- ТАБ: Пользователи (только для admin) -->
             <div id="users" class="tab-content">
                 <div class="users-tab">
@@ -6276,6 +6535,9 @@ HTML_TEMPLATE = '''
 
             // Обновляем badge с количеством неразобранных документов
             updateUnprocessedBadge();
+
+            // Обновляем badge сообщений
+            updateMessagesBadge();
         }
 
         // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
@@ -6369,6 +6631,10 @@ HTML_TEMPLATE = '''
             // Если открыли ВЭД - загружаем данные
             if (tab === 'ved') {
                 loadVed();
+            }
+            // Если открыли сообщения - загружаем список
+            if (tab === 'messages') {
+                loadAllMessages();
             }
             // Если открыли пользователей - загружаем список
             if (tab === 'users') {
@@ -7633,6 +7899,210 @@ HTML_TEMPLATE = '''
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ============================================================================
+        // ФУНКЦИИ ДЛЯ ВКЛАДКИ "СООБЩЕНИЯ"
+        // ============================================================================
+
+        // Загрузить все сообщения
+        function loadAllMessages() {
+            const unreadOnly = document.getElementById('messages-filter-unread')?.checked || false;
+            const listDiv = document.getElementById('messages-list');
+
+            listDiv.innerHTML = '<div class="loading">Загрузка сообщений...</div>';
+
+            const url = unreadOnly
+                ? '/api/document-messages/all?unread_only=true'
+                : '/api/document-messages/all';
+
+            authFetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.messages.length > 0) {
+                        listDiv.innerHTML = data.messages.map(msg => {
+                            const date = new Date(msg.created_at);
+                            const timeStr = date.toLocaleString('ru-RU', {
+                                day: '2-digit', month: '2-digit', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit'
+                            });
+                            const unreadClass = msg.is_read ? '' : 'unread';
+                            const docInfo = msg.doc_type === 'receipt'
+                                ? `Приход #${msg.doc_id}`
+                                : `Документ #${msg.doc_id}`;
+
+                            return `
+                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}">
+                                    <div class="message-card-header">
+                                        <div class="message-card-info">
+                                            <div class="message-card-doc">📄 ${docInfo}</div>
+                                            <div class="message-card-sender">📱 ${escapeHtml(msg.sender_name || 'Telegram')}</div>
+                                        </div>
+                                        <div class="message-card-time">${timeStr}</div>
+                                    </div>
+                                    <div class="message-card-text">${escapeHtml(msg.message)}</div>
+                                    <div class="message-card-actions">
+                                        <button class="message-btn message-btn-reply" onclick="openReplyModal(${msg.id}, '${escapeHtml(msg.message).replace(/'/g, "\\'")}', '${msg.doc_type}', ${msg.doc_id}, ${msg.telegram_chat_id || 0})">
+                                            💬 Ответить
+                                        </button>
+                                        <button class="message-btn message-btn-open" onclick="openDocumentFromMessage('${msg.doc_type}', ${msg.doc_id})">
+                                            📂 Открыть документ
+                                        </button>
+                                        ${!msg.is_read ? `
+                                            <button class="message-btn message-btn-read" onclick="markMessageRead(${msg.id})">
+                                                ✓ Просмотрено
+                                            </button>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        listDiv.innerHTML = '<div class="messages-empty">Нет сообщений из Telegram</div>';
+                    }
+                })
+                .catch(err => {
+                    console.error('Ошибка загрузки сообщений:', err);
+                    listDiv.innerHTML = '<div class="messages-empty">Ошибка загрузки сообщений</div>';
+                });
+        }
+
+        // Обновить badge сообщений
+        function updateMessagesBadge() {
+            authFetch('/api/document-messages/unread-count')
+                .then(r => r.json())
+                .then(data => {
+                    const badge = document.getElementById('messages-badge');
+                    if (data.success && data.count > 0) {
+                        badge.textContent = data.count;
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                })
+                .catch(err => console.error('Ошибка получения badge:', err));
+        }
+
+        // Отметить сообщение как прочитанное
+        function markMessageRead(messageId) {
+            authFetch('/api/document-messages/mark-read-single', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message_id: messageId })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    // Убрать класс unread с карточки
+                    const card = document.querySelector(`.message-card[data-message-id="${messageId}"]`);
+                    if (card) {
+                        card.classList.remove('unread');
+                        // Убрать кнопку "Просмотрено"
+                        const readBtn = card.querySelector('.message-btn-read');
+                        if (readBtn) readBtn.remove();
+                    }
+                    updateMessagesBadge();
+                }
+            })
+            .catch(err => console.error('Ошибка:', err));
+        }
+
+        // Отметить все сообщения как прочитанные
+        function markAllMessagesRead() {
+            if (!confirm('Отметить все сообщения как прочитанные?')) return;
+
+            authFetch('/api/document-messages/mark-all-read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    loadAllMessages();
+                    updateMessagesBadge();
+                }
+            })
+            .catch(err => console.error('Ошибка:', err));
+        }
+
+        // Открыть документ из сообщения
+        function openDocumentFromMessage(docType, docId) {
+            if (docType === 'receipt') {
+                // Переключиться на вкладку Склад → Оприходование
+                document.querySelector('[onclick*="warehouse"]')?.click();
+                setTimeout(() => {
+                    document.querySelector('[onclick*="wh-receipts"]')?.click();
+                    setTimeout(() => {
+                        editReceiptDoc(docId);
+                    }, 200);
+                }, 200);
+            }
+        }
+
+        // Переменные для модального окна ответа
+        let replyModalMessageId = null;
+        let replyModalDocType = null;
+        let replyModalDocId = null;
+        let replyModalChatId = null;
+
+        // Открыть модальное окно ответа
+        function openReplyModal(messageId, originalText, docType, docId, chatId) {
+            replyModalMessageId = messageId;
+            replyModalDocType = docType;
+            replyModalDocId = docId;
+            replyModalChatId = chatId;
+
+            document.getElementById('reply-original-text').textContent = originalText;
+            document.getElementById('reply-textarea').value = '';
+            document.getElementById('reply-modal').classList.add('active');
+            document.getElementById('reply-textarea').focus();
+        }
+
+        // Закрыть модальное окно ответа
+        function closeReplyModal() {
+            document.getElementById('reply-modal').classList.remove('active');
+            replyModalMessageId = null;
+        }
+
+        // Отправить ответ из модального окна
+        function sendReplyFromModal() {
+            const message = document.getElementById('reply-textarea').value.trim();
+            if (!message) {
+                alert('Введите текст ответа');
+                return;
+            }
+
+            const senderName = currentUser ? currentUser.username : 'Администратор';
+
+            authFetch('/api/document-messages/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    doc_type: replyModalDocType,
+                    doc_id: replyModalDocId,
+                    message: message,
+                    send_telegram: true,
+                    sender_name: senderName
+                })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    closeReplyModal();
+                    // Отметить исходное сообщение как прочитанное
+                    if (replyModalMessageId) {
+                        markMessageRead(replyModalMessageId);
+                    }
+                    alert('Ответ отправлен!');
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка отправки:', err);
+                alert('Ошибка отправки ответа');
+            });
         }
 
         // Загрузить историю приходов
@@ -13724,6 +14194,93 @@ def receive_telegram_message():
         conn.close()
 
         return jsonify({'success': True, 'message_id': message_id, 'doc_type': doc_type, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/all')
+@require_auth(['admin', 'viewer'])
+def get_all_document_messages():
+    """
+    Получить все сообщения из Telegram для вкладки "Сообщения".
+    Параметры: ?unread_only=true — только непрочитанные
+    """
+    try:
+        unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем сообщения из Telegram с информацией о документе
+        if unread_only:
+            cursor.execute('''
+                SELECT m.*, d.receiver_name, d.receipt_datetime
+                FROM document_messages m
+                LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
+                WHERE m.sender_type = 'telegram' AND m.is_read = 0
+                ORDER BY m.created_at DESC
+                LIMIT 100
+            ''')
+        else:
+            cursor.execute('''
+                SELECT m.*, d.receiver_name, d.receipt_datetime
+                FROM document_messages m
+                LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
+                WHERE m.sender_type = 'telegram'
+                ORDER BY m.created_at DESC
+                LIMIT 100
+            ''')
+
+        messages = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'messages': messages})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'messages': []})
+
+
+@app.route('/api/document-messages/mark-read-single', methods=['POST'])
+@require_auth(['admin'])
+def mark_single_message_read():
+    """Отметить одно сообщение как прочитанное."""
+    try:
+        data = request.json
+        message_id = data.get('message_id')
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'Укажите message_id'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('UPDATE document_messages SET is_read = 1 WHERE id = ?', (message_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/mark-all-read', methods=['POST'])
+@require_auth(['admin'])
+def mark_all_messages_read_api():
+    """Отметить все сообщения как прочитанные."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE document_messages SET is_read = 1
+            WHERE sender_type = 'telegram' AND is_read = 0
+        ''')
+        updated = cursor.rowcount
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'updated': updated})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
