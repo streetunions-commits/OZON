@@ -5386,6 +5386,10 @@ HTML_TEMPLATE = '''
                     <div class="receipt-form" id="receipt-form">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
+                                <div class="receipt-form-field" style="flex: 0 0 200px;">
+                                    <label>Дата и время прихода</label>
+                                    <input type="datetime-local" id="receipt-datetime" class="wh-input" style="cursor: pointer;">
+                                </div>
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий к приходу</label>
                                     <input type="text" id="receipt-comment" class="wh-input" placeholder="Например: Поставка от поставщика X">
@@ -5451,7 +5455,7 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th style="width: 60px;">№</th>
-                                        <th>Дата/время</th>
+                                        <th>Дата создания</th>
                                         <th>Товаров</th>
                                         <th>Общее кол-во</th>
                                         <th>Общая сумма</th>
@@ -6981,6 +6985,8 @@ HTML_TEMPLATE = '''
 
         // Инициализация формы прихода
         function initReceiptForm() {
+            // Устанавливаем текущую дату/время
+            setReceiptDatetimeToNow();
             // Добавляем первую пустую строку товара
             addReceiptItemRow();
         }
@@ -7116,7 +7122,13 @@ HTML_TEMPLATE = '''
 
         // Сохранить документ прихода
         function saveReceipt() {
+            const receiptDatetime = document.getElementById('receipt-datetime').value;
             const comment = document.getElementById('receipt-comment').value;
+
+            if (!receiptDatetime) {
+                alert('Укажите дату и время прихода');
+                return;
+            }
 
             const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
             const items = [];
@@ -7147,9 +7159,10 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Дата и время сохраняются автоматически на сервере
+            // Передаём выбранную дату/время прихода
             const data = {
                 doc_id: editingDocId,  // null для нового, число для редактирования
+                receipt_datetime: receiptDatetime,
                 comment: comment,
                 items: items
             };
@@ -7182,6 +7195,9 @@ HTML_TEMPLATE = '''
             // Сбросить режим редактирования
             editingDocId = null;
 
+            // Установить текущую дату/время
+            setReceiptDatetimeToNow();
+
             // Очистить комментарий
             document.getElementById('receipt-comment').value = '';
 
@@ -7198,6 +7214,18 @@ HTML_TEMPLATE = '''
 
             // Вернуть текст кнопки
             document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить приход';
+        }
+
+        // Установить текущую дату/время в поле прихода
+        function setReceiptDatetimeToNow() {
+            const now = new Date();
+            // Формат для datetime-local: YYYY-MM-DDTHH:MM
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('receipt-datetime').value = `${year}-${month}-${day}T${hours}:${minutes}`;
         }
 
         // Загрузить историю приходов
@@ -7375,6 +7403,13 @@ HTML_TEMPLATE = '''
                     if (data.success) {
                         // Устанавливаем режим редактирования
                         editingDocId = docId;
+
+                        // Заполняем дату/время прихода
+                        if (data.doc.receipt_datetime) {
+                            // Формат из БД: YYYY-MM-DDTHH:MM или подобный
+                            const dt = data.doc.receipt_datetime.substring(0, 16); // YYYY-MM-DDTHH:MM
+                            document.getElementById('receipt-datetime').value = dt;
+                        }
 
                         // Заполняем комментарий
                         document.getElementById('receipt-comment').value = data.doc.comment || '';
@@ -12652,11 +12687,12 @@ def get_receipt_doc(doc_id):
 def save_receipt_doc():
     """
     Сохранить или обновить документ прихода с позициями.
-    Дата и время сохраняются автоматически (текущее серверное время).
+    Дата и время передаются из формы (выбранные пользователем).
 
     Ожидает JSON:
     {
         "doc_id": null,  // null для нового, число для редактирования
+        "receipt_datetime": "2025-01-29T14:30",
         "comment": "Поставка от поставщика X",
         "items": [
             {"sku": 123, "quantity": 10, "purchase_price": 500},
@@ -12667,8 +12703,12 @@ def save_receipt_doc():
     try:
         data = request.json
         doc_id = data.get('doc_id')  # None для нового, число для редактирования
+        receipt_datetime = data.get('receipt_datetime', '')
         comment = data.get('comment', '')
         items = data.get('items', [])
+
+        if not receipt_datetime:
+            return jsonify({'success': False, 'error': 'Укажите дату и время прихода'})
 
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
@@ -12676,11 +12716,8 @@ def save_receipt_doc():
         # Получаем username текущего пользователя
         username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
 
-        # Используем текущее серверное время
-        from datetime import datetime
-        now = datetime.now()
-        receipt_datetime = now.strftime('%Y-%m-%dT%H:%M')
-        receipt_date = now.strftime('%Y-%m-%d')
+        # Извлекаем дату из datetime для receipt_date (формат YYYY-MM-DD)
+        receipt_date = receipt_datetime.split('T')[0] if 'T' in receipt_datetime else receipt_datetime[:10]
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -12689,9 +12726,9 @@ def save_receipt_doc():
             # Редактирование существующего документа
             cursor.execute('''
                 UPDATE warehouse_receipt_docs
-                SET comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET receipt_datetime = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (comment, username, doc_id))
+            ''', (receipt_datetime, comment, username, doc_id))
 
             # Удаляем старые позиции
             cursor.execute('DELETE FROM warehouse_receipts WHERE doc_id = ?', (doc_id,))
