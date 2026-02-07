@@ -7823,15 +7823,8 @@ HTML_TEMPLATE = '''
                         } else {
                             badge.style.display = 'none';
                         }
-
-                        // Отметить как прочитанные
-                        if (unread > 0) {
-                            authFetch('/api/document-messages/mark-read', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ doc_type: docType, doc_id: docId })
-                            });
-                        }
+                        // Сообщения НЕ помечаются как прочитанные автоматически
+                        // Только через кнопку "Просмотрено" или после ответа
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки сообщений:', err));
