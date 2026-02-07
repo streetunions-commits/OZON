@@ -3270,6 +3270,27 @@ HTML_TEMPLATE = '''
             color: #667eea;
         }
 
+        /* Badge для уведомлений во вкладках */
+        .tab-badge {
+            background: #f44336;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
+            min-width: 18px;
+            text-align: center;
+            display: inline-block;
+            animation: pulse-badge 2s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
         .tab-content {
             display: none;
             padding: 20px 30px;
@@ -5339,7 +5360,7 @@ HTML_TEMPLATE = '''
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
-                <button class="tab-button" onclick="switchTab(event, 'warehouse')">СКЛАД</button>
+                <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД <span id="warehouse-badge" class="tab-badge" style="display:none;"></span></button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
@@ -5512,6 +5533,7 @@ HTML_TEMPLATE = '''
                                         <th>Общее кол-во</th>
                                         <th>Общая сумма</th>
                                         <th>Комментарий</th>
+                                        <th>Изменено</th>
                                         <th>Источник</th>
                                         <th>Статус</th>
                                         <th style="width: 100px;"></th>
@@ -6076,6 +6098,9 @@ HTML_TEMPLATE = '''
                     restoreActiveSubTab();
                 }, 50);
             }
+
+            // Обновляем badge с количеством неразобранных документов
+            updateUnprocessedBadge();
         }
 
         // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
@@ -7285,6 +7310,24 @@ HTML_TEMPLATE = '''
             dateInput.max = today;
         }
 
+        // Обновить badge с количеством неразобранных документов
+        function updateUnprocessedBadge() {
+            authFetch('/api/warehouse/unprocessed-count')
+                .then(r => r.json())
+                .then(data => {
+                    const badge = document.getElementById('warehouse-badge');
+                    if (data.success && data.count > 0) {
+                        badge.textContent = data.count;
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                })
+                .catch(err => {
+                    console.error('Ошибка получения badge:', err);
+                });
+        }
+
         // Загрузить историю приходов
         function loadReceiptHistory() {
             authFetch('/api/warehouse/receipt-docs')
@@ -7427,6 +7470,17 @@ HTML_TEMPLATE = '''
                 const tdComment = document.createElement('td');
                 tdComment.textContent = doc.comment || '';
                 row.appendChild(tdComment);
+
+                // Изменено (дата/время и кто изменил)
+                const tdUpdated = document.createElement('td');
+                if (doc.updated_at && doc.updated_by) {
+                    const updDt = new Date(doc.updated_at);
+                    const updStr = updDt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    tdUpdated.innerHTML = `<span style="color:#666;">${updStr}</span><br><span style="font-size:12px;">${doc.updated_by}</span>`;
+                } else {
+                    tdUpdated.textContent = '—';
+                }
+                row.appendChild(tdUpdated);
 
                 // Источник (web или telegram)
                 const tdSource = document.createElement('td');
