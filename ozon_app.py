@@ -589,6 +589,24 @@ def init_database():
         )
     ''')
 
+    # Сообщения к документам (чат между сайтом и Telegram)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS document_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_type TEXT NOT NULL,
+            doc_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            sender_type TEXT NOT NULL,
+            sender_name TEXT DEFAULT '',
+            telegram_chat_id INTEGER,
+            telegram_message_id INTEGER,
+            is_read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    # doc_type: 'receipt' (оприходование), 'shipment' (отгрузка)
+    # sender_type: 'web' (с сайта), 'telegram' (из Telegram)
+
     # Документы отгрузок (шапка документа: дата/время, назначение, комментарий, автор)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shipment_docs (
@@ -4221,6 +4239,21 @@ HTML_TEMPLATE = '''
             color: #999;
         }
 
+        /* ВЭД - Внешнеэкономическая деятельность */
+        .ved-container {
+            padding: 0;
+        }
+
+        .ved-header {
+            padding: 20px 0;
+            border-bottom: 1px solid #e9ecef;
+            margin-bottom: 20px;
+        }
+
+        .ved-content {
+            min-height: 300px;
+        }
+
         .supplies-table-wrapper {
             position: relative;
         }
@@ -5362,6 +5395,7 @@ HTML_TEMPLATE = '''
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД <span id="warehouse-badge" class="tab-badge" style="display:none;"></span></button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
+                <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
 
@@ -5810,6 +5844,19 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
+            <!-- ТАБ: ВЭД (внешнеэкономическая деятельность) -->
+            <div id="ved" class="tab-content">
+                <div class="ved-container">
+                    <div class="ved-header">
+                        <h3 style="margin: 0; color: #333; font-weight: 600;">Внешнеэкономическая деятельность</h3>
+                        <p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">Управление импортными операциями и расчётами</p>
+                    </div>
+                    <div class="ved-content" id="ved-content">
+                        <div class="loading">Раздел ВЭД в разработке...</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- ТАБ: Пользователи (только для admin) -->
             <div id="users" class="tab-content">
                 <div class="users-tab">
@@ -6042,7 +6089,7 @@ HTML_TEMPLATE = '''
             // Формат hash: "tab" или "tab:subtab" (например "warehouse:wh-stock")
             const hashValue = location.hash.replace('#', '');
             const [savedTab, savedSubtab] = hashValue.split(':');
-            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'users'];
+            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
 
             if (savedTab && validTabs.includes(savedTab)) {
@@ -6190,6 +6237,10 @@ HTML_TEMPLATE = '''
             // Если открыли поставки - загружаем данные
             if (tab === 'supplies') {
                 loadSupplies();
+            }
+            // Если открыли ВЭД - загружаем данные
+            if (tab === 'ved') {
+                loadVed();
             }
             // Если открыли пользователей - загружаем список
             if (tab === 'users') {
@@ -9864,6 +9915,28 @@ HTML_TEMPLATE = '''
             });
 
             suppliesLoaded = true;
+        }
+
+        // ============================================================================
+        // ВЭД - ВНЕШНЕЭКОНОМИЧЕСКАЯ ДЕЯТЕЛЬНОСТЬ
+        // ============================================================================
+
+        /**
+         * Загрузка данных вкладки "ВЭД"
+         * Раздел для управления импортными операциями и расчётами
+         */
+        function loadVed() {
+            // Placeholder - раздел в разработке
+            const vedContent = document.getElementById('ved-content');
+            if (vedContent) {
+                vedContent.innerHTML = `
+                    <div style="text-align: center; padding: 60px 20px; color: #666;">
+                        <div style="font-size: 48px; margin-bottom: 20px;">🚧</div>
+                        <h3 style="margin: 0 0 12px 0; color: #333;">Раздел ВЭД в разработке</h3>
+                        <p style="margin: 0; font-size: 14px;">Здесь будет функционал для управления внешнеэкономической деятельностью</p>
+                    </div>
+                `;
+            }
         }
 
         /**
