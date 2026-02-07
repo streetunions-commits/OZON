@@ -7866,6 +7866,15 @@ HTML_TEMPLATE = '''
                     input.value = '';
                     // Перезагрузить сообщения
                     loadDocumentMessages('receipt', editingDocId);
+                    // Отметить все сообщения документа как прочитанные (ответ = прочитано)
+                    authFetch('/api/document-messages/mark-read', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ doc_type: 'receipt', doc_id: editingDocId })
+                    }).then(() => {
+                        // Обновить badge на вкладке Сообщения
+                        updateMessagesBadge();
+                    });
                 } else {
                     alert('Ошибка отправки: ' + (result.error || 'Неизвестная ошибка'));
                 }
