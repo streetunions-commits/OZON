@@ -1,0 +1,39 @@
+# ============================================================================
+# SYSTEMD СЕРВИС ДЛЯ TELEGRAM БОТА @Moscow_Seller
+# ============================================================================
+#
+# Установка:
+#   1. Скопировать файл: sudo cp ozon-telegram-bot.service /etc/systemd/system/
+#   2. Перезагрузить systemd: sudo systemctl daemon-reload
+#   3. Запустить: sudo systemctl start ozon-telegram-bot
+#   4. Автозапуск: sudo systemctl enable ozon-telegram-bot
+#
+# Управление:
+#   sudo systemctl status ozon-telegram-bot    # Статус
+#   sudo systemctl restart ozon-telegram-bot   # Перезапуск
+#   sudo systemctl stop ozon-telegram-bot      # Остановка
+#   sudo journalctl -u ozon-telegram-bot -f    # Логи
+#
+# ============================================================================
+
+[Unit]
+Description=OZON Tracker Telegram Bot (Moscow Seller)
+After=network.target ozon-tracker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/OZON
+ExecStart=/usr/bin/python3 /root/OZON/telegram_bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Переменные окружения (можно указать здесь или в .env)
+# Environment=TELEGRAM_BOT_TOKEN=xxx
+# Environment=TELEGRAM_BOT_SECRET=xxx
+# Environment=API_BASE_URL=http://127.0.0.1:8000
+
+[Install]
+WantedBy=multi-user.target
