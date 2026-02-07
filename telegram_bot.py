@@ -95,6 +95,17 @@ logger = logging.getLogger(__name__)
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================================================
 
+def escape_markdown(text: str) -> str:
+    """
+    Экранирует специальные символы Markdown.
+    Telegram использует символы *_`[ для форматирования.
+    """
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
 def is_authorized(chat_id: int) -> bool:
     """
     Проверяет, авторизован ли пользователь.
@@ -170,7 +181,7 @@ def format_product_list(items: list) -> str:
 
     lines = []
     for i, item in enumerate(items, 1):
-        lines.append(f"{i}. {item['offer_id']} × {item['quantity']} шт.")
+        lines.append(f"{i}. {escape_markdown(item['offer_id'])} × {item['quantity']} шт.")
 
     return "\n".join(lines)
 
@@ -483,7 +494,7 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data['current_product'] = product
 
     await query.edit_message_text(
-        f"✅ *{product['offer_id']}*\n"
+        f"✅ *{escape_markdown(product['offer_id'])}*\n"
         f"SKU: `{product['sku']}`\n\n"
         "📊 Введите количество (шт.):",
         parse_mode='Markdown'
@@ -517,7 +528,7 @@ async def product_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data['current_product'] = product
 
         await update.message.reply_text(
-            f"✅ *{product['offer_id']}*\n"
+            f"✅ *{escape_markdown(product['offer_id'])}*\n"
             f"SKU: `{product['sku']}`\n\n"
             "📊 Введите количество (шт.):",
             parse_mode='Markdown'
@@ -580,7 +591,7 @@ async def quantity_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     items = context.user_data['receipt']['items']
 
     await update.message.reply_text(
-        f"✅ Добавлено: *{product['offer_id']}* × {quantity} шт.\n\n"
+        f"✅ Добавлено: *{escape_markdown(product['offer_id'])}* × {quantity} шт.\n\n"
         f"────────────────────────\n"
         f"📋 *В документе:*\n"
         f"{format_product_list(items)}\n"
