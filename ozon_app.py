@@ -5302,12 +5302,12 @@ HTML_TEMPLATE = '''
             <div id="history" class="tab-content active">
                 <!-- Внутренние вкладки -->
                 <div class="sub-tabs">
-                    <button class="sub-tab-button active" onclick="switchSubTab(event, 'product-analysis')">Анализ товара</button>
-                    <button class="sub-tab-button" onclick="switchSubTab(event, 'summary')">Сводная</button>
+                    <button class="sub-tab-button active" onclick="switchSubTab(event, 'summary')">Сводная</button>
+                    <button class="sub-tab-button" onclick="switchSubTab(event, 'product-analysis')">Анализ товара</button>
                 </div>
 
                 <!-- Под-вкладка: Анализ товара -->
-                <div id="product-analysis" class="sub-tab-content active">
+                <div id="product-analysis" class="sub-tab-content">
                     <div class="table-header">
                         <div class="date-filters-inline">
                             <input type="date" id="date-from" class="date-filter-input" onclick="this.showPicker()" onchange="applyDateFilter()">
@@ -5331,7 +5331,7 @@ HTML_TEMPLATE = '''
                 </div>
 
                 <!-- Под-вкладка: Сводная -->
-                <div id="summary" class="sub-tab-content">
+                <div id="summary" class="sub-tab-content active">
                     <div class="table-header" style="flex-wrap: wrap; gap: 12px;">
                         <div class="date-filters-inline" style="flex-wrap: wrap; gap: 8px; align-items: center;">
                             <!-- Кнопки быстрого выбора периода -->
@@ -5989,6 +5989,10 @@ HTML_TEMPLATE = '''
                 // Загружаем данные для восстановленного таба
                 if (savedTab === 'history') {
                     loadProductsList();
+                    // Восстанавливаем активную под-вкладку OZON
+                    setTimeout(() => {
+                        restoreActiveSubTab();
+                    }, 50);
                 } else if (savedTab === 'fbo') {
                     loadProductsList();
                     loadFboAnalytics();
@@ -6009,8 +6013,12 @@ HTML_TEMPLATE = '''
                     loadUsers();
                 }
             } else {
-                // По умолчанию — первый таб
+                // По умолчанию — первый таб (OZON)
                 loadProductsList();
+                // Восстанавливаем активную под-вкладку OZON
+                setTimeout(() => {
+                    restoreActiveSubTab();
+                }, 50);
             }
         }
 
@@ -6116,10 +6124,51 @@ HTML_TEMPLATE = '''
 
             // Показываем нужную под-вкладку
             document.getElementById(subTab).classList.add('active');
-            e.target.classList.add('active');
+            if (e && e.target) {
+                e.target.classList.add('active');
+            } else {
+                // Если вызвано программно - находим кнопку по subTab
+                document.querySelectorAll('.sub-tab-button').forEach(btn => {
+                    if (btn.textContent.includes(subTab === 'summary' ? 'Сводная' : 'Анализ')) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+
+            // Сохраняем выбранную под-вкладку в localStorage
+            localStorage.setItem('ozon_active_subtab', subTab);
 
             // Если открыли сводную - загружаем данные
             if (subTab === 'summary') {
+                loadSummary();
+            }
+        }
+
+        // ✅ Восстановление активной под-вкладки при загрузке страницы
+        function restoreActiveSubTab() {
+            const savedSubTab = localStorage.getItem('ozon_active_subtab');
+            if (savedSubTab && (savedSubTab === 'summary' || savedSubTab === 'product-analysis')) {
+                // Скрываем все под-вкладки
+                document.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.sub-tab-button').forEach(el => el.classList.remove('active'));
+
+                // Показываем сохранённую под-вкладку
+                document.getElementById(savedSubTab).classList.add('active');
+
+                // Активируем соответствующую кнопку
+                document.querySelectorAll('.sub-tab-button').forEach(btn => {
+                    if ((savedSubTab === 'summary' && btn.textContent.includes('Сводная')) ||
+                        (savedSubTab === 'product-analysis' && btn.textContent.includes('Анализ'))) {
+                        btn.classList.add('active');
+                    }
+                });
+
+                // Загружаем данные для активной вкладки
+                if (savedSubTab === 'summary') {
+                    loadSummary();
+                }
+            } else {
+                // По умолчанию загружаем сводную
                 loadSummary();
             }
         }
