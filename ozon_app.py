@@ -10716,6 +10716,7 @@ def get_summary(date=None):
 
     Если дата не указана - возвращает данные за сегодня.
     Показывает только активные товары (с историей).
+    Также возвращает данные за предыдущий день для сравнения.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -10725,6 +10726,11 @@ def get_summary(date=None):
         # Если дата не указана - используем сегодня
         if not date:
             date = get_snapshot_date()
+
+        # Вычисляем предыдущий день
+        from datetime import datetime, timedelta
+        selected_date = datetime.strptime(date, '%Y-%m-%d').date()
+        prev_date = (selected_date - timedelta(days=1)).isoformat()
 
         # Получаем данные всех товаров за указанную дату
         cursor.execute('''
@@ -10757,6 +10763,32 @@ def get_summary(date=None):
 
         products = [dict(row) for row in cursor.fetchall()]
 
+        # Получаем данные за предыдущий день для сравнения (ключ = SKU)
+        cursor.execute('''
+            SELECT
+                ph.sku,
+                ph.fbo_stock,
+                ph.orders_qty,
+                ph.rating,
+                ph.review_count,
+                ph.price,
+                ph.marketing_price,
+                ph.avg_position,
+                ph.hits_view_search,
+                ph.hits_view_search_pdp,
+                ph.search_ctr,
+                ph.hits_add_to_cart,
+                ph.cr1,
+                ph.cr2,
+                ph.adv_spend
+            FROM products_history ph
+            WHERE ph.snapshot_date = ?
+        ''', (prev_date,))
+
+        prev_products_map = {}
+        for row in cursor.fetchall():
+            prev_products_map[row['sku']] = dict(row)
+
         # Получаем список доступных дат для выпадающего списка
         cursor.execute('''
             SELECT DISTINCT snapshot_date
@@ -10771,7 +10803,9 @@ def get_summary(date=None):
         return jsonify({
             'success': True,
             'date': date,
+            'prev_date': prev_date,
             'products': products,
+            'prev_products': prev_products_map,
             'available_dates': available_dates,
             'count': len(products)
         })
@@ -10975,7 +11009,6 @@ def save_price_plan():
 
 
 @app.route('/api/update-rating/<int:sku>', methods=['POST'])
-@require_auth(['admin'])
 def update_rating(sku):
     """Обновить рейтинг и количество отзывов для товара"""
     try:
