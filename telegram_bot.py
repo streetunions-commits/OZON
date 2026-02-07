@@ -337,12 +337,23 @@ async def date_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 async def custom_date_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Обработка ввода произвольной даты.
+    Запрещены будущие даты — только сегодня или раньше.
     """
     date_str = update.message.text.strip()
 
     try:
         # Парсим дату в формате ДД.ММ.ГГГГ
         parsed_date = datetime.strptime(date_str, '%d.%m.%Y')
+
+        # Проверяем что дата не в будущем
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if parsed_date > today:
+            await update.message.reply_text(
+                "❌ Нельзя указывать будущую дату.\n"
+                "Введите сегодняшнюю или прошедшую дату:"
+            )
+            return STATE_RECEIPT_DATE
+
         context.user_data['receipt']['receipt_date'] = parsed_date.strftime('%Y-%m-%d')
     except ValueError:
         await update.message.reply_text(
