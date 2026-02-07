@@ -7985,6 +7985,8 @@ HTML_TEMPLATE = '''
 
         // Отметить сообщение как прочитанное
         function markMessageRead(messageId) {
+            if (!confirm('Отметить сообщение как прочитанное?')) return;
+
             authFetch('/api/document-messages/mark-read-single', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
