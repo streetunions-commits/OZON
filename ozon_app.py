@@ -14108,7 +14108,14 @@ def send_document_message():
                 telegram_chat_id = row['telegram_chat_id']
 
                 # Формируем сообщение для Telegram
-                tg_text = f"💬 <b>Сообщение по документу #{doc_id}</b>\n\n{message}\n\n<i>— {sender_name}</i>"
+                doc_type_name = 'Приход' if doc_type == 'receipt' else 'Отгрузка' if doc_type == 'shipment' else 'Документ'
+                site_url = 'http://89.167.25.21:8000'
+                tg_text = (
+                    f"💬 <b>Сообщение к {doc_type_name.lower()}у #{doc_id}</b>\n\n"
+                    f"{message}\n\n"
+                    f"<i>— {sender_name}</i>\n\n"
+                    f"🔗 <a href=\"{site_url}\">Открыть на сайте</a>"
+                )
 
                 # Отправляем с кнопкой "Ответить"
                 result = send_telegram_message(telegram_chat_id, tg_text, doc_type=doc_type, doc_id=doc_id)
