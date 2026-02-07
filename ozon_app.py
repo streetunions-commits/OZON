@@ -7984,8 +7984,9 @@ HTML_TEMPLATE = '''
         }
 
         // Отметить сообщение как прочитанное
-        function markMessageRead(messageId) {
-            if (!confirm('Отметить сообщение как прочитанное?')) return;
+        // skipConfirm=true — не спрашивать подтверждение (используется при автоматической пометке после ответа)
+        function markMessageRead(messageId, skipConfirm = false) {
+            if (!skipConfirm && !confirm('Отметить сообщение как прочитанное?')) return;
 
             authFetch('/api/document-messages/mark-read-single', {
                 method: 'POST',
@@ -8092,9 +8093,9 @@ HTML_TEMPLATE = '''
             .then(result => {
                 if (result.success) {
                     closeReplyModal();
-                    // Отметить исходное сообщение как прочитанное
+                    // Отметить исходное сообщение как прочитанное (без подтверждения)
                     if (replyModalMessageId) {
-                        markMessageRead(replyModalMessageId);
+                        markMessageRead(replyModalMessageId, true);
                     }
                     alert('Ответ отправлен!');
                 } else {
