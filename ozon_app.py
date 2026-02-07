@@ -6473,9 +6473,9 @@ HTML_TEMPLATE = '''
          */
         function initApp() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
-            // Формат hash: "tab" или "tab:subtab" (например "warehouse:wh-stock")
+            // Формат hash: "tab" или "tab:subtab" или "tab:subtab:doc_id" (например "warehouse:wh-receipt:12")
             const hashValue = location.hash.replace('#', '');
-            const [savedTab, savedSubtab] = hashValue.split(':');
+            const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
             const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
 
@@ -6516,6 +6516,12 @@ HTML_TEMPLATE = '''
                         // Небольшая задержка чтобы DOM успел отрисоваться
                         setTimeout(() => {
                             activateWarehouseSubtab(savedSubtab);
+                            // Если указан ID документа - открываем его для редактирования
+                            if (savedDocId && savedSubtab === 'wh-receipt') {
+                                setTimeout(() => {
+                                    editReceiptDoc(parseInt(savedDocId));
+                                }, 200);
+                            }
                         }, 50);
                     }
                 } else if (savedTab === 'supplies') {
@@ -14109,12 +14115,14 @@ def send_document_message():
 
                 # Формируем сообщение для Telegram
                 doc_type_name = 'Приход' if doc_type == 'receipt' else 'Отгрузка' if doc_type == 'shipment' else 'Документ'
-                site_url = 'http://moscowseller.ru'
+                # Ссылка на конкретный документ: #warehouse:wh-receipt:ID
+                subtab = 'wh-receipt' if doc_type == 'receipt' else 'wh-shipments'
+                doc_url = f'http://moscowseller.ru/#warehouse:{subtab}:{doc_id}'
                 tg_text = (
                     f"💬 <b>Сообщение к {doc_type_name.lower()}у #{doc_id}</b>\n\n"
                     f"{message}\n\n"
                     f"<i>— {sender_name}</i>\n\n"
-                    f"🔗 <a href=\"{site_url}\">Открыть на сайте</a>"
+                    f"🔗 <a href=\"{doc_url}\">Открыть {doc_type_name.lower()} #{doc_id}</a>"
                 )
 
                 # Отправляем с кнопкой "Ответить"
