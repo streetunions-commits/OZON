@@ -6174,11 +6174,81 @@ HTML_TEMPLATE = '''
                 return String(Math.round(num)).replace(/\\B(?=(\d{3})+(?!\\d))/g, ' ');
             }
 
+            // ============================================================
+            // РАСЧЁТ СУММ ПО СТОЛБЦАМ (текущий и предыдущий день)
+            // ============================================================
+            let totalOrders = 0, totalViews = 0, totalPdp = 0, totalCart = 0, totalSpend = 0;
+            let prevTotalOrders = 0, prevTotalViews = 0, prevTotalPdp = 0, prevTotalCart = 0, prevTotalSpend = 0;
+
+            // Суммируем текущий день
+            data.products.forEach(item => {
+                totalOrders += item.orders_qty || 0;
+                totalViews += item.hits_view_search || 0;
+                totalPdp += item.hits_view_search_pdp || 0;
+                totalCart += item.hits_add_to_cart || 0;
+                totalSpend += item.adv_spend || 0;
+            });
+
+            // Суммируем предыдущий день
+            Object.values(prevProducts).forEach(item => {
+                prevTotalOrders += item.orders_qty || 0;
+                prevTotalViews += item.hits_view_search || 0;
+                prevTotalPdp += item.hits_view_search_pdp || 0;
+                prevTotalCart += item.hits_add_to_cart || 0;
+                prevTotalSpend += item.adv_spend || 0;
+            });
+
+            // Функция для создания ячейки итога с разницей
+            function createTotalCell(current, previous, suffix = '', lessIsBetter = false) {
+                const diff = current - previous;
+                let bgColor = '';
+                let diffHtml = '';
+
+                if (previous > 0 && diff !== 0) {
+                    const isPositive = lessIsBetter ? (diff < 0) : (diff > 0);
+                    bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                    const textColor = isPositive ? '#22c55e' : '#ef4444';
+                    const diffSign = diff > 0 ? '+' : '';
+                    diffHtml = `<br><span style="font-size: 12px; color: ${textColor}; font-weight: 500;">${diffSign}${formatNumber(Math.round(diff))}${suffix}</span>`;
+                }
+
+                const bgStyle = bgColor ? `background-color: ${bgColor};` : '';
+                return `<div style="display: inline-block; padding: 8px 16px; border-radius: 8px; ${bgStyle} text-align: center;">
+                    <strong style="font-size: 18px;">${formatNumber(Math.round(current))}${suffix}</strong>${diffHtml}
+                </div>`;
+            }
+
+            // HTML блок с итогами над таблицей
+            let totalsHtml = `
+                <div style="display: flex; gap: 16px; margin-bottom: 16px; padding: 12px; background: #f8f9fa; border-radius: 8px; flex-wrap: wrap; justify-content: center;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Заказы</div>
+                        ${createTotalCell(totalOrders, prevTotalOrders)}
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Показы</div>
+                        ${createTotalCell(totalViews, prevTotalViews)}
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Посещения</div>
+                        ${createTotalCell(totalPdp, prevTotalPdp)}
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Корзина</div>
+                        ${createTotalCell(totalCart, prevTotalCart)}
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Расходы</div>
+                        ${createTotalCell(totalSpend, prevTotalSpend, ' ₽', true)}
+                    </div>
+                </div>
+            `;
+
             // Определяем стрелку сортировки
             const ordersSortArrow = summarySortField === 'orders_qty' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
             const spendSortArrow = summarySortField === 'adv_spend' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
 
-            let html = '<table id="summary-table"><thead><tr>';
+            let html = totalsHtml + '<table id="summary-table"><thead><tr>';
             html += '<th>Артикул</th>';
             html += '<th>Рейтинг</th>';
             html += '<th>Отзывы</th>';
