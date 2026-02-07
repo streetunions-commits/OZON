@@ -549,6 +549,46 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
 
+    # ============================================================================
+    # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
+    # ============================================================================
+
+    # source: откуда создан документ ('web' или 'telegram')
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipt_docs ADD COLUMN source TEXT DEFAULT "web"')
+    except sqlite3.OperationalError:
+        pass
+
+    # is_processed: разобран ли документ (1 = да, 0 = нет, требует проверки)
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipt_docs ADD COLUMN is_processed INTEGER DEFAULT 1')
+    except sqlite3.OperationalError:
+        pass
+
+    # telegram_chat_id: ID чата Telegram откуда создан документ
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipt_docs ADD COLUMN telegram_chat_id INTEGER')
+    except sqlite3.OperationalError:
+        pass
+
+    # ============================================================================
+    # ТАБЛИЦА TELEGRAM ПОЛЬЗОВАТЕЛЕЙ
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS telegram_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER UNIQUE NOT NULL,
+            username TEXT DEFAULT '',
+            first_name TEXT DEFAULT '',
+            last_name TEXT DEFAULT '',
+            is_authorized INTEGER DEFAULT 0,
+            auth_code TEXT,
+            auth_code_expires TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP
+        )
+    ''')
+
     # Документы отгрузок (шапка документа: дата/время, назначение, комментарий, автор)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shipment_docs (
@@ -5453,7 +5493,7 @@ HTML_TEMPLATE = '''
                                 <label style="font-size: 13px; color: #666;">№ прихода:</label>
                                 <input type="text" id="receipt-filter-docnum" class="wh-input" style="width: 80px; text-align: center;" placeholder="123" oninput="this.value = this.value.replace(/[^0-9]/g, ''); filterReceiptHistory()">
                                 <span style="color: #ddd; margin: 0 4px;">|</span>
-                                <label style="font-size: 13px; color: #666;">Период:</label>
+                                <label style="font-size: 13px; color: #666;">Период прихода:</label>
                                 <input type="date" id="receipt-date-from" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
                                 <span style="color: #999;">—</span>
                                 <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
