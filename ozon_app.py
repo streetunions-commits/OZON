@@ -12975,6 +12975,9 @@ def mark_receipt_doc_processed():
     """
     Отметить документ прихода как разобранный.
     Используется для документов, созданных через Telegram.
+
+    Проверяет, что все позиции имеют указанную цену закупки > 0.
+    Если цена не указана — возвращает ошибку.
     """
     try:
         data = request.json
@@ -12984,8 +12987,34 @@ def mark_receipt_doc_processed():
             return jsonify({'success': False, 'error': 'Не указан ID документа'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        # Проверяем, что все позиции имеют цену закупки
+        cursor.execute('''
+            SELECT r.id, r.sku, p.name, r.purchase_price
+            FROM warehouse_receipts r
+            LEFT JOIN products p ON p.sku = r.sku
+            WHERE r.doc_id = ? AND (r.purchase_price IS NULL OR r.purchase_price <= 0)
+        ''', (doc_id,))
+
+        items_without_price = cursor.fetchall()
+
+        if items_without_price:
+            # Есть позиции без цены — возвращаем ошибку
+            items_list = []
+            for item in items_without_price:
+                name = item['name'] or f"SKU {item['sku']}"
+                items_list.append(name)
+
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': f"Укажите цену закупки для: {', '.join(items_list[:3])}{'...' if len(items_list) > 3 else ''}",
+                'items_without_price': len(items_without_price)
+            })
+
+        # Все позиции имеют цену — помечаем как разобранный
         cursor.execute('''
             UPDATE warehouse_receipt_docs
             SET is_processed = 1, updated_at = CURRENT_TIMESTAMP
