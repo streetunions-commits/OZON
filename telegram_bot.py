@@ -366,10 +366,15 @@ async def custom_date_entered(update: Update, context: ContextTypes.DEFAULT_TYPE
     return await show_product_selection(update, context, is_message=True)
 
 
-async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_TYPE, is_message: bool = False) -> int:
+async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_TYPE, is_message: bool = False, page: int = 0) -> int:
     """
-    Показать список товаров для выбора.
+    Показать список товаров для выбора с пагинацией.
+
+    Аргументы:
+        page: Номер страницы (0, 1, 2...)
     """
+    PAGE_SIZE = 8  # Товаров на странице
+
     products = get_products()
 
     if not products:
@@ -380,19 +385,38 @@ async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_
             await update_or_query.edit_message_text(text)
         return ConversationHandler.END
 
-    # Создаём кнопки с товарами (показываем первые 10)
+    # Сохраняем текущую страницу
+    context.user_data['product_page'] = page
+
+    # Вычисляем срез для текущей страницы
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_products = products[start:end]
+
+    # Создаём кнопки с товарами
     keyboard = []
-    for product in products[:10]:
+    for product in page_products:
         name = product['name'][:40] + '...' if len(product['name']) > 40 else product['name']
         keyboard.append([
             InlineKeyboardButton(name, callback_data=f"product:{product['sku']}")
         ])
 
-    if len(products) > 10:
-        keyboard.append([
-            InlineKeyboardButton(f"📋 Ещё {len(products) - 10} товаров...", callback_data="product:more")
-        ])
+    # Кнопки навигации
+    nav_buttons = []
 
+    # Кнопка "Назад" если не первая страница
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"page:{page - 1}"))
+
+    # Кнопка "Ещё" если есть следующие товары
+    if end < len(products):
+        remaining = len(products) - end
+        nav_buttons.append(InlineKeyboardButton(f"➡️ Ещё {remaining}", callback_data=f"page:{page + 1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # Кнопка поиска
     keyboard.append([
         InlineKeyboardButton("🔍 Поиск по названию/SKU", callback_data="product:search")
     ])
@@ -404,7 +428,11 @@ async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_
     if receipt['items']:
         items_text = f"\n\n📋 *В документе:*\n{format_product_list(receipt['items'])}"
 
-    text = f"📦 *Выберите товар:*{items_text}"
+    # Показываем номер страницы
+    total_pages = (len(products) + PAGE_SIZE - 1) // PAGE_SIZE
+    page_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+
+    text = f"📦 *Выберите товар{page_info}:*{items_text}"
 
     if is_message:
         await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
@@ -412,6 +440,20 @@ async def show_product_selection(update_or_query, context: ContextTypes.DEFAULT_
         await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
 
     return STATE_SELECT_PRODUCT
+
+
+async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка пагинации — переход на другую страницу списка товаров.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Извлекаем номер страницы из callback_data (например, "page:2")
+    page = int(query.data.split(':')[1])
+
+    # Показываем товары на выбранной странице
+    return await show_product_selection(query, context, is_message=False, page=page)
 
 
 async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -426,13 +468,6 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if data == 'search':
         await query.edit_message_text(
             "🔍 Введите SKU или часть названия товара:"
-        )
-        return STATE_SELECT_PRODUCT
-
-    if data == 'more':
-        # Показать все товары (в реальности нужна пагинация)
-        await query.edit_message_text(
-            "🔍 Введите SKU или часть названия товара для поиска:"
         )
         return STATE_SELECT_PRODUCT
 
@@ -783,6 +818,7 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, custom_date_entered)
             ],
             STATE_SELECT_PRODUCT: [
+                CallbackQueryHandler(page_callback, pattern=r'^page:'),
                 CallbackQueryHandler(product_callback, pattern=r'^product:'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, product_search)
             ],
