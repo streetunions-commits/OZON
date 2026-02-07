@@ -6154,6 +6154,9 @@ HTML_TEMPLATE = '''
             // Сохраняем данные для пересортировки
             summaryData = data;
 
+            // Получаем данные за предыдущий день (объект с ключами по SKU)
+            const prevProducts = data.prev_products || {};
+
             // Сортируем данные
             const sortedProducts = [...data.products].sort((a, b) => {
                 let valA = a[summarySortField] || 0;
@@ -6200,20 +6203,51 @@ HTML_TEMPLATE = '''
             sortedProducts.forEach((item) => {
                 const stockClass = item.fbo_stock < 5 ? 'stock low' : 'stock';
 
+                // Получаем данные за предыдущий день для этого товара
+                const prevItem = prevProducts[item.sku] || null;
+
                 html += '<tr>';
 
                 // Артикул (offer_id) - кликабельный для открытия на Ozon
                 html += `<td><strong><span onclick="openProductOnOzon('${item.sku}')" style="cursor: pointer; color: #0066cc; text-decoration: underline;" title="Открыть товар на Ozon">${item.offer_id || '—'}</span></strong></td>`;
 
-                // Рейтинг
-                const rating = item.rating !== null && item.rating !== undefined ? item.rating.toFixed(1) : '—';
-                html += `<td><strong>${rating}</strong></td>`;
+                // Рейтинг (с разницей, больше = лучше)
+                const rating = item.rating !== null && item.rating !== undefined ? item.rating : null;
+                const prevRating = prevItem?.rating || null;
+                if (rating !== null) {
+                    const ratingDiff = (prevRating !== null) ? rating - prevRating : null;
+                    if (ratingDiff !== null && ratingDiff !== 0) {
+                        const isPositive = ratingDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = ratingDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${rating.toFixed(1)}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${ratingDiff.toFixed(1)}</span></td>`;
+                    } else {
+                        html += `<td><strong>${rating.toFixed(1)}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Отзывы
-                const reviewCount = item.review_count !== null && item.review_count !== undefined ? formatNumber(item.review_count) : '—';
-                html += `<td><strong>${reviewCount}</strong></td>`;
+                // Отзывы (с разницей, больше = лучше)
+                const reviewCount = item.review_count !== null && item.review_count !== undefined ? item.review_count : null;
+                const prevReviews = prevItem?.review_count || null;
+                if (reviewCount !== null) {
+                    const reviewDiff = (prevReviews !== null) ? reviewCount - prevReviews : null;
+                    if (reviewDiff !== null && reviewDiff !== 0) {
+                        const isPositive = reviewDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = reviewDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(reviewCount)}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(reviewDiff)}</span></td>`;
+                    } else {
+                        html += `<td><strong>${formatNumber(reviewCount)}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Индекс цены
+                // Индекс цены (без разницы)
                 const priceIndexMap = {
                     'SUPER': { text: 'Супер', color: '#22c55e' },
                     'GREEN': { text: 'Выгодная', color: '#22c55e' },
@@ -6230,58 +6264,284 @@ HTML_TEMPLATE = '''
                     : '—';
                 html += `<td>${priceIndexDisplay}</td>`;
 
-                // FBO остаток
-                html += `<td><span class="${stockClass}">${formatNumber(item.fbo_stock)}</span></td>`;
+                // FBO остаток (с разницей, больше = лучше)
+                const fboStock = item.fbo_stock || 0;
+                const prevFboStock = prevItem?.fbo_stock;
+                if (prevFboStock !== null && prevFboStock !== undefined) {
+                    const fboDiff = fboStock - prevFboStock;
+                    if (fboDiff !== 0) {
+                        const isPositive = fboDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = fboDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><span class="${stockClass}">${formatNumber(fboStock)}</span><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(fboDiff)}</span></td>`;
+                    } else {
+                        html += `<td><span class="${stockClass}">${formatNumber(fboStock)}</span></td>`;
+                    }
+                } else {
+                    html += `<td><span class="${stockClass}">${formatNumber(fboStock)}</span></td>`;
+                }
 
-                // Заказы
-                html += `<td><span class="stock">${formatNumber(item.orders_qty || 0)}</span></td>`;
+                // Заказы (с разницей, больше = лучше)
+                const ordersQty = item.orders_qty || 0;
+                const prevOrders = prevItem?.orders_qty;
+                if (prevOrders !== null && prevOrders !== undefined) {
+                    const ordersDiff = ordersQty - prevOrders;
+                    if (ordersDiff !== 0) {
+                        const isPositive = ordersDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = ordersDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><span class="stock">${formatNumber(ordersQty)}</span><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(ordersDiff)}</span></td>`;
+                    } else {
+                        html += `<td><span class="stock">${formatNumber(ordersQty)}</span></td>`;
+                    }
+                } else {
+                    html += `<td><span class="stock">${formatNumber(ordersQty)}</span></td>`;
+                }
 
-                // Цена в ЛК
-                html += `<td><strong>${(item.price !== null && item.price !== undefined && item.price > 0) ? formatNumber(Math.round(item.price)) + ' ₽' : '—'}</strong></td>`;
+                // Цена в ЛК (с разницей, меньше = лучше)
+                const price = (item.price !== null && item.price !== undefined && item.price > 0) ? item.price : null;
+                const prevPrice = prevItem?.price || null;
+                if (price !== null) {
+                    if (prevPrice !== null && prevPrice > 0) {
+                        const priceDiff = price - prevPrice;
+                        if (priceDiff !== 0) {
+                            const isPositive = priceDiff < 0;  // Меньше = лучше
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = priceDiff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(Math.round(price))} ₽</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(Math.round(priceDiff))} ₽</span></td>`;
+                        } else {
+                            html += `<td><strong>${formatNumber(Math.round(price))} ₽</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${formatNumber(Math.round(price))} ₽</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Соинвест
+                // Соинвест (с разницей, больше = лучше)
                 let coinvest = '—';
+                let coinvestValue = null;
+                let prevCoinvestValue = null;
                 if (item.price !== null && item.price !== undefined && item.price > 0 &&
                     item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
-                    const coinvestValue = ((item.price - item.marketing_price) / item.price) * 100;
+                    coinvestValue = ((item.price - item.marketing_price) / item.price) * 100;
                     coinvest = coinvestValue.toFixed(1) + '%';
                 }
-                html += `<td><strong>${coinvest}</strong></td>`;
+                if (prevItem && prevItem.price > 0 && prevItem.marketing_price > 0) {
+                    prevCoinvestValue = ((prevItem.price - prevItem.marketing_price) / prevItem.price) * 100;
+                }
+                if (coinvestValue !== null && prevCoinvestValue !== null) {
+                    const coinvestDiff = coinvestValue - prevCoinvestValue;
+                    if (Math.abs(coinvestDiff) > 0.01) {
+                        const isPositive = coinvestDiff > 0;  // Больше соинвест = лучше
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = coinvestDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${coinvest}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${coinvestDiff.toFixed(1)}%</span></td>`;
+                    } else {
+                        html += `<td><strong>${coinvest}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>${coinvest}</strong></td>`;
+                }
 
-                // Цена на сайте
-                html += `<td><strong>${(item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? formatNumber(Math.round(item.marketing_price)) + ' ₽' : '—'}</strong></td>`;
+                // Цена на сайте (с разницей, меньше = лучше)
+                const marketingPrice = (item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) ? item.marketing_price : null;
+                const prevMarketingPrice = prevItem?.marketing_price || null;
+                if (marketingPrice !== null) {
+                    if (prevMarketingPrice !== null && prevMarketingPrice > 0) {
+                        const mpDiff = marketingPrice - prevMarketingPrice;
+                        if (mpDiff !== 0) {
+                            const isPositive = mpDiff < 0;  // Меньше = лучше
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = mpDiff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(Math.round(marketingPrice))} ₽</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(Math.round(mpDiff))} ₽</span></td>`;
+                        } else {
+                            html += `<td><strong>${formatNumber(Math.round(marketingPrice))} ₽</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${formatNumber(Math.round(marketingPrice))} ₽</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Ср. позиция
-                html += `<td><span class="position">${(item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position.toFixed(1) : '—'}</span></td>`;
+                // Ср. позиция (с разницей, меньше = лучше)
+                const avgPosition = (item.avg_position !== null && item.avg_position !== undefined) ? item.avg_position : null;
+                const prevPosition = prevItem?.avg_position || null;
+                if (avgPosition !== null) {
+                    if (prevPosition !== null) {
+                        const posDiff = avgPosition - prevPosition;
+                        if (Math.abs(posDiff) > 0.01) {
+                            const isPositive = posDiff < 0;  // Меньше позиция = лучше
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = posDiff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><span class="position">${avgPosition.toFixed(1)}</span><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${posDiff.toFixed(1)}</span></td>`;
+                        } else {
+                            html += `<td><span class="position">${avgPosition.toFixed(1)}</span></td>`;
+                        }
+                    } else {
+                        html += `<td><span class="position">${avgPosition.toFixed(1)}</span></td>`;
+                    }
+                } else {
+                    html += `<td><span class="position">—</span></td>`;
+                }
 
-                // Показы
-                html += `<td><strong>${formatNumber(item.hits_view_search || 0)}</strong></td>`;
+                // Показы (с разницей, больше = лучше)
+                const views = item.hits_view_search || 0;
+                const prevViews = prevItem?.hits_view_search;
+                if (prevViews !== null && prevViews !== undefined) {
+                    const viewsDiff = views - prevViews;
+                    if (viewsDiff !== 0) {
+                        const isPositive = viewsDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = viewsDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(views)}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(viewsDiff)}</span></td>`;
+                    } else {
+                        html += `<td><strong>${formatNumber(views)}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>${formatNumber(views)}</strong></td>`;
+                }
 
-                // Посещения
-                html += `<td><strong>${formatNumber(item.hits_view_search_pdp || 0)}</strong></td>`;
+                // Посещения (с разницей, больше = лучше)
+                const pdp = item.hits_view_search_pdp || 0;
+                const prevPdp = prevItem?.hits_view_search_pdp;
+                if (prevPdp !== null && prevPdp !== undefined) {
+                    const pdpDiff = pdp - prevPdp;
+                    if (pdpDiff !== 0) {
+                        const isPositive = pdpDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = pdpDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(pdp)}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(pdpDiff)}</span></td>`;
+                    } else {
+                        html += `<td><strong>${formatNumber(pdp)}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>${formatNumber(pdp)}</strong></td>`;
+                }
 
-                // CTR
-                html += `<td><strong>${(item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr.toFixed(2) + '%' : '—'}</strong></td>`;
+                // CTR (с разницей, больше = лучше)
+                const ctr = (item.search_ctr !== null && item.search_ctr !== undefined) ? item.search_ctr : null;
+                const prevCtr = prevItem?.search_ctr || null;
+                if (ctr !== null) {
+                    if (prevCtr !== null) {
+                        const ctrDiff = ctr - prevCtr;
+                        if (Math.abs(ctrDiff) > 0.001) {
+                            const isPositive = ctrDiff > 0;
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = ctrDiff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${ctr.toFixed(2)}%</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${ctrDiff.toFixed(2)}%</span></td>`;
+                        } else {
+                            html += `<td><strong>${ctr.toFixed(2)}%</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${ctr.toFixed(2)}%</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Корзина
-                html += `<td><strong>${formatNumber(item.hits_add_to_cart || 0)}</strong></td>`;
+                // Корзина (с разницей, больше = лучше)
+                const cart = item.hits_add_to_cart || 0;
+                const prevCart = prevItem?.hits_add_to_cart;
+                if (prevCart !== null && prevCart !== undefined) {
+                    const cartDiff = cart - prevCart;
+                    if (cartDiff !== 0) {
+                        const isPositive = cartDiff > 0;
+                        const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                        const textColor = isPositive ? '#22c55e' : '#ef4444';
+                        const diffSign = cartDiff > 0 ? '+' : '';
+                        html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(cart)}</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(cartDiff)}</span></td>`;
+                    } else {
+                        html += `<td><strong>${formatNumber(cart)}</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>${formatNumber(cart)}</strong></td>`;
+                }
 
-                // CR1
-                html += `<td><strong>${(item.cr1 !== null && item.cr1 !== undefined) ? item.cr1.toFixed(2) + '%' : '—'}</strong></td>`;
+                // CR1 (с разницей, больше = лучше)
+                const cr1 = (item.cr1 !== null && item.cr1 !== undefined) ? item.cr1 : null;
+                const prevCr1 = prevItem?.cr1 || null;
+                if (cr1 !== null) {
+                    if (prevCr1 !== null) {
+                        const cr1Diff = cr1 - prevCr1;
+                        if (Math.abs(cr1Diff) > 0.001) {
+                            const isPositive = cr1Diff > 0;
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = cr1Diff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${cr1.toFixed(2)}%</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${cr1Diff.toFixed(2)}%</span></td>`;
+                        } else {
+                            html += `<td><strong>${cr1.toFixed(2)}%</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${cr1.toFixed(2)}%</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // CR2
-                html += `<td><strong>${(item.cr2 !== null && item.cr2 !== undefined) ? item.cr2.toFixed(2) + '%' : '—'}</strong></td>`;
+                // CR2 (с разницей, больше = лучше)
+                const cr2 = (item.cr2 !== null && item.cr2 !== undefined) ? item.cr2 : null;
+                const prevCr2 = prevItem?.cr2 || null;
+                if (cr2 !== null) {
+                    if (prevCr2 !== null) {
+                        const cr2Diff = cr2 - prevCr2;
+                        if (Math.abs(cr2Diff) > 0.001) {
+                            const isPositive = cr2Diff > 0;
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = cr2Diff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${cr2.toFixed(2)}%</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${cr2Diff.toFixed(2)}%</span></td>`;
+                        } else {
+                            html += `<td><strong>${cr2.toFixed(2)}%</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${cr2.toFixed(2)}%</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // Расходы на рекламу
-                html += `<td><strong>${(item.adv_spend !== null && item.adv_spend !== undefined && item.adv_spend > 0) ? formatNumber(Math.round(item.adv_spend)) + ' ₽' : '—'}</strong></td>`;
+                // Расходы на рекламу (с разницей, меньше = лучше)
+                const advSpend = (item.adv_spend !== null && item.adv_spend !== undefined && item.adv_spend > 0) ? item.adv_spend : null;
+                const prevSpend = prevItem?.adv_spend;
+                if (advSpend !== null) {
+                    if (prevSpend !== null && prevSpend !== undefined && prevSpend > 0) {
+                        const spendDiff = advSpend - prevSpend;
+                        if (spendDiff !== 0) {
+                            const isPositive = spendDiff < 0;  // Меньше расходы = лучше
+                            const bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
+                            const textColor = isPositive ? '#22c55e' : '#ef4444';
+                            const diffSign = spendDiff > 0 ? '+' : '';
+                            html += `<td style="background-color: ${bgColor};"><strong>${formatNumber(Math.round(advSpend))} ₽</strong><br><span style="font-size: 11px; color: ${textColor}; font-weight: 400;">${diffSign}${formatNumber(Math.round(spendDiff))} ₽</span></td>`;
+                        } else {
+                            html += `<td><strong>${formatNumber(Math.round(advSpend))} ₽</strong></td>`;
+                        }
+                    } else {
+                        html += `<td><strong>${formatNumber(Math.round(advSpend))} ₽</strong></td>`;
+                    }
+                } else {
+                    html += `<td><strong>—</strong></td>`;
+                }
 
-                // CPO (Cost Per Order)
+                // CPO (Cost Per Order) - без сравнения, вычисляемое значение
                 const cpo = (item.adv_spend !== null && item.adv_spend !== undefined && item.orders_qty > 0)
                     ? Math.round(item.adv_spend / item.orders_qty)
                     : null;
                 html += `<td><strong>${cpo !== null ? cpo + ' ₽' : '—'}</strong></td>`;
 
-                // ДРР (%)
+                // ДРР (%) - без сравнения, вычисляемое значение
                 let drr = '—';
                 if (item.adv_spend !== null && item.adv_spend !== undefined && item.adv_spend > 0 &&
                     item.orders_qty > 0 && item.marketing_price !== null && item.marketing_price !== undefined && item.marketing_price > 0) {
