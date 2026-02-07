@@ -5512,9 +5512,9 @@ HTML_TEMPLATE = '''
                                         <th>Общее кол-во</th>
                                         <th>Общая сумма</th>
                                         <th>Комментарий</th>
-                                        <th>Создал</th>
-                                        <th>Изменено</th>
-                                        <th style="width: 80px;"></th>
+                                        <th>Источник</th>
+                                        <th>Статус</th>
+                                        <th style="width: 100px;"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="wh-receipt-history-tbody">
@@ -7278,7 +7278,11 @@ HTML_TEMPLATE = '''
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
             const day = String(now.getDate()).padStart(2, '0');
-            document.getElementById('receipt-date').value = `${year}-${month}-${day}`;
+            const today = `${year}-${month}-${day}`;
+            const dateInput = document.getElementById('receipt-date');
+            dateInput.value = today;
+            // Ограничиваем выбор даты — не позже сегодня
+            dateInput.max = today;
         }
 
         // Загрузить историю приходов
@@ -7424,25 +7428,42 @@ HTML_TEMPLATE = '''
                 tdComment.textContent = doc.comment || '';
                 row.appendChild(tdComment);
 
-                // Создал
-                const tdCreated = document.createElement('td');
-                tdCreated.textContent = doc.created_by || '—';
-                row.appendChild(tdCreated);
-
-                // Изменено
-                const tdUpdated = document.createElement('td');
-                if (doc.updated_at && doc.updated_by) {
-                    const updDt = new Date(doc.updated_at);
-                    const updStr = updDt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-                    tdUpdated.innerHTML = `<span style="color:#666;">${updStr}</span><br><span style="font-size:12px;">${doc.updated_by}</span>`;
+                // Источник (web или telegram)
+                const tdSource = document.createElement('td');
+                tdSource.style.textAlign = 'center';
+                if (doc.source === 'telegram') {
+                    tdSource.innerHTML = '<span style="background:#e3f2fd;color:#1976d2;padding:2px 8px;border-radius:12px;font-size:12px;">📱 TG</span>';
                 } else {
-                    tdUpdated.textContent = '—';
+                    tdSource.innerHTML = '<span style="background:#f5f5f5;color:#666;padding:2px 8px;border-radius:12px;font-size:12px;">💻 Web</span>';
                 }
-                row.appendChild(tdUpdated);
+                row.appendChild(tdSource);
 
-                // Действия (редактировать + удалить)
+                // Статус (разобрано / не разобрано)
+                const tdStatus = document.createElement('td');
+                tdStatus.style.textAlign = 'center';
+                if (doc.is_processed === 0) {
+                    tdStatus.innerHTML = '<span style="background:#ffebee;color:#c62828;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;">🔴 Новый</span>';
+                    row.style.backgroundColor = '#fff8e1';  // Подсветка строки
+                } else {
+                    tdStatus.innerHTML = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:12px;font-size:12px;">✅</span>';
+                }
+                row.appendChild(tdStatus);
+
+                // Действия (разобрано + редактировать + удалить)
                 const tdActions = document.createElement('td');
                 tdActions.style.whiteSpace = 'nowrap';
+
+                // Кнопка "Разобрано" (только для неразобранных документов)
+                if (doc.is_processed === 0) {
+                    const processBtn = document.createElement('button');
+                    processBtn.className = 'wh-edit-btn';
+                    processBtn.style.background = '#4caf50';
+                    processBtn.style.marginRight = '4px';
+                    processBtn.textContent = '✓';
+                    processBtn.title = 'Отметить как разобранный';
+                    processBtn.onclick = () => markReceiptDocProcessed(doc.id);
+                    tdActions.appendChild(processBtn);
+                }
 
                 // Кнопка редактирования
                 const editBtn = document.createElement('button');
@@ -7613,6 +7634,25 @@ HTML_TEMPLATE = '''
                 }
             })
             .catch(err => console.error('Ошибка удаления:', err));
+        }
+
+        // Отметить документ прихода как разобранный
+        function markReceiptDocProcessed(docId) {
+            authFetch('/api/warehouse/receipt-docs/mark-processed', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: docId })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    loadReceiptHistory();
+                    updateUnprocessedBadge();
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => console.error('Ошибка:', err));
         }
 
         // ============================================================
@@ -12699,13 +12739,16 @@ def get_receipt_docs():
                 d.updated_by,
                 d.created_at,
                 d.updated_at,
+                COALESCE(d.source, 'web') as source,
+                COALESCE(d.is_processed, 1) as is_processed,
+                d.telegram_chat_id,
                 COUNT(r.id) as items_count,
                 COALESCE(SUM(r.quantity), 0) as total_qty,
                 COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum
             FROM warehouse_receipt_docs d
             LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
             GROUP BY d.id
-            ORDER BY d.receipt_datetime DESC, d.created_at DESC
+            ORDER BY d.is_processed ASC, d.receipt_datetime DESC, d.created_at DESC
         ''')
 
         docs = [dict(row) for row in cursor.fetchall()]
@@ -12730,7 +12773,11 @@ def get_receipt_doc(doc_id):
 
         # Получаем шапку документа
         cursor.execute('''
-            SELECT id, DATE(receipt_datetime) as receipt_date, receiver_name, comment, created_by, updated_by, created_at, updated_at
+            SELECT id, DATE(receipt_datetime) as receipt_date, receiver_name, comment,
+                   created_by, updated_by, created_at, updated_at,
+                   COALESCE(source, 'web') as source,
+                   COALESCE(is_processed, 1) as is_processed,
+                   telegram_chat_id
             FROM warehouse_receipt_docs WHERE id = ?
         ''', (doc_id,))
         doc = cursor.fetchone()
@@ -12862,6 +12909,180 @@ def delete_receipt_doc():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ДЛЯ TELEGRAM ИНТЕГРАЦИИ
+# ============================================================================
+
+@app.route('/api/warehouse/receipt-docs/mark-processed', methods=['POST'])
+@require_auth(['admin'])
+def mark_receipt_doc_processed():
+    """
+    Отметить документ прихода как разобранный.
+    Используется для документов, созданных через Telegram.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID документа'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE warehouse_receipt_docs
+            SET is_processed = 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (doc_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/unprocessed-count')
+@require_auth(['admin', 'viewer'])
+def get_unprocessed_count():
+    """
+    Получить количество неразобранных документов прихода (для badge).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT COUNT(*) as count
+            FROM warehouse_receipt_docs
+            WHERE COALESCE(is_processed, 1) = 0
+        ''')
+
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({'success': True, 'count': count})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'count': 0})
+
+
+@app.route('/api/telegram/create-receipt', methods=['POST'])
+def create_receipt_from_telegram():
+    """
+    Создать документ прихода из Telegram бота.
+    Авторизация через секретный токен в заголовке.
+
+    Ожидает JSON:
+    {
+        "token": "секретный_токен",
+        "receipt_date": "2026-02-07",
+        "receiver_name": "Иванов Сергей",
+        "comment": "Партия от поставщика",
+        "telegram_chat_id": 123456789,
+        "telegram_username": "@username",
+        "items": [
+            {"sku": 123456, "quantity": 50},
+            {"sku": 789012, "quantity": 100}
+        ]
+    }
+    """
+    try:
+        data = request.json
+
+        # Проверяем токен
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        receipt_date = data.get('receipt_date', '')
+        receiver_name = data.get('receiver_name', '')
+        comment = data.get('comment', '')
+        telegram_chat_id = data.get('telegram_chat_id')
+        telegram_username = data.get('telegram_username', '')
+        items = data.get('items', [])
+
+        if not receipt_date:
+            return jsonify({'success': False, 'error': 'Укажите дату прихода'})
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Создаём документ (шапку)
+        cursor.execute('''
+            INSERT INTO warehouse_receipt_docs
+            (receipt_datetime, receiver_name, comment, source, is_processed, telegram_chat_id, created_by, updated_by, updated_at)
+            VALUES (?, ?, ?, 'telegram', 0, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (receipt_date, receiver_name, comment, telegram_chat_id, telegram_username, telegram_username))
+
+        doc_id = cursor.lastrowid
+
+        # Добавляем позиции
+        for item in items:
+            cursor.execute('''
+                INSERT INTO warehouse_receipts (doc_id, sku, receipt_date, quantity, purchase_price, updated_at)
+                VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
+            ''', (doc_id, item.get('sku', 0), receipt_date, item.get('quantity', 0)))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/telegram/products')
+def get_products_for_telegram():
+    """
+    Получить список товаров для выбора в Telegram боте.
+    Авторизация через секретный токен в параметрах.
+    """
+    try:
+        token = request.args.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        search = request.args.get('search', '').strip()
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if search:
+            # Поиск по SKU или названию
+            cursor.execute('''
+                SELECT sku, name, offer_id
+                FROM products
+                WHERE sku = ? OR name LIKE ? OR offer_id LIKE ?
+                ORDER BY name
+                LIMIT 20
+            ''', (search, f'%{search}%', f'%{search}%'))
+        else:
+            # Топ-20 товаров по заказам
+            cursor.execute('''
+                SELECT sku, name, offer_id
+                FROM products
+                ORDER BY orders_qty DESC
+                LIMIT 20
+            ''')
+
+        products = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'products': products})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'products': []})
 
 
 @app.route('/api/warehouse/shipments')
