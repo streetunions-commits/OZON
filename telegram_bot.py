@@ -176,6 +176,21 @@ def format_product_list(items: list) -> str:
 
 
 # ============================================================================
+# ГЛАВНОЕ МЕНЮ
+# ============================================================================
+
+def get_main_menu():
+    """
+    Возвращает главное меню бота с кнопками.
+    """
+    keyboard = [
+        ["📦 Новый приход"],
+        ["📊 Остатки", "❓ Помощь"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+# ============================================================================
 # ОБРАБОТЧИКИ КОМАНД
 # ============================================================================
 
@@ -195,12 +210,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(
         "👋 Привет! Я бот *Moscow Seller*.\n\n"
-        "📦 Команды:\n"
-        "/prihod — Оформить приход товара\n"
-        "/stock — Проверить остаток (в разработке)\n"
-        "/help — Справка\n\n"
-        f"🆔 Ваш chat\\_id: `{chat_id}`",
-        parse_mode='Markdown'
+        "Выберите действие из меню ниже 👇",
+        parse_mode='Markdown',
+        reply_markup=get_main_menu()
     )
 
 
@@ -211,7 +223,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "📖 *Справка по боту Moscow Seller*\n\n"
         "*Создание прихода:*\n"
-        "1. Введите /prihod\n"
+        "1. Нажмите «📦 Новый приход»\n"
         "2. Укажите имя приёмщика\n"
         "3. Выберите дату прихода\n"
         "4. Выберите товары и количество\n"
@@ -224,7 +236,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• Артикул\n\n"
         "Документ появится во вкладке Склад → Оприходование\n"
         "с пометкой 📱 TG и статусом 🔴 Новый",
-        parse_mode='Markdown'
+        parse_mode='Markdown',
+        reply_markup=get_main_menu()
     )
 
 
@@ -664,9 +677,23 @@ async def confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "⏳ Ожидает проверки в веб-интерфейсе",
             parse_mode='Markdown'
         )
+
+        # Показываем меню для следующего действия
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Что делаем дальше? 👇",
+            reply_markup=get_main_menu()
+        )
     else:
         await query.edit_message_text(
             f"❌ Ошибка создания документа:\n{result.get('error', 'Неизвестная ошибка')}"
+        )
+
+        # Показываем меню даже при ошибке
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Попробуйте ещё раз 👇",
+            reply_markup=get_main_menu()
         )
 
     return ConversationHandler.END
@@ -677,10 +704,28 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     Отмена текущего диалога.
     """
     await update.message.reply_text(
-        "❌ Операция отменена.",
-        reply_markup=ReplyKeyboardRemove()
+        "❌ Операция отменена.\n\nВыберите действие 👇",
+        reply_markup=get_main_menu()
     )
     return ConversationHandler.END
+
+
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Обработчик нажатий на кнопки главного меню.
+    Кнопка "📦 Новый приход" обрабатывается в ConversationHandler.
+    """
+    text = update.message.text
+
+    if text == "📊 Остатки":
+        await update.message.reply_text(
+            "🚧 Функция в разработке.\n\n"
+            "Скоро здесь можно будет проверить остатки товаров.",
+            reply_markup=get_main_menu()
+        )
+
+    elif text == "❓ Помощь":
+        await help_command(update, context)
 
 
 # ============================================================================
@@ -715,7 +760,8 @@ def main():
         entry_points=[
             CommandHandler('prihod', receipt_start),
             CommandHandler('receipt', receipt_start),
-            CommandHandler('new', receipt_start)
+            CommandHandler('new', receipt_start),
+            MessageHandler(filters.Regex(r'^📦 Новый приход$'), receipt_start)
         ],
         states={
             STATE_RECEIVER_NAME: [
@@ -753,6 +799,13 @@ def main():
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(receipt_handler)
+
+    # Обработчик кнопок главного меню (должен быть после receipt_handler)
+    # "📦 Новый приход" обрабатывается в ConversationHandler
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r'^(📊 Остатки|❓ Помощь)$'),
+        menu_handler
+    ))
 
     # Запускаем бота
     print("✅ Бот запущен. Нажмите Ctrl+C для остановки.")
