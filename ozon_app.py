@@ -4918,6 +4918,115 @@ HTML_TEMPLATE = '''
             border-top: 1px solid #e9ecef;
         }
 
+        /* === Секция чата в карточке документа === */
+        .receipt-chat-section {
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e7ff;
+            background: #f8fafc;
+            border-radius: 0 0 12px 12px;
+            margin: 20px -24px -24px -24px;
+            padding: 20px 24px 24px 24px;
+        }
+
+        .receipt-chat-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .receipt-chat-header h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #374151;
+        }
+
+        .chat-badge {
+            background: #ef4444;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        .receipt-chat-messages {
+            max-height: 300px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .chat-empty {
+            text-align: center;
+            color: #9ca3af;
+            font-size: 13px;
+            padding: 20px;
+        }
+
+        .chat-message {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            max-width: 85%;
+        }
+
+        .chat-message.web {
+            background: #e0e7ff;
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.telegram {
+            background: #d1fae5;
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-message-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+
+        .chat-message-text {
+            font-size: 14px;
+            color: #1f2937;
+            line-height: 1.4;
+        }
+
+        .receipt-chat-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .receipt-chat-input input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .chat-telegram-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #6b7280;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .chat-telegram-checkbox input {
+            cursor: pointer;
+        }
+
         .wh-save-receipt-btn {
             padding: 14px 32px;
             background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
@@ -5536,6 +5645,25 @@ HTML_TEMPLATE = '''
                         <div class="receipt-form-actions">
                             <button class="wh-save-receipt-btn" onclick="saveReceipt()">Сохранить приход</button>
                             <button class="wh-clear-btn" onclick="clearReceiptForm()">Очистить форму</button>
+                        </div>
+
+                        <!-- Секция чата (показывается при редактировании документа из Telegram) -->
+                        <div class="receipt-chat-section" id="receipt-chat-section" style="display: none;">
+                            <div class="receipt-chat-header">
+                                <h4>💬 Сообщения</h4>
+                                <span class="chat-badge" id="receipt-chat-badge" style="display: none;">0</span>
+                            </div>
+                            <div class="receipt-chat-messages" id="receipt-chat-messages">
+                                <div class="chat-empty">Нет сообщений</div>
+                            </div>
+                            <div class="receipt-chat-input">
+                                <input type="text" id="receipt-chat-message" class="wh-input" placeholder="Введите сообщение..." onkeypress="if(event.key==='Enter')sendDocumentMessage()">
+                                <label class="chat-telegram-checkbox">
+                                    <input type="checkbox" id="receipt-chat-send-telegram" checked>
+                                    <span>📱 Отправить в Telegram</span>
+                                </label>
+                                <button class="wh-add-btn" onclick="sendDocumentMessage()">Отправить</button>
+                            </div>
                         </div>
                     </div>
 
@@ -7343,6 +7471,9 @@ HTML_TEMPLATE = '''
             // Сбросить итоги
             updateReceiptTotals();
 
+            // Скрыть секцию чата
+            showChatSection(false);
+
             // Вернуть текст кнопки
             document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить приход';
         }
@@ -7377,6 +7508,131 @@ HTML_TEMPLATE = '''
                 .catch(err => {
                     console.error('Ошибка получения badge:', err);
                 });
+        }
+
+        // ============================================================================
+        // ФУНКЦИИ ДЛЯ ЧАТА В КАРТОЧКЕ ДОКУМЕНТА
+        // ============================================================================
+
+        // Загрузить сообщения документа
+        function loadDocumentMessages(docType, docId) {
+            const section = document.getElementById('receipt-chat-section');
+            const messagesDiv = document.getElementById('receipt-chat-messages');
+
+            authFetch(`/api/document-messages/${docType}/${docId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        if (data.messages.length === 0) {
+                            messagesDiv.innerHTML = '<div class="chat-empty">Нет сообщений</div>';
+                        } else {
+                            messagesDiv.innerHTML = data.messages.map(msg => {
+                                const date = new Date(msg.created_at);
+                                const timeStr = date.toLocaleString('ru-RU', {
+                                    day: '2-digit', month: '2-digit',
+                                    hour: '2-digit', minute: '2-digit'
+                                });
+                                const typeClass = msg.sender_type === 'telegram' ? 'telegram' : 'web';
+                                const icon = msg.sender_type === 'telegram' ? '📱' : '💻';
+                                return `
+                                    <div class="chat-message ${typeClass}">
+                                        <div class="chat-message-header">
+                                            <span>${icon} ${msg.sender_name || 'Неизвестно'}</span>
+                                            <span>${timeStr}</span>
+                                        </div>
+                                        <div class="chat-message-text">${escapeHtml(msg.message)}</div>
+                                    </div>
+                                `;
+                            }).join('');
+                            // Прокрутить вниз
+                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                        }
+
+                        // Показать badge если есть непрочитанные
+                        const unread = data.messages.filter(m => m.sender_type === 'telegram' && !m.is_read).length;
+                        const badge = document.getElementById('receipt-chat-badge');
+                        if (unread > 0) {
+                            badge.textContent = unread;
+                            badge.style.display = 'inline-block';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+
+                        // Отметить как прочитанные
+                        if (unread > 0) {
+                            authFetch('/api/document-messages/mark-read', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ doc_type: docType, doc_id: docId })
+                            });
+                        }
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки сообщений:', err));
+        }
+
+        // Отправить сообщение к документу
+        function sendDocumentMessage() {
+            if (!editingDocId) {
+                alert('Сначала откройте документ для редактирования');
+                return;
+            }
+
+            const input = document.getElementById('receipt-chat-message');
+            const message = input.value.trim();
+            const sendTelegram = document.getElementById('receipt-chat-send-telegram').checked;
+
+            if (!message) {
+                input.focus();
+                return;
+            }
+
+            // Получить имя отправителя из текущего пользователя
+            const senderName = currentUser ? currentUser.username : 'Администратор';
+
+            authFetch('/api/document-messages/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    doc_type: 'receipt',
+                    doc_id: editingDocId,
+                    message: message,
+                    send_telegram: sendTelegram,
+                    sender_name: senderName
+                })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    input.value = '';
+                    // Перезагрузить сообщения
+                    loadDocumentMessages('receipt', editingDocId);
+                } else {
+                    alert('Ошибка отправки: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка отправки сообщения:', err);
+                alert('Ошибка отправки сообщения');
+            });
+        }
+
+        // Показать/скрыть секцию чата
+        function showChatSection(show, docId = null) {
+            const section = document.getElementById('receipt-chat-section');
+            if (show && docId) {
+                section.style.display = 'block';
+                loadDocumentMessages('receipt', docId);
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        // Экранирование HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         // Загрузить историю приходов
@@ -7628,6 +7884,13 @@ HTML_TEMPLATE = '''
 
                         // Меняем текст кнопки
                         document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить изменения';
+
+                        // Показываем секцию чата если документ из Telegram
+                        if (data.doc.source === 'telegram' && data.doc.telegram_chat_id) {
+                            showChatSection(true, docId);
+                        } else {
+                            showChatSection(false);
+                        }
 
                         // Скроллим к форме
                         document.getElementById('receipt-form').scrollIntoView({ behavior: 'smooth' });
@@ -13239,6 +13502,277 @@ def get_products_for_telegram():
         return jsonify({'success': True, 'products': products})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'products': []})
+
+
+# ============================================================================
+# API ДЛЯ СООБЩЕНИЙ К ДОКУМЕНТАМ (ЧАТ САЙТ ↔ TELEGRAM)
+# ============================================================================
+
+def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int = None) -> dict:
+    """
+    Отправить сообщение в Telegram через HTTP API.
+
+    Возвращает: {'success': True, 'message_id': 123} или {'success': False, 'error': '...'}
+    """
+    import requests
+
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        return {'success': False, 'error': 'TELEGRAM_BOT_TOKEN не настроен'}
+
+    try:
+        url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+        if reply_to_message_id:
+            payload['reply_to_message_id'] = reply_to_message_id
+
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+
+        if data.get('ok'):
+            return {'success': True, 'message_id': data['result']['message_id']}
+        else:
+            return {'success': False, 'error': data.get('description', 'Неизвестная ошибка')}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@app.route('/api/document-messages/<doc_type>/<int:doc_id>')
+@require_auth(['admin', 'viewer'])
+def get_document_messages(doc_type, doc_id):
+    """
+    Получить все сообщения для документа.
+
+    doc_type: 'receipt' или 'shipment'
+    doc_id: ID документа
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM document_messages
+            WHERE doc_type = ? AND doc_id = ?
+            ORDER BY created_at ASC
+        ''', (doc_type, doc_id))
+
+        messages = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'messages': messages})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'messages': []})
+
+
+@app.route('/api/document-messages/send', methods=['POST'])
+@require_auth(['admin'])
+def send_document_message():
+    """
+    Отправить сообщение к документу.
+
+    Ожидает JSON:
+    {
+        "doc_type": "receipt",
+        "doc_id": 123,
+        "message": "Текст сообщения",
+        "send_telegram": true,
+        "sender_name": "Иванов"
+    }
+    """
+    try:
+        data = request.json
+        doc_type = data.get('doc_type', 'receipt')
+        doc_id = data.get('doc_id')
+        message = data.get('message', '').strip()
+        send_telegram = data.get('send_telegram', False)
+        sender_name = data.get('sender_name', 'Администратор')
+
+        if not doc_id or not message:
+            return jsonify({'success': False, 'error': 'Укажите doc_id и message'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        telegram_message_id = None
+        telegram_chat_id = None
+
+        # Если нужно отправить в Telegram — находим chat_id создателя документа
+        if send_telegram:
+            if doc_type == 'receipt':
+                cursor.execute('''
+                    SELECT telegram_chat_id FROM warehouse_receipt_docs WHERE id = ?
+                ''', (doc_id,))
+            else:
+                # Для отгрузок пока не реализовано
+                cursor.execute('SELECT NULL as telegram_chat_id')
+
+            row = cursor.fetchone()
+            if row and row['telegram_chat_id']:
+                telegram_chat_id = row['telegram_chat_id']
+
+                # Формируем сообщение для Telegram
+                tg_text = f"💬 <b>Сообщение по документу #{doc_id}</b>\n\n{message}\n\n<i>— {sender_name}</i>"
+
+                result = send_telegram_message(telegram_chat_id, tg_text)
+                if result.get('success'):
+                    telegram_message_id = result.get('message_id')
+
+        # Сохраняем сообщение в БД
+        cursor.execute('''
+            INSERT INTO document_messages
+            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, telegram_message_id)
+            VALUES (?, ?, ?, 'web', ?, ?, ?)
+        ''', (doc_type, doc_id, message, sender_name, telegram_chat_id, telegram_message_id))
+
+        message_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message_id': message_id,
+            'telegram_sent': telegram_message_id is not None,
+            'telegram_message_id': telegram_message_id
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/receive', methods=['POST'])
+def receive_telegram_message():
+    """
+    Принять сообщение из Telegram бота (ответ пользователя).
+    Вызывается из telegram_bot.py при получении reply на сообщение.
+
+    Ожидает JSON:
+    {
+        "token": "секретный_токен",
+        "chat_id": 123456789,
+        "message": "Текст ответа",
+        "reply_to_message_id": 456,
+        "sender_name": "@username"
+    }
+    """
+    try:
+        data = request.json
+
+        # Проверяем токен
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        chat_id = data.get('chat_id')
+        message = data.get('message', '').strip()
+        reply_to_message_id = data.get('reply_to_message_id')
+        sender_name = data.get('sender_name', 'Telegram')
+
+        if not message:
+            return jsonify({'success': False, 'error': 'Пустое сообщение'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Ищем исходное сообщение по telegram_message_id
+        doc_type = None
+        doc_id = None
+
+        if reply_to_message_id:
+            cursor.execute('''
+                SELECT doc_type, doc_id FROM document_messages
+                WHERE telegram_message_id = ? AND telegram_chat_id = ?
+            ''', (reply_to_message_id, chat_id))
+            row = cursor.fetchone()
+            if row:
+                doc_type = row['doc_type']
+                doc_id = row['doc_id']
+
+        # Если не нашли по reply — ищем последнее сообщение этому chat_id
+        if not doc_id:
+            cursor.execute('''
+                SELECT doc_type, doc_id FROM document_messages
+                WHERE telegram_chat_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (chat_id,))
+            row = cursor.fetchone()
+            if row:
+                doc_type = row['doc_type']
+                doc_id = row['doc_id']
+
+        if not doc_id:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Не найден связанный документ'})
+
+        # Сохраняем ответ
+        cursor.execute('''
+            INSERT INTO document_messages
+            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id)
+            VALUES (?, ?, ?, 'telegram', ?, ?)
+        ''', (doc_type, doc_id, message, sender_name, chat_id))
+
+        message_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message_id': message_id, 'doc_type': doc_type, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/unread-count')
+@require_auth(['admin', 'viewer'])
+def get_unread_messages_count():
+    """Получить количество непрочитанных сообщений из Telegram."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT COUNT(*) FROM document_messages
+            WHERE sender_type = 'telegram' AND is_read = 0
+        ''')
+
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        return jsonify({'success': True, 'count': count})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'count': 0})
+
+
+@app.route('/api/document-messages/mark-read', methods=['POST'])
+@require_auth(['admin'])
+def mark_messages_read():
+    """Отметить сообщения как прочитанные."""
+    try:
+        data = request.json
+        doc_type = data.get('doc_type')
+        doc_id = data.get('doc_id')
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        if doc_type and doc_id:
+            cursor.execute('''
+                UPDATE document_messages SET is_read = 1
+                WHERE doc_type = ? AND doc_id = ? AND sender_type = 'telegram'
+            ''', (doc_type, doc_id))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/warehouse/shipments')
