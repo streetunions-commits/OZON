@@ -543,6 +543,12 @@ def init_database():
         except sqlite3.OperationalError:
             pass  # Колонка уже существует
 
+    # Миграция: добавляем колонку receiver_name для имени приёмщика
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipt_docs ADD COLUMN receiver_name TEXT DEFAULT ""')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
     # Документы отгрузок (шапка документа: дата/время, назначение, комментарий, автор)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS warehouse_shipment_docs (
@@ -5390,6 +5396,10 @@ HTML_TEMPLATE = '''
                                     <label>Дата и время прихода</label>
                                     <input type="datetime-local" id="receipt-datetime" class="wh-input" style="cursor: pointer;">
                                 </div>
+                                <div class="receipt-form-field" style="flex: 0 0 180px;">
+                                    <label>Имя приёмщика</label>
+                                    <input type="text" id="receipt-receiver" class="wh-input" placeholder="Кто принял товар">
+                                </div>
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий к приходу</label>
                                     <input type="text" id="receipt-comment" class="wh-input" placeholder="Например: Поставка от поставщика X">
@@ -5455,7 +5465,8 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th style="width: 60px;">№</th>
-                                        <th>Дата создания</th>
+                                        <th>Дата прихода</th>
+                                        <th>Приёмщик</th>
                                         <th>Товаров</th>
                                         <th>Общее кол-во</th>
                                         <th>Общая сумма</th>
@@ -7123,6 +7134,7 @@ HTML_TEMPLATE = '''
         // Сохранить документ прихода
         function saveReceipt() {
             const receiptDatetime = document.getElementById('receipt-datetime').value;
+            const receiverName = document.getElementById('receipt-receiver').value;
             const comment = document.getElementById('receipt-comment').value;
 
             if (!receiptDatetime) {
@@ -7159,10 +7171,11 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Передаём выбранную дату/время прихода
+            // Передаём выбранную дату/время прихода и имя приёмщика
             const data = {
                 doc_id: editingDocId,  // null для нового, число для редактирования
                 receipt_datetime: receiptDatetime,
+                receiver_name: receiverName,
                 comment: comment,
                 items: items
             };
@@ -7198,7 +7211,8 @@ HTML_TEMPLATE = '''
             // Установить текущую дату/время
             setReceiptDatetimeToNow();
 
-            // Очистить комментарий
+            // Очистить имя приёмщика и комментарий
+            document.getElementById('receipt-receiver').value = '';
             document.getElementById('receipt-comment').value = '';
 
             // Очистить таблицу товаров
@@ -7325,10 +7339,15 @@ HTML_TEMPLATE = '''
                 tdNum.textContent = doc.id;
                 row.appendChild(tdNum);
 
-                // Дата/время
+                // Дата прихода
                 const tdDate = document.createElement('td');
                 tdDate.textContent = dt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                 row.appendChild(tdDate);
+
+                // Приёмщик
+                const tdReceiver = document.createElement('td');
+                tdReceiver.textContent = doc.receiver_name || '—';
+                row.appendChild(tdReceiver);
 
                 // Кол-во товаров
                 const tdItems = document.createElement('td');
@@ -7410,6 +7429,9 @@ HTML_TEMPLATE = '''
                             const dt = data.doc.receipt_datetime.substring(0, 16); // YYYY-MM-DDTHH:MM
                             document.getElementById('receipt-datetime').value = dt;
                         }
+
+                        // Заполняем имя приёмщика
+                        document.getElementById('receipt-receiver').value = data.doc.receiver_name || '';
 
                         // Заполняем комментарий
                         document.getElementById('receipt-comment').value = data.doc.comment || '';
@@ -12620,6 +12642,7 @@ def get_receipt_docs():
             SELECT
                 d.id,
                 d.receipt_datetime,
+                d.receiver_name,
                 d.comment,
                 d.created_by,
                 d.updated_by,
@@ -12656,7 +12679,7 @@ def get_receipt_doc(doc_id):
 
         # Получаем шапку документа
         cursor.execute('''
-            SELECT id, receipt_datetime, comment, created_by, updated_by, created_at, updated_at
+            SELECT id, receipt_datetime, receiver_name, comment, created_by, updated_by, created_at, updated_at
             FROM warehouse_receipt_docs WHERE id = ?
         ''', (doc_id,))
         doc = cursor.fetchone()
@@ -12693,6 +12716,7 @@ def save_receipt_doc():
     {
         "doc_id": null,  // null для нового, число для редактирования
         "receipt_datetime": "2025-01-29T14:30",
+        "receiver_name": "Иванов Иван",
         "comment": "Поставка от поставщика X",
         "items": [
             {"sku": 123, "quantity": 10, "purchase_price": 500},
@@ -12704,6 +12728,7 @@ def save_receipt_doc():
         data = request.json
         doc_id = data.get('doc_id')  # None для нового, число для редактирования
         receipt_datetime = data.get('receipt_datetime', '')
+        receiver_name = data.get('receiver_name', '')
         comment = data.get('comment', '')
         items = data.get('items', [])
 
@@ -12726,18 +12751,18 @@ def save_receipt_doc():
             # Редактирование существующего документа
             cursor.execute('''
                 UPDATE warehouse_receipt_docs
-                SET receipt_datetime = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET receipt_datetime = ?, receiver_name = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (receipt_datetime, comment, username, doc_id))
+            ''', (receipt_datetime, receiver_name, comment, username, doc_id))
 
             # Удаляем старые позиции
             cursor.execute('DELETE FROM warehouse_receipts WHERE doc_id = ?', (doc_id,))
         else:
             # Создаём новый документ (шапку)
             cursor.execute('''
-                INSERT INTO warehouse_receipt_docs (receipt_datetime, comment, created_by, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (receipt_datetime, comment, username, username))
+                INSERT INTO warehouse_receipt_docs (receipt_datetime, receiver_name, comment, created_by, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (receipt_datetime, receiver_name, comment, username, username))
             doc_id = cursor.lastrowid
 
         # Добавляем позиции
