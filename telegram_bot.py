@@ -172,6 +172,37 @@ def create_receipt(receipt_data: dict) -> dict:
         return {'success': False, 'error': str(e)}
 
 
+def send_reply_to_server(chat_id: int, message: str, reply_to_message_id: int, sender_name: str) -> dict:
+    """
+    Отправить ответ пользователя на сервер.
+
+    Аргументы:
+        chat_id: ID чата Telegram
+        message: Текст сообщения
+        reply_to_message_id: ID сообщения, на которое ответили
+        sender_name: Имя отправителя (username или имя)
+
+    Возвращает:
+        {'success': True, 'doc_id': 123} или {'success': False, 'error': 'текст'}
+    """
+    try:
+        response = requests.post(
+            f'{API_BASE_URL}/api/document-messages/receive',
+            json={
+                'token': TELEGRAM_BOT_SECRET,
+                'chat_id': chat_id,
+                'message': message,
+                'reply_to_message_id': reply_to_message_id,
+                'sender_name': sender_name
+            },
+            timeout=10
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка отправки ответа на сервер: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 def format_product_list(items: list) -> str:
     """
     Форматирует список товаров для отображения.
@@ -785,6 +816,44 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await help_command(update, context)
 
 
+async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Обработчик ответов (reply) на сообщения от бота.
+    Когда пользователь отвечает на сообщение администратора — отправляем ответ на сервер.
+    """
+    message = update.message
+
+    # Проверяем, что это ответ на сообщение
+    if not message.reply_to_message:
+        return
+
+    # Проверяем, что отвечают на сообщение от бота (не от самого пользователя)
+    if message.reply_to_message.from_user.id != context.bot.id:
+        return
+
+    chat_id = message.chat_id
+    reply_text = message.text or ''
+    reply_to_message_id = message.reply_to_message.message_id
+
+    # Получаем имя отправителя
+    user = message.from_user
+    sender_name = user.username or user.first_name or str(chat_id)
+    if user.username:
+        sender_name = f"@{user.username}"
+
+    # Отправляем ответ на сервер
+    result = send_reply_to_server(chat_id, reply_text, reply_to_message_id, sender_name)
+
+    if result.get('success'):
+        await message.reply_text(
+            "✅ Ваш ответ отправлен!",
+            reply_markup=get_main_menu()
+        )
+    else:
+        logger.error(f"Ошибка отправки ответа: {result.get('error')}")
+        # Не показываем ошибку пользователю, чтобы не путать
+
+
 # ============================================================================
 # ЗАПУСК БОТА
 # ============================================================================
@@ -866,6 +935,13 @@ def main():
         filters.TEXT & filters.Regex(r'^(📊 Остатки|❓ Помощь)$'),
         menu_handler
     ))
+
+    # Обработчик ответов на сообщения от администратора
+    # Должен быть с низким приоритетом, чтобы не перехватывать другие сообщения
+    application.add_handler(MessageHandler(
+        filters.REPLY & filters.TEXT,
+        reply_handler
+    ), group=1)
 
     # Запускаем бота
     print("✅ Бот запущен. Нажмите Ctrl+C для остановки.")

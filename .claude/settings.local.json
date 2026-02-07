@@ -35,7 +35,15 @@
       "Bash(ssh-keygen:*)",
       "Bash(powershell.exe -Command \"Get-Service ssh-agent | Select-Object Status, StartType\")",
       "Bash(powershell.exe -Command \"ssh-add $env:USERPROFILE\\\\.ssh\\\\id_rsa; Write-Host ''''; Write-Host ''Checking SSH connection...''; ssh -T git@github.com 2>&1\")",
-      "Bash(type $env:USERPROFILE.sshid_rsa.pub)"
+      "Bash(type $env:USERPROFILE.sshid_rsa.pub)",
+      "WebFetch(domain:dev.ozon.ru)",
+      "WebFetch(domain:www.postman.com)",
+      "WebFetch(domain:cb-api.ozonru.me)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.ozon.ru)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:developer.puter.com)",
+      "WebFetch(domain:toolkit.artlist.io)"
     ],
     "additionalDirectories": [
       "c:\\Users\\stree\\Documents\\GIT_OZON\\.claude"
