@@ -87,8 +87,9 @@ logger = logging.getLogger(__name__)
     STATE_ENTER_QUANTITY,     # Ввод количества
     STATE_MORE_PRODUCTS,      # Добавить ещё товар?
     STATE_COMMENT,            # Комментарий
-    STATE_CONFIRM             # Подтверждение
-) = range(7)
+    STATE_CONFIRM,            # Подтверждение
+    STATE_WAITING_REPLY       # Ожидание ответа на сообщение
+) = range(8)
 
 
 # ============================================================================
@@ -193,6 +194,41 @@ def send_reply_to_server(chat_id: int, message: str, reply_to_message_id: int, s
                 'chat_id': chat_id,
                 'message': message,
                 'reply_to_message_id': reply_to_message_id,
+                'sender_name': sender_name
+            },
+            timeout=10
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка отправки ответа на сервер: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def send_reply_to_document(chat_id: int, doc_type: str, doc_id: int, message: str, sender_name: str) -> dict:
+    """
+    Отправить ответ на документ напрямую (по doc_type и doc_id).
+
+    Используется при нажатии на кнопку "Ответить" под сообщением.
+
+    Аргументы:
+        chat_id: ID чата Telegram
+        doc_type: Тип документа (receipt, shipment)
+        doc_id: ID документа
+        message: Текст сообщения
+        sender_name: Имя отправителя
+
+    Возвращает:
+        {'success': True} или {'success': False, 'error': 'текст'}
+    """
+    try:
+        response = requests.post(
+            f'{API_BASE_URL}/api/document-messages/receive-direct',
+            json={
+                'token': TELEGRAM_BOT_SECRET,
+                'chat_id': chat_id,
+                'doc_type': doc_type,
+                'doc_id': doc_id,
+                'message': message,
                 'sender_name': sender_name
             },
             timeout=10
@@ -855,6 +891,114 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 # ============================================================================
+# ОБРАБОТЧИК КНОПКИ "ОТВЕТИТЬ" ПОД СООБЩЕНИЯМИ
+# ============================================================================
+
+async def reply_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработчик нажатия на кнопку "💬 Ответить" под сообщением.
+    Сохраняет информацию о документе и запрашивает текст ответа.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Парсим callback_data: reply_msg:doc_type:doc_id
+    parts = query.data.split(':')
+    if len(parts) != 3:
+        await query.message.reply_text("❌ Ошибка: неверный формат данных")
+        return ConversationHandler.END
+
+    doc_type = parts[1]
+    doc_id = int(parts[2])
+
+    # Сохраняем в context.user_data для последующей обработки
+    context.user_data['pending_reply'] = {
+        'doc_type': doc_type,
+        'doc_id': doc_id,
+        'original_message_id': query.message.message_id
+    }
+
+    # Создаём клавиатуру с кнопкой отмены
+    keyboard = ReplyKeyboardMarkup(
+        [['❌ Отменить ответ']],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+    await query.message.reply_text(
+        f"💬 *Ответ на документ \\#{doc_id}*\n\n"
+        "Напишите ваш ответ\\.\n"
+        "Или нажмите «❌ Отменить ответ» для отмены\\.",
+        parse_mode='MarkdownV2',
+        reply_markup=keyboard
+    )
+
+    return STATE_WAITING_REPLY
+
+
+async def receive_reply_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Получает текст ответа от пользователя и отправляет его на сервер.
+    """
+    message = update.message
+    text = message.text.strip()
+
+    # Проверка на отмену
+    if text == '❌ Отменить ответ':
+        context.user_data.pop('pending_reply', None)
+        await message.reply_text(
+            "↩️ Ответ отменён.",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    # Проверяем, есть ли данные о документе
+    pending = context.user_data.get('pending_reply')
+    if not pending:
+        await message.reply_text(
+            "❌ Ошибка: нет данных о документе. Попробуйте ещё раз нажать кнопку «Ответить».",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    doc_type = pending['doc_type']
+    doc_id = pending['doc_id']
+
+    # Получаем имя отправителя
+    user = message.from_user
+    sender_name = user.username or user.first_name or str(message.chat_id)
+    if user.username:
+        sender_name = f"@{user.username}"
+
+    # Отправляем ответ на сервер
+    result = send_reply_to_document(
+        chat_id=message.chat_id,
+        doc_type=doc_type,
+        doc_id=doc_id,
+        message=text,
+        sender_name=sender_name
+    )
+
+    # Очищаем pending_reply
+    context.user_data.pop('pending_reply', None)
+
+    if result.get('success'):
+        await message.reply_text(
+            f"✅ Ваш ответ на документ #{doc_id} отправлен!",
+            reply_markup=get_main_menu()
+        )
+    else:
+        error = result.get('error', 'Неизвестная ошибка')
+        logger.error(f"Ошибка отправки ответа: {error}")
+        await message.reply_text(
+            f"❌ Ошибка отправки ответа: {error}",
+            reply_markup=get_main_menu()
+        )
+
+    return ConversationHandler.END
+
+
+# ============================================================================
 # ЗАПУСК БОТА
 # ============================================================================
 
@@ -924,9 +1068,26 @@ def main():
         ]
     )
 
+    # Обработчик диалога ответа на сообщение (через кнопку "Ответить")
+    reply_conversation_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(reply_button_callback, pattern=r'^reply_msg:')
+        ],
+        states={
+            STATE_WAITING_REPLY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_reply_text)
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', cancel),
+            MessageHandler(filters.Regex(r'^❌ Отменить ответ$'), receive_reply_text)
+        ]
+    )
+
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(receipt_handler)
 
     # Обработчик кнопок главного меню (должен быть после receipt_handler)
