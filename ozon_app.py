@@ -3776,6 +3776,28 @@ HTML_TEMPLATE = '''
             background: #fff3cd;
         }
 
+        /* Кнопки выбора периода */
+        .period-btn {
+            padding: 6px 12px;
+            font-size: 13px;
+            border: 1px solid #ddd;
+            background: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .period-btn:hover {
+            background: #e4e6eb;
+            border-color: #bbb;
+        }
+
+        .period-btn.active {
+            background: #0066cc;
+            color: white;
+            border-color: #0066cc;
+        }
+
         table {
             border-collapse: collapse;
             width: 100%;
@@ -5310,13 +5332,25 @@ HTML_TEMPLATE = '''
 
                 <!-- Под-вкладка: Сводная -->
                 <div id="summary" class="sub-tab-content">
-                    <div class="table-header">
-                        <div class="date-filters-inline">
-                            <label style="font-weight: 500; margin-right: 10px;">Дата:</label>
-                            <input type="date" id="summary-date" class="date-filter-input" onclick="this.showPicker()" onchange="loadSummary()">
+                    <div class="table-header" style="flex-wrap: wrap; gap: 12px;">
+                        <div class="date-filters-inline" style="flex-wrap: wrap; gap: 8px; align-items: center;">
+                            <!-- Кнопки быстрого выбора периода -->
+                            <div style="display: flex; gap: 4px; margin-right: 12px;">
+                                <button class="period-btn active" onclick="setSummaryPeriod('today')" id="period-today">Сегодня</button>
+                                <button class="period-btn" onclick="setSummaryPeriod('yesterday')" id="period-yesterday">Вчера</button>
+                                <button class="period-btn" onclick="setSummaryPeriod('7days')" id="period-7days">7 дней</button>
+                                <button class="period-btn" onclick="setSummaryPeriod('14days')" id="period-14days">14 дней</button>
+                                <button class="period-btn" onclick="setSummaryPeriod('30days')" id="period-30days">30 дней</button>
+                            </div>
+                            <!-- Поля выбора диапазона дат -->
+                            <label style="font-weight: 500;">с:</label>
+                            <input type="date" id="summary-date-from" class="date-filter-input" onclick="this.showPicker()" onchange="loadSummary()">
+                            <label style="font-weight: 500; margin-left: 8px;">по:</label>
+                            <input type="date" id="summary-date-to" class="date-filter-input" onclick="this.showPicker()" onchange="loadSummary()">
                         </div>
                         <div style="font-size: 14px; color: #666;">
                             Всего товаров: <strong id="summary-count">0</strong>
+                            <span id="summary-period-info" style="margin-left: 12px; color: #888;"></span>
                         </div>
                     </div>
                     <div id="summary-content">
@@ -6091,37 +6125,116 @@ HTML_TEMPLATE = '''
         }
 
         // ============================================================
-        // СВОДНАЯ ТАБЛИЦА — ВСЕ ТОВАРЫ ЗА ВЫБРАННУЮ ДАТУ
+        // СВОДНАЯ ТАБЛИЦА — ВСЕ ТОВАРЫ ЗА ВЫБРАННЫЙ ПЕРИОД
         // ============================================================
 
         let summaryDataLoaded = false;
+        let currentPeriod = 'today';  // Текущий выбранный период
 
         /**
-         * Загрузить сводные данные по всем товарам за выбранную дату.
-         * Если дата не выбрана - используется текущий день.
+         * Получить сегодняшнюю дату в формате YYYY-MM-DD
+         */
+        function getTodayDate() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        /**
+         * Получить дату N дней назад в формате YYYY-MM-DD
+         */
+        function getDateDaysAgo(days) {
+            const date = new Date();
+            date.setDate(date.getDate() - days);
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        /**
+         * Установить период и обновить кнопки
+         */
+        function setSummaryPeriod(period) {
+            currentPeriod = period;
+            const dateFrom = document.getElementById('summary-date-from');
+            const dateTo = document.getElementById('summary-date-to');
+            const today = getTodayDate();
+
+            // Снимаем активный класс со всех кнопок
+            document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
+
+            // Устанавливаем даты в зависимости от периода
+            switch(period) {
+                case 'today':
+                    dateFrom.value = today;
+                    dateTo.value = today;
+                    document.getElementById('period-today').classList.add('active');
+                    break;
+                case 'yesterday':
+                    const yesterday = getDateDaysAgo(1);
+                    dateFrom.value = yesterday;
+                    dateTo.value = yesterday;
+                    document.getElementById('period-yesterday').classList.add('active');
+                    break;
+                case '7days':
+                    dateFrom.value = getDateDaysAgo(6);
+                    dateTo.value = today;
+                    document.getElementById('period-7days').classList.add('active');
+                    break;
+                case '14days':
+                    dateFrom.value = getDateDaysAgo(13);
+                    dateTo.value = today;
+                    document.getElementById('period-14days').classList.add('active');
+                    break;
+                case '30days':
+                    dateFrom.value = getDateDaysAgo(29);
+                    dateTo.value = today;
+                    document.getElementById('period-30days').classList.add('active');
+                    break;
+            }
+
+            loadSummary();
+        }
+
+        /**
+         * Загрузить сводные данные по всем товарам за выбранный период.
+         * Если даты не выбраны - используется текущий день.
          */
         function loadSummary() {
-            const dateInput = document.getElementById('summary-date');
+            const dateFromInput = document.getElementById('summary-date-from');
+            const dateToInput = document.getElementById('summary-date-to');
             const summaryContent = document.getElementById('summary-content');
 
-            // Если дата не установлена - устанавливаем сегодня
-            if (!dateInput.value) {
-                const today = new Date();
-                const yyyy = today.getFullYear();
-                const mm = String(today.getMonth() + 1).padStart(2, '0');
-                const dd = String(today.getDate()).padStart(2, '0');
-                dateInput.value = `${yyyy}-${mm}-${dd}`;
+            // Если даты не установлены - устанавливаем сегодня
+            if (!dateFromInput.value) {
+                dateFromInput.value = getTodayDate();
+            }
+            if (!dateToInput.value) {
+                dateToInput.value = getTodayDate();
             }
 
             summaryContent.innerHTML = '<div class="loading">Загрузка данных...</div>';
 
-            const selectedDate = dateInput.value;
+            const dateFrom = dateFromInput.value;
+            const dateTo = dateToInput.value;
 
-            authFetch(`/api/summary/${selectedDate}`)
+            authFetch(`/api/summary?date_from=${dateFrom}&date_to=${dateTo}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
                         document.getElementById('summary-count').textContent = data.count || 0;
+
+                        // Показываем информацию о периоде
+                        const periodInfo = document.getElementById('summary-period-info');
+                        if (data.period_days > 1) {
+                            periodInfo.textContent = `(${data.period_days} дн. | сравнение с ${data.prev_date_from} — ${data.prev_date_to})`;
+                        } else {
+                            periodInfo.textContent = `(сравнение с ${data.prev_date_from})`;
+                        }
+
                         renderSummary(data);
                         summaryDataLoaded = true;
                     } else {
@@ -11043,78 +11156,102 @@ def get_product_history(sku):
 @app.route('/api/summary/<date>')
 def get_summary(date=None):
     """
-    Получить сводные данные по ВСЕМ активным товарам за указанную дату.
+    Получить сводные данные по ВСЕМ активным товарам за указанный период.
 
-    Если дата не указана - возвращает данные за сегодня.
-    Показывает только активные товары (с историей).
-    Также возвращает данные за предыдущий день для сравнения.
+    Параметры (query string):
+    - date_from: начало периода (YYYY-MM-DD)
+    - date_to: конец периода (YYYY-MM-DD)
+
+    Или через URL:
+    - /api/summary/<date> - данные за один день
+
+    Автоматически сравнивает с предыдущим периодом такой же длины.
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Если дата не указана - используем сегодня
-        if not date:
-            date = get_snapshot_date()
-
-        # Вычисляем предыдущий день
         from datetime import datetime, timedelta
-        selected_date = datetime.strptime(date, '%Y-%m-%d').date()
-        prev_date = (selected_date - timedelta(days=1)).isoformat()
 
-        # Получаем данные всех товаров за указанную дату
+        # Получаем параметры диапазона дат
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        # Если передан date через URL - используем его как один день
+        if date and not date_from:
+            date_from = date
+            date_to = date
+
+        # Если даты не указаны - используем сегодня
+        if not date_from:
+            date_from = get_snapshot_date()
+        if not date_to:
+            date_to = date_from
+
+        # Вычисляем длину периода в днях
+        start_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+        end_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+        period_days = (end_date - start_date).days + 1
+
+        # Вычисляем предыдущий период такой же длины
+        prev_end = start_date - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=period_days - 1)
+
+        # Агрегируем данные за выбранный период по каждому товару
+        # Для счётчиков (заказы, показы, корзина) - SUM
+        # Для остатков - берём последнее значение (MAX date)
+        # Для рейтинга, позиции, CTR, CR - AVG
         cursor.execute('''
             SELECT
-                ph.snapshot_date,
-                ph.name,
-                ph.offer_id,
                 ph.sku,
-                ph.fbo_stock,
-                ph.orders_qty,
-                ph.rating,
-                ph.review_count,
-                ph.price_index,
-                ph.price,
-                ph.marketing_price,
-                ph.avg_position,
-                ph.hits_view_search,
-                ph.hits_view_search_pdp,
-                ph.search_ctr,
-                ph.hits_add_to_cart,
-                ph.cr1,
-                ph.cr2,
-                ph.adv_spend,
-                ph.in_transit,
-                ph.in_draft
+                ph.offer_id,
+                MAX(ph.name) as name,
+                MAX(ph.fbo_stock) as fbo_stock,
+                SUM(ph.orders_qty) as orders_qty,
+                AVG(ph.rating) as rating,
+                MAX(ph.review_count) as review_count,
+                MAX(ph.price_index) as price_index,
+                AVG(ph.price) as price,
+                AVG(ph.marketing_price) as marketing_price,
+                AVG(ph.avg_position) as avg_position,
+                SUM(ph.hits_view_search) as hits_view_search,
+                SUM(ph.hits_view_search_pdp) as hits_view_search_pdp,
+                AVG(ph.search_ctr) as search_ctr,
+                SUM(ph.hits_add_to_cart) as hits_add_to_cart,
+                AVG(ph.cr1) as cr1,
+                AVG(ph.cr2) as cr2,
+                SUM(ph.adv_spend) as adv_spend
             FROM products_history ph
-            WHERE ph.snapshot_date = ?
-            ORDER BY ph.fbo_stock DESC, ph.name
-        ''', (date,))
+            WHERE ph.snapshot_date >= ? AND ph.snapshot_date <= ?
+            GROUP BY ph.sku, ph.offer_id
+            ORDER BY SUM(ph.orders_qty) DESC, MAX(ph.name)
+        ''', (date_from, date_to))
 
         products = [dict(row) for row in cursor.fetchall()]
 
-        # Получаем данные за предыдущий день для сравнения (ключ = SKU)
+        # Агрегируем данные за предыдущий период для сравнения
         cursor.execute('''
             SELECT
                 ph.sku,
-                ph.fbo_stock,
-                ph.orders_qty,
-                ph.rating,
-                ph.review_count,
-                ph.price,
-                ph.marketing_price,
-                ph.avg_position,
-                ph.hits_view_search,
-                ph.hits_view_search_pdp,
-                ph.search_ctr,
-                ph.hits_add_to_cart,
-                ph.cr1,
-                ph.cr2,
-                ph.adv_spend
+                MAX(ph.fbo_stock) as fbo_stock,
+                SUM(ph.orders_qty) as orders_qty,
+                AVG(ph.rating) as rating,
+                MAX(ph.review_count) as review_count,
+                AVG(ph.price) as price,
+                AVG(ph.marketing_price) as marketing_price,
+                AVG(ph.avg_position) as avg_position,
+                SUM(ph.hits_view_search) as hits_view_search,
+                SUM(ph.hits_view_search_pdp) as hits_view_search_pdp,
+                AVG(ph.search_ctr) as search_ctr,
+                SUM(ph.hits_add_to_cart) as hits_add_to_cart,
+                AVG(ph.cr1) as cr1,
+                AVG(ph.cr2) as cr2,
+                SUM(ph.adv_spend) as adv_spend
             FROM products_history ph
-            WHERE ph.snapshot_date = ?
-        ''', (prev_date,))
+            WHERE ph.snapshot_date >= ? AND ph.snapshot_date <= ?
+            GROUP BY ph.sku
+        ''', (prev_start.isoformat(), prev_end.isoformat()))
 
         prev_products_map = {}
         for row in cursor.fetchall():
@@ -11133,8 +11270,11 @@ def get_summary(date=None):
 
         return jsonify({
             'success': True,
-            'date': date,
-            'prev_date': prev_date,
+            'date_from': date_from,
+            'date_to': date_to,
+            'period_days': period_days,
+            'prev_date_from': prev_start.isoformat(),
+            'prev_date_to': prev_end.isoformat(),
             'products': products,
             'prev_products': prev_products_map,
             'available_dates': available_dates,
