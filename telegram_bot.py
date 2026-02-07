@@ -838,7 +838,9 @@ def main():
         },
         fallbacks=[
             CommandHandler('cancel', cancel),
-            CommandHandler('stop', cancel)
+            CommandHandler('stop', cancel),
+            # Позволяем начать новый приход из любого состояния
+            MessageHandler(filters.Regex(r'^📦 Новый приход$'), receipt_start)
         ]
     )
 
