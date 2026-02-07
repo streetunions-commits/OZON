@@ -196,9 +196,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 Привет! Я бот *Moscow Seller*.\n\n"
         "📦 Команды:\n"
-        "/приход — Оформить приход товара\n"
-        "/остаток — Проверить остаток (в разработке)\n"
-        "/помощь — Справка\n\n"
+        "/prihod — Оформить приход товара\n"
+        "/stock — Проверить остаток (в разработке)\n"
+        "/help — Справка\n\n"
         f"🆔 Ваш chat\\_id: `{chat_id}`",
         parse_mode='Markdown'
     )
@@ -211,7 +211,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "📖 *Справка по боту Moscow Seller*\n\n"
         "*Создание прихода:*\n"
-        "1. Введите /приход\n"
+        "1. Введите /prihod\n"
         "2. Укажите имя приёмщика\n"
         "3. Выберите дату прихода\n"
         "4. Выберите товары и количество\n"
@@ -713,9 +713,9 @@ def main():
     # Обработчик диалога создания прихода
     receipt_handler = ConversationHandler(
         entry_points=[
-            CommandHandler('приход', receipt_start),
             CommandHandler('prihod', receipt_start),
-            CommandHandler('receipt', receipt_start)
+            CommandHandler('receipt', receipt_start),
+            CommandHandler('new', receipt_start)
         ],
         states={
             STATE_RECEIVER_NAME: [
@@ -745,14 +745,13 @@ def main():
         },
         fallbacks=[
             CommandHandler('cancel', cancel),
-            CommandHandler('отмена', cancel)
+            CommandHandler('stop', cancel)
         ]
     )
 
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
-    application.add_handler(CommandHandler('помощь', help_command))
     application.add_handler(receipt_handler)
 
     # Запускаем бота
