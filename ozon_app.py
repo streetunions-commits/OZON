@@ -6198,57 +6198,57 @@ HTML_TEMPLATE = '''
                 prevTotalSpend += item.adv_spend || 0;
             });
 
-            // Функция для создания ячейки итога с разницей
-            function createTotalCell(current, previous, suffix = '', lessIsBetter = false) {
+            // Функция для создания ячейки итога с разницей (для строки над заголовками)
+            function createTotalTh(current, previous, suffix = '', lessIsBetter = false) {
                 const diff = current - previous;
-                let bgColor = '';
+                let bgColor = '#f0f0f0';  // Базовый серый фон
                 let diffHtml = '';
 
                 if (previous > 0 && diff !== 0) {
                     const isPositive = lessIsBetter ? (diff < 0) : (diff > 0);
-                    bgColor = isPositive ? '#e5ffe5' : '#ffe5e5';
-                    const textColor = isPositive ? '#22c55e' : '#ef4444';
+                    bgColor = isPositive ? '#d4edda' : '#f8d7da';  // Более насыщенные цвета для заголовка
+                    const textColor = isPositive ? '#155724' : '#721c24';
                     const diffSign = diff > 0 ? '+' : '';
-                    diffHtml = `<br><span style="font-size: 12px; color: ${textColor}; font-weight: 500;">${diffSign}${formatNumber(Math.round(diff))}${suffix}</span>`;
+                    diffHtml = `<br><span style="font-size: 11px; color: ${textColor}; font-weight: 500;">${diffSign}${formatNumber(Math.round(diff))}${suffix}</span>`;
                 }
 
-                const bgStyle = bgColor ? `background-color: ${bgColor};` : '';
-                return `<div style="display: inline-block; padding: 8px 16px; border-radius: 8px; ${bgStyle} text-align: center;">
-                    <strong style="font-size: 18px;">${formatNumber(Math.round(current))}${suffix}</strong>${diffHtml}
-                </div>`;
+                return `<th style="background-color: ${bgColor}; text-align: center; padding: 8px 4px; border-bottom: 2px solid #dee2e6;">
+                    <strong style="font-size: 16px;">${formatNumber(Math.round(current))}${suffix}</strong>${diffHtml}
+                </th>`;
             }
-
-            // HTML блок с итогами над таблицей
-            let totalsHtml = `
-                <div style="display: flex; gap: 16px; margin-bottom: 16px; padding: 12px; background: #f8f9fa; border-radius: 8px; flex-wrap: wrap; justify-content: center;">
-                    <div style="text-align: center;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Заказы</div>
-                        ${createTotalCell(totalOrders, prevTotalOrders)}
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Показы</div>
-                        ${createTotalCell(totalViews, prevTotalViews)}
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Посещения</div>
-                        ${createTotalCell(totalPdp, prevTotalPdp)}
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Корзина</div>
-                        ${createTotalCell(totalCart, prevTotalCart)}
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="font-size: 12px; color: #666; margin-bottom: 4px;">Расходы</div>
-                        ${createTotalCell(totalSpend, prevTotalSpend, ' ₽', true)}
-                    </div>
-                </div>
-            `;
 
             // Определяем стрелку сортировки
             const ordersSortArrow = summarySortField === 'orders_qty' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
             const spendSortArrow = summarySortField === 'adv_spend' ? (summarySortAsc ? ' ▲' : ' ▼') : '';
 
-            let html = totalsHtml + '<table id="summary-table"><thead><tr>';
+            let html = '<table id="summary-table"><thead>';
+
+            // Строка с суммами (над заголовками столбцов)
+            // Столбцы: Артикул(0), Рейтинг(1), Отзывы(2), Индекс(3), FBO(4), Заказы(5), Цена ЛК(6), Соинвест(7), Цена сайт(8), Позиция(9), Показы(10), Посещения(11), CTR(12), Корзина(13), CR1(14), CR2(15), Расходы(16), CPO(17), ДРР(18)
+            html += '<tr class="totals-row" style="background-color: #f8f9fa;">';
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Артикул
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Рейтинг
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Отзывы
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Индекс цен
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // FBO остаток
+            html += createTotalTh(totalOrders, prevTotalOrders);  // Заказы
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Цена в ЛК
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Соинвест
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Цена на сайте
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // Ср. позиция
+            html += createTotalTh(totalViews, prevTotalViews);  // Показы
+            html += createTotalTh(totalPdp, prevTotalPdp);  // Посещения
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // CTR
+            html += createTotalTh(totalCart, prevTotalCart);  // Корзина
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // CR1
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // CR2
+            html += createTotalTh(totalSpend, prevTotalSpend, ' ₽', true);  // Расходы
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // CPO
+            html += '<th style="background-color: #f8f9fa; border-bottom: none;"></th>';  // ДРР
+            html += '</tr>';
+
+            // Строка с названиями столбцов
+            html += '<tr>';
             html += '<th>Артикул</th>';
             html += '<th>Рейтинг</th>';
             html += '<th>Отзывы</th>';
