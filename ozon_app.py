@@ -14109,7 +14109,7 @@ def send_document_message():
 
                 # Формируем сообщение для Telegram
                 doc_type_name = 'Приход' if doc_type == 'receipt' else 'Отгрузка' if doc_type == 'shipment' else 'Документ'
-                site_url = 'http://89.167.25.21:8000'
+                site_url = 'http://moscowseller.ru'
                 tg_text = (
                     f"💬 <b>Сообщение к {doc_type_name.lower()}у #{doc_id}</b>\n\n"
                     f"{message}\n\n"
