@@ -13978,13 +13978,17 @@ def get_products_for_telegram():
 # API ДЛЯ СООБЩЕНИЙ К ДОКУМЕНТАМ (ЧАТ САЙТ ↔ TELEGRAM)
 # ============================================================================
 
-def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int = None) -> dict:
+def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int = None,
+                         doc_type: str = None, doc_id: int = None) -> dict:
     """
     Отправить сообщение в Telegram через HTTP API.
+
+    Если указаны doc_type и doc_id, добавляется кнопка "Ответить" для ответа на сообщение.
 
     Возвращает: {'success': True, 'message_id': 123} или {'success': False, 'error': '...'}
     """
     import requests
+    import json
 
     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
     if not bot_token:
@@ -13999,6 +14003,18 @@ def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int = No
         }
         if reply_to_message_id:
             payload['reply_to_message_id'] = reply_to_message_id
+
+        # Добавляем кнопку "Ответить" если указан документ
+        if doc_type and doc_id:
+            reply_markup = {
+                'inline_keyboard': [[
+                    {
+                        'text': '💬 Ответить',
+                        'callback_data': f'reply_msg:{doc_type}:{doc_id}'
+                    }
+                ]]
+            }
+            payload['reply_markup'] = json.dumps(reply_markup)
 
         response = requests.post(url, json=payload, timeout=10)
         data = response.json()
@@ -14089,7 +14105,8 @@ def send_document_message():
                 # Формируем сообщение для Telegram
                 tg_text = f"💬 <b>Сообщение по документу #{doc_id}</b>\n\n{message}\n\n<i>— {sender_name}</i>"
 
-                result = send_telegram_message(telegram_chat_id, tg_text)
+                # Отправляем с кнопкой "Ответить"
+                result = send_telegram_message(telegram_chat_id, tg_text, doc_type=doc_type, doc_id=doc_id)
                 if result.get('success'):
                     telegram_message_id = result.get('message_id')
 
@@ -14181,6 +14198,63 @@ def receive_telegram_message():
         if not doc_id:
             conn.close()
             return jsonify({'success': False, 'error': 'Не найден связанный документ'})
+
+        # Сохраняем ответ
+        cursor.execute('''
+            INSERT INTO document_messages
+            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id)
+            VALUES (?, ?, ?, 'telegram', ?, ?)
+        ''', (doc_type, doc_id, message, sender_name, chat_id))
+
+        message_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message_id': message_id, 'doc_type': doc_type, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/receive-direct', methods=['POST'])
+def receive_telegram_message_direct():
+    """
+    Принять сообщение из Telegram бота напрямую (через кнопку "Ответить").
+    Вызывается из telegram_bot.py при нажатии на кнопку "Ответить" под сообщением.
+
+    Ожидает JSON:
+    {
+        "token": "секретный_токен",
+        "chat_id": 123456789,
+        "doc_type": "receipt",
+        "doc_id": 123,
+        "message": "Текст ответа",
+        "sender_name": "@username"
+    }
+    """
+    try:
+        data = request.json
+
+        # Проверяем токен
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        chat_id = data.get('chat_id')
+        doc_type = data.get('doc_type')
+        doc_id = data.get('doc_id')
+        message = data.get('message', '').strip()
+        sender_name = data.get('sender_name', 'Telegram')
+
+        if not message:
+            return jsonify({'success': False, 'error': 'Пустое сообщение'})
+
+        if not doc_type or not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан документ'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
 
         # Сохраняем ответ
         cursor.execute('''
