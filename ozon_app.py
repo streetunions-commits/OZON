@@ -11344,18 +11344,23 @@ HTML_TEMPLATE = '''
                     const adjustedRate = cnyRate * (1 + cnyPercent / 100);
                     const costRub = doc.total_sum_cny * adjustedRate + doc.total_all_logistics;
 
-                    // Функция для форматирования с красным цветом для нулей
-                    const formatWithZeroColor = (val, suffix) => {
+                    // Проверяем, есть ли нулевые значения в логистике
+                    const hasZeros = doc.total_logistics_rf === 0 || doc.total_logistics_cn === 0 ||
+                                     doc.total_terminal === 0 || doc.total_customs === 0;
+
+                    // Функция для форматирования с красным ФОНОМ для нулей
+                    const formatWithZeroBg = (val, suffix) => {
                         const formatted = formatVedNumber(val, suffix);
                         if (val === 0) {
-                            return '<span style="color: #dc3545;">' + formatted + '</span>';
+                            return '<span style="background-color: #f8d7da; padding: 2px 6px; border-radius: 4px;">' + formatted + '</span>';
                         }
                         return formatted;
                     };
 
                     // Чекбокс завершения (только для админа)
+                    // Передаём hasZeros для проверки при клике
                     const checkboxHtml = isAdmin
-                        ? '<input type="checkbox" ' + (isCompleted ? 'checked' : '') + ' onchange="toggleVedContainerCompleted(' + doc.id + ', this.checked)" style="cursor: pointer; width: 18px; height: 18px;">'
+                        ? '<input type="checkbox" ' + (isCompleted ? 'checked' : '') + ' onchange="toggleVedContainerCompleted(' + doc.id + ', this.checked, ' + hasZeros + ')" style="cursor: pointer; width: 18px; height: 18px;">'
                         : (isCompleted ? '✅' : '');
 
                     row.innerHTML = `
@@ -11366,11 +11371,11 @@ HTML_TEMPLATE = '''
                         <td>${formatVedNumber(doc.total_qty)}</td>
                         <td>${formatVedNumber(doc.total_sum_cny, '¥')}</td>
                         <td>${formatVedNumber(costRub, '₽')}</td>
-                        <td>${formatWithZeroColor(doc.total_logistics_rf, '₽')}</td>
-                        <td>${formatWithZeroColor(doc.total_logistics_cn, '₽')}</td>
-                        <td>${formatWithZeroColor(doc.total_terminal, '₽')}</td>
-                        <td>${formatWithZeroColor(doc.total_customs, '₽')}</td>
-                        <td>${formatWithZeroColor(doc.total_all_logistics, '₽')}</td>
+                        <td>${formatWithZeroBg(doc.total_logistics_rf, '₽')}</td>
+                        <td>${formatWithZeroBg(doc.total_logistics_cn, '₽')}</td>
+                        <td>${formatWithZeroBg(doc.total_terminal, '₽')}</td>
+                        <td>${formatWithZeroBg(doc.total_customs, '₽')}</td>
+                        <td>${formatWithZeroBg(doc.total_all_logistics, '₽')}</td>
                         <td>${doc.comment || '-'}</td>
                         <td style="white-space: nowrap;">${updatedInfo}</td>
                         <td style="text-align: center;">${checkboxHtml}</td>
@@ -11485,8 +11490,26 @@ HTML_TEMPLATE = '''
 
         /**
          * Переключить статус завершения контейнера ВЭД (только для админа)
+         * @param {number} docId - ID контейнера
+         * @param {boolean} isCompleted - новый статус
+         * @param {boolean} hasZeros - есть ли нулевые значения в логистике
          */
-        async function toggleVedContainerCompleted(docId, isCompleted) {
+        async function toggleVedContainerCompleted(docId, isCompleted, hasZeros) {
+            // Если пытаемся завершить, но есть нули — запрещаем
+            if (isCompleted && hasZeros) {
+                alert('Нельзя завершить контейнер: заполните все поля логистики (красные ячейки)');
+                loadVedContainersHistory();  // Сбросить чекбокс
+                return;
+            }
+
+            // Запрашиваем подтверждение при установке галочки
+            if (isCompleted) {
+                if (!confirm('Вы уверены, что хотите отметить контейнер №' + docId + ' как завершённый?')) {
+                    loadVedContainersHistory();  // Сбросить чекбокс
+                    return;
+                }
+            }
+
             try {
                 const response = await authFetch('/api/ved/containers/toggle-completed', {
                     method: 'POST',
