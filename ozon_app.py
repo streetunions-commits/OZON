@@ -5742,6 +5742,25 @@ HTML_TEMPLATE = '''
     </div>
 
     <!-- ============================================================================
+         МОДАЛКА: ПЕРЕИМЕНОВАНИЕ ПОЛЬЗОВАТЕЛЯ
+         ============================================================================ -->
+    <div id="rename-user-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Переименовать пользователя</h3>
+            <p style="color: #666; margin-bottom: 16px;">Текущее имя: <strong id="rename-user-old-name"></strong></p>
+            <div class="form-group">
+                <label>Новое имя пользователя</label>
+                <input type="text" id="rename-user-input" placeholder="Введите новое имя">
+            </div>
+            <input type="hidden" id="rename-user-id">
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeRenameUserModal()">Отмена</button>
+                <button class="save-btn" onclick="renameUser()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================================
          МОДАЛКА: ПРИВЯЗКА TELEGRAM АККАУНТА
          ============================================================================ -->
     <div id="link-telegram-modal" class="modal-overlay hidden">
@@ -12274,6 +12293,7 @@ HTML_TEMPLATE = '''
                         <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
                         <td class="actions">
                             <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${user.username}', ${user.telegram_chat_id || 'null'})" title="Привязать Telegram">📱</button>
+                            <button class="action-btn" onclick="openRenameUserModal(${user.id}, '${user.username}')" title="Переименовать">✏️</button>
                             <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${user.username}')">🔑</button>
                             ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${user.username}')">🗑</button>` : ''}
                         </td>
@@ -12412,6 +12432,60 @@ HTML_TEMPLATE = '''
         }
 
         // ============================================================================
+        // ПЕРЕИМЕНОВАНИЕ ПОЛЬЗОВАТЕЛЯ
+        // ============================================================================
+
+        /**
+         * Открыть модалку переименования пользователя.
+         */
+        function openRenameUserModal(userId, username) {
+            document.getElementById('rename-user-id').value = userId;
+            document.getElementById('rename-user-old-name').textContent = username;
+            document.getElementById('rename-user-input').value = username;
+            document.getElementById('rename-user-modal').classList.remove('hidden');
+            document.getElementById('rename-user-input').focus();
+            document.getElementById('rename-user-input').select();
+        }
+
+        /**
+         * Закрыть модалку переименования пользователя.
+         */
+        function closeRenameUserModal() {
+            document.getElementById('rename-user-modal').classList.add('hidden');
+        }
+
+        /**
+         * Переименовать пользователя.
+         */
+        async function renameUser() {
+            const userId = document.getElementById('rename-user-id').value;
+            const newUsername = document.getElementById('rename-user-input').value.trim();
+
+            if (!newUsername) {
+                alert('Введите новое имя пользователя');
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/users/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: parseInt(userId), new_username: newUsername })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    closeRenameUserModal();
+                    loadUsers();
+                } else {
+                    alert(data.error || 'Ошибка переименования');
+                }
+            } catch (err) {
+                console.error('Ошибка переименования:', err);
+            }
+        }
+
+        // ============================================================================
         // ПРИВЯЗКА TELEGRAM АККАУНТА
         // ============================================================================
 
@@ -12437,14 +12511,12 @@ HTML_TEMPLATE = '''
 
                 select.innerHTML = '<option value="">— Не привязан —</option>';
 
-                if (data.success && data.accounts) {
+                if (data.success && data.accounts && data.accounts.length > 0) {
                     data.accounts.forEach(acc => {
                         const option = document.createElement('option');
                         option.value = acc.chat_id;
-                        const displayName = acc.username
-                            ? `@${acc.username}`
-                            : `${acc.first_name || ''} ${acc.last_name || ''}`.trim() || `ID: ${acc.chat_id}`;
-                        option.textContent = displayName;
+                        // username уже содержит полное имя (@username или ID:xxx)
+                        option.textContent = acc.username || `ID: ${acc.chat_id}`;
                         if (currentChatId && acc.chat_id === currentChatId) {
                             option.selected = true;
                         }
@@ -13330,21 +13402,68 @@ def api_telegram_accounts():
     """
     Получить список всех Telegram аккаунтов для привязки к пользователям.
 
-    Возвращает: {"success": true, "accounts": [{"chat_id": 123, "username": "user", "first_name": "Name"}]}
+    Собирает уникальные аккаунты из:
+    1. Таблицы telegram_users (авторизованные пользователи бота)
+    2. Сообщений document_messages (все кто писал в чат)
+    3. Документов warehouse_receipt_docs (кто создавал документы)
+
+    Возвращает: {"success": true, "accounts": [{"chat_id": 123, "username": "@user"}]}
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        accounts_dict = {}
+
+        # 1. Из telegram_users (если есть)
         cursor.execute('''
             SELECT chat_id, username, first_name, last_name
             FROM telegram_users
-            WHERE is_authorized = 1
-            ORDER BY username, first_name
+            WHERE chat_id IS NOT NULL
         ''')
-        accounts = [dict(row) for row in cursor.fetchall()]
+        for row in cursor.fetchall():
+            chat_id = row['chat_id']
+            username = row['username'] or ''
+            first_name = row['first_name'] or ''
+            last_name = row['last_name'] or ''
+            display = f"@{username}" if username else f"{first_name} {last_name}".strip()
+            if chat_id not in accounts_dict or not accounts_dict[chat_id]:
+                accounts_dict[chat_id] = display
+
+        # 2. Из сообщений document_messages
+        cursor.execute('''
+            SELECT DISTINCT telegram_chat_id, sender_name
+            FROM document_messages
+            WHERE sender_type = 'telegram' AND telegram_chat_id IS NOT NULL
+        ''')
+        for row in cursor.fetchall():
+            chat_id = row['telegram_chat_id']
+            sender_name = row['sender_name'] or ''
+            if chat_id not in accounts_dict or not accounts_dict[chat_id]:
+                accounts_dict[chat_id] = sender_name
+
+        # 3. Из документов warehouse_receipt_docs (created_by может содержать @username)
+        cursor.execute('''
+            SELECT DISTINCT telegram_chat_id, created_by
+            FROM warehouse_receipt_docs
+            WHERE telegram_chat_id IS NOT NULL
+        ''')
+        for row in cursor.fetchall():
+            chat_id = row['telegram_chat_id']
+            created_by = row['created_by'] or ''
+            if chat_id not in accounts_dict or not accounts_dict[chat_id]:
+                accounts_dict[chat_id] = created_by
+
         conn.close()
+
+        # Формируем список для фронтенда
+        accounts = [
+            {'chat_id': chat_id, 'username': username or f'ID:{chat_id}'}
+            for chat_id, username in accounts_dict.items()
+        ]
+        # Сортируем по username
+        accounts.sort(key=lambda x: x['username'].lower())
 
         return jsonify({'success': True, 'accounts': accounts})
 
