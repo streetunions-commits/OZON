@@ -587,6 +587,15 @@ def init_database():
         )
     ''')
 
+    # Справочник поставщиков ВЭД
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ved_suppliers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
     # ============================================================================
@@ -6359,12 +6368,16 @@ HTML_TEMPLATE = '''
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
-                                    <label>Дата заказа</label>
-                                    <input type="date" id="ved-container-date" class="wh-input" style="cursor: pointer;">
+                                    <label>Дата выхода <span style="color: #e74c3c;">*</span></label>
+                                    <input type="date" id="ved-container-date" class="wh-input" style="cursor: pointer;" required>
                                 </div>
-                                <div class="receipt-form-field" style="flex: 0 0 200px;">
-                                    <label>Поставщик</label>
-                                    <input type="text" id="ved-container-supplier" class="wh-input" placeholder="Название поставщика">
+                                <div class="receipt-form-field" style="flex: 0 0 250px;">
+                                    <label>Поставщик <span style="color: #e74c3c;">*</span></label>
+                                    <div class="destination-dropdown-wrapper">
+                                        <input type="text" id="ved-container-supplier" class="wh-input" placeholder="Выберите или введите" autocomplete="off" onclick="toggleVedSupplierDropdown()" oninput="filterVedSuppliers()" required>
+                                        <div class="destination-dropdown" id="ved-supplier-dropdown"></div>
+                                        <button type="button" class="wh-add-btn-small" onclick="addNewVedSupplier()" title="Добавить в список">+</button>
+                                    </div>
                                 </div>
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий</label>
@@ -10926,10 +10939,11 @@ HTML_TEMPLATE = '''
         let vedContainerItemCounter = 0;
         let vedCnyRate = 0;
         let vedProducts = [];  // Товары для выпадающего списка
+        let vedSuppliers = []; // Поставщики для выпадающего списка
 
         /**
          * Загрузка данных вкладки "ВЭД"
-         * Загружает курсы валют и список товаров
+         * Загружает курсы валют, список товаров и поставщиков
          */
         function loadVed() {
             if (vedDataLoaded) return;
@@ -10958,6 +10972,16 @@ HTML_TEMPLATE = '''
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки товаров ВЭД:', err));
+
+            // Загружаем список поставщиков
+            authFetch('/api/ved/suppliers')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        vedSuppliers = data.suppliers;
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки поставщиков ВЭД:', err));
 
             // Загружаем историю контейнеров
             loadVedContainersHistory();
@@ -11156,14 +11180,30 @@ HTML_TEMPLATE = '''
             const cnyRate = vedCnyRate || 0;
             const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
 
+            // Валидация обязательных полей шапки
             if (!containerDate) {
-                alert('Укажите дату контейнера');
+                alert('Укажите дату выхода');
                 return;
             }
 
-            // Собираем позиции товаров
+            if (!supplier) {
+                alert('Укажите поставщика');
+                return;
+            }
+
+            if (cnyPercent === 0 || isNaN(cnyPercent)) {
+                if (!confirm('Процент к переводу не указан (0%). Продолжить сохранение?')) {
+                    return;
+                }
+            }
+
+            // Собираем позиции товаров с валидацией
             const items = [];
+            let rowNum = 0;
+            let hasValidationErrors = false;
+
             document.querySelectorAll('#ved-container-items-tbody tr').forEach(row => {
+                rowNum++;
                 const select = row.querySelector('.ved-container-product');
                 const sku = select ? parseInt(select.value) : 0;
                 if (!sku) return;  // Пропускаем строки без выбранного товара
@@ -11174,6 +11214,18 @@ HTML_TEMPLATE = '''
                 const logCn = parseFloat(row.querySelector('.ved-container-logcn')?.value) || 0;
                 const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
                 const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
+
+                // Валидация обязательных полей в строке
+                if (qty <= 0) {
+                    alert('Строка ' + rowNum + ': укажите количество товара');
+                    hasValidationErrors = true;
+                    return;
+                }
+                if (priceCny <= 0) {
+                    alert('Строка ' + rowNum + ': укажите цену за штуку');
+                    hasValidationErrors = true;
+                    return;
+                }
 
                 items.push({
                     sku: sku,
@@ -11186,8 +11238,10 @@ HTML_TEMPLATE = '''
                 });
             });
 
+            if (hasValidationErrors) return;
+
             if (items.length === 0) {
-                alert('Добавьте хотя бы один товар');
+                alert('Добавьте хотя бы один товар с указанием количества и цены');
                 return;
             }
 
@@ -11376,6 +11430,118 @@ HTML_TEMPLATE = '''
             addVedContainerItemRow();
             updateVedContainerTotals();
         }
+
+        // ============================================================================
+        // ВЫПАДАЮЩИЙ СПИСОК ПОСТАВЩИКОВ ВЭД
+        // ============================================================================
+
+        /**
+         * Отобразить список поставщиков в dropdown
+         */
+        function renderVedSupplierDropdown(filter = '') {
+            const dropdown = document.getElementById('ved-supplier-dropdown');
+            if (!dropdown) return;
+
+            const filterLower = (filter || '').toLowerCase();
+            const filtered = vedSuppliers.filter(s =>
+                !filterLower || s.name.toLowerCase().includes(filterLower)
+            );
+
+            if (filtered.length === 0) {
+                dropdown.innerHTML = '<div class="destination-dropdown-item" style="color: #999;">Нет совпадений</div>';
+                return;
+            }
+
+            dropdown.innerHTML = filtered.map(s =>
+                `<div class="destination-dropdown-item" onclick="selectVedSupplier('${s.name.replace(/'/g, "\\'")}')">${s.name}</div>`
+            ).join('');
+        }
+
+        /**
+         * Показать/скрыть dropdown поставщиков
+         */
+        function toggleVedSupplierDropdown() {
+            const dropdown = document.getElementById('ved-supplier-dropdown');
+            const input = document.getElementById('ved-container-supplier');
+            if (!dropdown) return;
+
+            if (dropdown.classList.contains('show')) {
+                dropdown.classList.remove('show');
+            } else {
+                renderVedSupplierDropdown(input.value);
+                dropdown.classList.add('show');
+            }
+        }
+
+        /**
+         * Фильтрация поставщиков при вводе
+         */
+        function filterVedSuppliers() {
+            const dropdown = document.getElementById('ved-supplier-dropdown');
+            const input = document.getElementById('ved-container-supplier');
+            if (!dropdown) return;
+
+            renderVedSupplierDropdown(input.value);
+            dropdown.classList.add('show');
+        }
+
+        /**
+         * Выбрать поставщика из списка
+         */
+        function selectVedSupplier(name) {
+            const input = document.getElementById('ved-container-supplier');
+            const dropdown = document.getElementById('ved-supplier-dropdown');
+            input.value = name;
+            dropdown.classList.remove('show');
+        }
+
+        /**
+         * Добавить нового поставщика в справочник
+         */
+        function addNewVedSupplier() {
+            const input = document.getElementById('ved-container-supplier');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название поставщика');
+                return;
+            }
+
+            // Проверяем, есть ли уже такой поставщик
+            if (vedSuppliers.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+                alert('Такой поставщик уже есть в списке');
+                return;
+            }
+
+            authFetch('/api/ved/suppliers/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    vedSuppliers.push({ id: data.id, name: name });
+                    renderVedSupplierDropdown();
+                    alert('Поставщик "' + name + '" добавлен в список');
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            })
+            .catch(err => {
+                console.error('Ошибка добавления поставщика:', err);
+                alert('Ошибка добавления поставщика');
+            });
+        }
+
+        // Закрыть dropdown поставщиков при клике вне
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('#ved-container-form .destination-dropdown-wrapper');
+            const dropdown = document.getElementById('ved-supplier-dropdown');
+            if (wrapper && dropdown && !wrapper.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
 
         /**
          * Форматирование курса валюты для отображения
@@ -15186,6 +15352,57 @@ def delete_ved_container():
         conn.close()
 
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/suppliers')
+@require_auth(['admin', 'viewer'])
+def get_ved_suppliers():
+    """
+    Получить список всех поставщиков ВЭД.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name FROM ved_suppliers ORDER BY name')
+        rows = cursor.fetchall()
+        conn.close()
+        suppliers = [{'id': r[0], 'name': r[1]} for r in rows]
+        return jsonify({'success': True, 'suppliers': suppliers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'suppliers': []})
+
+
+@app.route('/api/ved/suppliers/add', methods=['POST'])
+@require_auth(['admin'])
+def add_ved_supplier():
+    """
+    Добавить нового поставщика ВЭД в справочник.
+    """
+    try:
+        data = request.get_json()
+        name = (data.get('name') or '').strip()
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Название не может быть пустым'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли уже такой поставщик
+        cursor.execute('SELECT id FROM ved_suppliers WHERE name = ?', (name,))
+        existing = cursor.fetchone()
+        if existing:
+            conn.close()
+            return jsonify({'success': True, 'message': 'Поставщик уже существует', 'id': existing[0]})
+
+        cursor.execute('INSERT INTO ved_suppliers (name) VALUES (?)', (name,))
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id, 'message': 'Поставщик добавлен'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
