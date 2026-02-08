@@ -11372,11 +11372,11 @@ HTML_TEMPLATE = '''
                         updatedInfo = updatedStr + (doc.updated_by ? '<br><small>' + doc.updated_by + '</small>' : '');
                     }
 
-                    // Расчёт себестоимости в рублях с учётом курса и процента
+                    // Расчёт себестоимости в рублях с учётом курса и процента (без логистики)
                     const cnyRate = doc.cny_rate || 0;
                     const cnyPercent = doc.cny_percent || 0;
                     const adjustedRate = cnyRate * (1 + cnyPercent / 100);
-                    const costRub = doc.total_sum_cny * adjustedRate + doc.total_all_logistics;
+                    const costRub = doc.total_sum_cny * adjustedRate;
 
                     // Проверяем, есть ли нулевые значения в логистике
                     const hasZeros = doc.total_logistics_rf === 0 || doc.total_logistics_cn === 0 ||
