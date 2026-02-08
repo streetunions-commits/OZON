@@ -6299,6 +6299,10 @@ HTML_TEMPLATE = '''
                                 <span class="currency-value" id="ved-rate-cny">—</span>
                                 <span class="currency-rub">₽</span>
                             </div>
+                            <div class="currency-rate-card" style="min-width: 120px;">
+                                <span class="currency-label">% к переводу</span>
+                                <input type="number" id="ved-cny-percent" class="wh-input" style="width: 80px; text-align: center; font-size: 18px; font-weight: 600; padding: 4px 8px;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
+                            </div>
                             <div class="currency-rate-card">
                                 <span class="currency-label">$ Доллар (USD)</span>
                                 <span class="currency-value" id="ved-rate-usd">—</span>
@@ -11062,8 +11066,12 @@ HTML_TEMPLATE = '''
                 // Вся логистика = Логистика РФ + Логистика КНР + Терминальные расходы + Пошлина и НДС
                 const allLog = logRf + logCn + terminal + customs;
 
-                // Себестоимость руб = (цена шт. * курс юаня * кол-во) + вся логистика
-                const cost = (price * vedCnyRate * qty) + allLog;
+                // Процент к переводу (надбавка к курсу ЦБ)
+                const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
+                const adjustedCnyRate = vedCnyRate * (1 + cnyPercent / 100);
+
+                // Себестоимость руб = (цена шт. * скорректированный курс юаня * кол-во) + вся логистика
+                const cost = (price * adjustedCnyRate * qty) + allLog;
 
                 const supplierCell = row.querySelector('.ved-container-supplier-sum');
                 if (supplierCell) supplierCell.textContent = formatVedNumber(supplierSum, '¥');
