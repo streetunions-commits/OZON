@@ -6486,13 +6486,11 @@ HTML_TEMPLATE = '''
                             <thead>
                                 <tr>
                                     <th>Дата выхода</th>
-                                    <th>Поставщик</th>
                                     <th>Артикул</th>
                                     <th>Кол-во</th>
                                     <th>Цена, ¥</th>
                                     <th>Себест., ₽</th>
                                     <th>Вся лог., ₽</th>
-                                    <th>Итого, ₽</th>
                                 </tr>
                             </thead>
                             <tbody id="ved-receipts-tbody">
@@ -11455,13 +11453,11 @@ HTML_TEMPLATE = '''
 
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
-                        <td>${item.supplier || '-'}</td>
                         <td>${item.article || '-'}</td>
                         <td>${formatVedNumber(item.quantity)}</td>
                         <td>${formatVedNumber(item.price_cny, '¥')}</td>
                         <td>${formatVedNumber(item.cost_rub, '₽')}</td>
                         <td>${formatVedNumber(item.all_logistics, '₽')}</td>
-                        <td style="font-weight: 600;">${formatVedNumber(item.total_cost, '₽')}</td>
                     `;
                     tbody.appendChild(row);
                 });
