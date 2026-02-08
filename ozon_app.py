@@ -6230,60 +6230,86 @@ HTML_TEMPLATE = '''
             <div id="ved" class="tab-content">
                 <!-- Подвкладки ВЭД -->
                 <div class="ved-subtabs">
-                    <button class="ved-subtab-button active" onclick="switchVedSubtab(event, 'ved-orders')">Заказы</button>
+                    <button class="ved-subtab-button active" onclick="switchVedSubtab(event, 'ved-containers')">Контейнеры</button>
                 </div>
 
-                <!-- Подвкладка: Заказы -->
-                <div id="ved-orders" class="ved-subtab-content active">
-                    <div class="wh-section-header">
-                        <h3>Заказы поставщикам</h3>
-                        <p>Создание и отслеживание заказов</p>
+                <!-- Подвкладка: Контейнеры -->
+                <div id="ved-containers" class="ved-subtab-content active">
+                    <!-- Курсы валют ЦБ РФ (без заголовка) -->
+                    <div class="currency-rates-panel" style="margin-bottom: 20px;">
+                        <div class="currency-rates-row">
+                            <div class="currency-rate-card">
+                                <span class="currency-label">¥ Юань (CNY)</span>
+                                <span class="currency-value" id="ved-rate-cny">—</span>
+                                <span class="currency-rub">₽</span>
+                            </div>
+                            <div class="currency-rate-card">
+                                <span class="currency-label">$ Доллар (USD)</span>
+                                <span class="currency-value" id="ved-rate-usd">—</span>
+                                <span class="currency-rub">₽</span>
+                            </div>
+                            <div class="currency-rate-card">
+                                <span class="currency-label">€ Евро (EUR)</span>
+                                <span class="currency-value" id="ved-rate-eur">—</span>
+                                <span class="currency-rub">₽</span>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Форма нового заказа -->
-                    <div class="receipt-form" id="ved-order-form">
+                    <!-- Форма нового контейнера -->
+                    <div class="receipt-form" id="ved-container-form">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
                                     <label>Дата заказа</label>
-                                    <input type="date" id="ved-order-date" class="wh-input" style="cursor: pointer;">
+                                    <input type="date" id="ved-container-date" class="wh-input" style="cursor: pointer;">
                                 </div>
                                 <div class="receipt-form-field" style="flex: 0 0 200px;">
                                     <label>Поставщик</label>
-                                    <input type="text" id="ved-order-supplier" class="wh-input" placeholder="Название поставщика">
+                                    <input type="text" id="ved-container-supplier" class="wh-input" placeholder="Название поставщика">
                                 </div>
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий</label>
-                                    <input type="text" id="ved-order-comment" class="wh-input" placeholder="Примечания к заказу">
+                                    <input type="text" id="ved-container-comment" class="wh-input" placeholder="Примечания к контейнеру">
                                 </div>
                             </div>
                         </div>
 
                         <div class="receipt-items-header">
                             <h4>Товары в заказе</h4>
-                            <button class="wh-add-btn-small" onclick="addVedOrderItemRow()">+ Добавить товар</button>
+                            <button class="wh-add-btn-small" onclick="addVedContainerItemRow()">+ Добавить товар</button>
                         </div>
 
-                        <div class="wh-table-wrapper">
-                            <table class="wh-table" id="ved-order-items-table">
+                        <div class="wh-table-wrapper" style="overflow-x: auto;">
+                            <table class="wh-table" id="ved-container-items-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 50px;">№</th>
-                                        <th>Товар</th>
-                                        <th style="width: 120px;">Количество</th>
-                                        <th style="width: 140px;">Цена, ¥</th>
-                                        <th style="width: 140px;">Сумма, ¥</th>
-                                        <th style="width: 40px;"></th>
+                                        <th style="width: 40px;">№</th>
+                                        <th style="min-width: 180px;">Товар</th>
+                                        <th style="width: 80px;">Кол-во</th>
+                                        <th style="width: 100px;">Цена шт., ¥</th>
+                                        <th style="width: 120px;">Цена поставщика, ¥</th>
+                                        <th style="width: 100px;">Логистика<br>РФ, ₽</th>
+                                        <th style="width: 100px;">Логистика<br>КНР, ₽</th>
+                                        <th style="width: 100px;">Терминал, ₽</th>
+                                        <th style="width: 110px;">Стоимость<br>товара, ₽</th>
+                                        <th style="width: 100px;">Таможня, ₽</th>
+                                        <th style="width: 35px;"></th>
                                     </tr>
                                 </thead>
-                                <tbody id="ved-order-items-tbody">
+                                <tbody id="ved-container-items-tbody">
                                 </tbody>
-                                <tfoot id="ved-order-items-tfoot">
+                                <tfoot id="ved-container-items-tfoot">
                                     <tr>
                                         <td colspan="2" style="text-align: right; font-weight: 600;">Итого:</td>
-                                        <td style="text-align: center; font-weight: 600;" id="ved-order-total-qty">0</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-qty">0</td>
                                         <td></td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-order-total-sum">0 ¥</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-supplier">0 ¥</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-logrf">0 ₽</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-logcn">0 ₽</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-terminal">0 ₽</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-cost">0 ₽</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-customs">0 ₽</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -6291,37 +6317,37 @@ HTML_TEMPLATE = '''
                         </div>
 
                         <div class="receipt-form-actions">
-                            <button class="wh-save-receipt-btn" onclick="saveVedOrder()">Сохранить заказ</button>
-                            <button class="wh-clear-btn" onclick="clearVedOrderForm()">Очистить форму</button>
+                            <button class="wh-save-receipt-btn" onclick="saveVedContainer()">Сохранить контейнер</button>
+                            <button class="wh-clear-btn" onclick="clearVedContainerForm()">Очистить форму</button>
                         </div>
                     </div>
 
-                    <!-- История заказов -->
+                    <!-- История контейнеров -->
                     <div class="receipt-history">
                         <div class="receipt-history-header">
-                            <h4>📋 История заказов</h4>
+                            <h4>📋 История контейнеров</h4>
                         </div>
-                        <div class="wh-table-wrapper" id="ved-orders-history-wrapper" style="display: none;">
-                            <table class="wh-table" id="ved-orders-history-table">
+                        <div class="wh-table-wrapper" id="ved-containers-history-wrapper" style="display: none;">
+                            <table class="wh-table" id="ved-containers-history-table">
                                 <thead>
                                     <tr>
                                         <th style="width: 60px;">№</th>
-                                        <th>Дата заказа</th>
+                                        <th>Дата</th>
                                         <th>Поставщик</th>
                                         <th>Товаров</th>
-                                        <th>Общее кол-во</th>
+                                        <th>Кол-во</th>
                                         <th>Сумма, ¥</th>
                                         <th>Комментарий</th>
                                         <th>Статус</th>
                                         <th style="width: 100px;"></th>
                                     </tr>
                                 </thead>
-                                <tbody id="ved-orders-history-tbody">
+                                <tbody id="ved-containers-history-tbody">
                                 </tbody>
                             </table>
                         </div>
-                        <div class="wh-empty-state" id="ved-orders-history-empty">
-                            <p>Нет сохранённых заказов</p>
+                        <div class="wh-empty-state" id="ved-containers-history-empty">
+                            <p>Нет сохранённых контейнеров</p>
                         </div>
                     </div>
                 </div>
@@ -6596,7 +6622,7 @@ HTML_TEMPLATE = '''
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
             const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
-            const validVedSubtabs = ['ved-orders'];
+            const validVedSubtabs = ['ved-containers'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -10794,23 +10820,37 @@ HTML_TEMPLATE = '''
         // ============================================================================
 
         let vedDataLoaded = false;
-        let vedOrderItemCounter = 0;
+        let vedContainerItemCounter = 0;
+        let vedCnyRate = 0;
 
         /**
          * Загрузка данных вкладки "ВЭД"
-         * Загружает список товаров и историю заказов
+         * Загружает курсы валют и список товаров
          */
         function loadVed() {
             if (vedDataLoaded) return;
 
+            // Загружаем курсы валют
+            fetch('/api/currency-rates')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const rates = data.rates;
+                        vedCnyRate = rates.CNY || 0;
+                        document.getElementById('ved-rate-cny').textContent = formatCurrencyRate(rates.CNY);
+                        document.getElementById('ved-rate-usd').textContent = formatCurrencyRate(rates.USD);
+                        document.getElementById('ved-rate-eur').textContent = formatCurrencyRate(rates.EUR);
+                    }
+                });
+
             // Устанавливаем сегодняшнюю дату
             const today = new Date().toISOString().split('T')[0];
-            const dateInput = document.getElementById('ved-order-date');
+            const dateInput = document.getElementById('ved-container-date');
             if (dateInput) dateInput.value = today;
 
             // Добавляем первую строку товара
-            if (document.getElementById('ved-order-items-tbody').children.length === 0) {
-                addVedOrderItemRow();
+            if (document.getElementById('ved-container-items-tbody').children.length === 0) {
+                addVedContainerItemRow();
             }
 
             vedDataLoaded = true;
@@ -10849,89 +10889,119 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Добавить строку товара в заказ ВЭД
+         * Добавить строку товара в контейнер ВЭД
          */
-        function addVedOrderItemRow() {
-            vedOrderItemCounter++;
-            const tbody = document.getElementById('ved-order-items-tbody');
+        function addVedContainerItemRow() {
+            vedContainerItemCounter++;
+            const tbody = document.getElementById('ved-container-items-tbody');
             const row = document.createElement('tr');
-            row.id = 'ved-order-item-' + vedOrderItemCounter;
+            row.id = 'ved-container-item-' + vedContainerItemCounter;
             row.innerHTML = `
-                <td>${vedOrderItemCounter}</td>
+                <td>${vedContainerItemCounter}</td>
                 <td>
-                    <select class="wh-input ved-order-product" style="width: 100%;" onchange="updateVedOrderTotals()">
+                    <select class="wh-input ved-container-product" style="width: 100%;" onchange="updateVedContainerTotals()">
                         <option value="">Выберите товар</option>
                         ${(suppliesProducts || []).map(p => `<option value="${p.product_id}">${p.name}</option>`).join('')}
                     </select>
                 </td>
-                <td><input type="number" class="wh-input ved-order-qty" value="" min="1" placeholder="0" oninput="updateVedOrderTotals()"></td>
-                <td><input type="number" class="wh-input ved-order-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedOrderTotals()"></td>
-                <td class="ved-order-sum" style="font-weight: 500;">0 ¥</td>
-                <td><button class="wh-remove-btn" onclick="removeVedOrderItemRow(${vedOrderItemCounter})">×</button></td>
+                <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedContainerTotals()"></td>
+                <td class="ved-container-supplier-sum" style="font-weight: 500;">0 ¥</td>
+                <td><input type="number" class="wh-input ved-container-logrf" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td><input type="number" class="wh-input ved-container-logcn" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td><input type="number" class="wh-input ved-container-terminal" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
+                <td><input type="number" class="wh-input ved-container-customs" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td><button class="wh-remove-btn" onclick="removeVedContainerItemRow(${vedContainerItemCounter})">×</button></td>
             `;
             tbody.appendChild(row);
         }
 
         /**
-         * Удалить строку товара из заказа ВЭД
+         * Удалить строку товара из контейнера ВЭД
          */
-        function removeVedOrderItemRow(id) {
-            const row = document.getElementById('ved-order-item-' + id);
+        function removeVedContainerItemRow(id) {
+            const row = document.getElementById('ved-container-item-' + id);
             if (row) row.remove();
-            updateVedOrderTotals();
-            renumberVedOrderItems();
+            updateVedContainerTotals();
+            renumberVedContainerItems();
         }
 
         /**
-         * Перенумеровать строки заказа ВЭД
+         * Перенумеровать строки контейнера ВЭД
          */
-        function renumberVedOrderItems() {
-            const rows = document.querySelectorAll('#ved-order-items-tbody tr');
+        function renumberVedContainerItems() {
+            const rows = document.querySelectorAll('#ved-container-items-tbody tr');
             rows.forEach((row, index) => {
                 row.querySelector('td:first-child').textContent = index + 1;
             });
         }
 
         /**
-         * Обновить итоги заказа ВЭД
+         * Обновить итоги контейнера ВЭД
          */
-        function updateVedOrderTotals() {
+        function updateVedContainerTotals() {
             let totalQty = 0;
-            let totalSum = 0;
+            let totalSupplier = 0;
+            let totalLogRf = 0;
+            let totalLogCn = 0;
+            let totalTerminal = 0;
+            let totalCost = 0;
+            let totalCustoms = 0;
 
-            document.querySelectorAll('#ved-order-items-tbody tr').forEach(row => {
-                const qty = parseFloat(row.querySelector('.ved-order-qty')?.value) || 0;
-                const price = parseFloat(row.querySelector('.ved-order-price')?.value) || 0;
-                const sum = qty * price;
+            document.querySelectorAll('#ved-container-items-tbody tr').forEach(row => {
+                const qty = parseFloat(row.querySelector('.ved-container-qty')?.value) || 0;
+                const price = parseFloat(row.querySelector('.ved-container-price')?.value) || 0;
+                const supplierSum = qty * price;
+                const logRf = parseFloat(row.querySelector('.ved-container-logrf')?.value) || 0;
+                const logCn = parseFloat(row.querySelector('.ved-container-logcn')?.value) || 0;
+                const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
+                const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
 
-                const sumCell = row.querySelector('.ved-order-sum');
-                if (sumCell) sumCell.textContent = sum.toFixed(2) + ' ¥';
+                // Стоимость товара = (цена шт. * курс юаня * кол-во) + логистика РФ + логистика КНР + терминал + таможня
+                const cost = (price * vedCnyRate * qty) + logRf + logCn + terminal + customs;
+
+                const supplierCell = row.querySelector('.ved-container-supplier-sum');
+                if (supplierCell) supplierCell.textContent = supplierSum.toFixed(2) + ' ¥';
+
+                const costCell = row.querySelector('.ved-container-cost');
+                if (costCell) costCell.textContent = cost.toFixed(2) + ' ₽';
 
                 totalQty += qty;
-                totalSum += sum;
+                totalSupplier += supplierSum;
+                totalLogRf += logRf;
+                totalLogCn += logCn;
+                totalTerminal += terminal;
+                totalCost += cost;
+                totalCustoms += customs;
             });
 
-            document.getElementById('ved-order-total-qty').textContent = totalQty;
-            document.getElementById('ved-order-total-sum').textContent = totalSum.toFixed(2) + ' ¥';
+            document.getElementById('ved-container-total-qty').textContent = totalQty;
+            document.getElementById('ved-container-total-supplier').textContent = totalSupplier.toFixed(2) + ' ¥';
+            document.getElementById('ved-container-total-logrf').textContent = totalLogRf.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-logcn').textContent = totalLogCn.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-terminal').textContent = totalTerminal.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-cost').textContent = totalCost.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-customs').textContent = totalCustoms.toFixed(2) + ' ₽';
         }
 
         /**
-         * Сохранить заказ ВЭД (заглушка)
+         * Сохранить контейнер ВЭД (заглушка)
          */
-        function saveVedOrder() {
-            alert('Функция сохранения заказа в разработке');
+        function saveVedContainer() {
+            alert('Функция сохранения контейнера в разработке');
         }
 
         /**
-         * Очистить форму заказа ВЭД
+         * Очистить форму контейнера ВЭД
          */
-        function clearVedOrderForm() {
-            document.getElementById('ved-order-supplier').value = '';
-            document.getElementById('ved-order-comment').value = '';
-            document.getElementById('ved-order-items-tbody').innerHTML = '';
-            vedOrderItemCounter = 0;
-            addVedOrderItemRow();
-            updateVedOrderTotals();
+        function clearVedContainerForm() {
+            document.getElementById('ved-container-supplier').value = '';
+            document.getElementById('ved-container-comment').value = '';
+            document.getElementById('ved-container-items-tbody').innerHTML = '';
+            vedContainerItemCounter = 0;
+            addVedContainerItemRow();
+            updateVedContainerTotals();
         }
 
         /**
