@@ -6321,6 +6321,7 @@ HTML_TEMPLATE = '''
                                         <th style="width: 100px;">Логистика<br>КНР, ₽</th>
                                         <th style="width: 120px;">Терминальные<br>расходы, ₽</th>
                                         <th style="width: 110px;">Пошлина<br>и НДС, ₽</th>
+                                        <th style="width: 110px;">Вся<br>логистика, ₽</th>
                                         <th style="width: 35px;"></th>
                                     </tr>
                                 </thead>
@@ -6337,6 +6338,7 @@ HTML_TEMPLATE = '''
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-logcn">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-terminal">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-customs">0 ₽</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-alllog">0 ₽</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -10850,6 +10852,7 @@ HTML_TEMPLATE = '''
         let vedDataLoaded = false;
         let vedContainerItemCounter = 0;
         let vedCnyRate = 0;
+        let vedProducts = [];  // Товары для выпадающего списка
 
         /**
          * Загрузка данных вкладки "ВЭД"
@@ -10871,6 +10874,25 @@ HTML_TEMPLATE = '''
                     }
                 });
 
+            // Загружаем список товаров (как в Оприходовании)
+            authFetch('/api/products/list')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        vedProducts = data.products;
+                        // Инициализируем форму после загрузки товаров
+                        initVedContainerForm();
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки товаров ВЭД:', err));
+
+            vedDataLoaded = true;
+        }
+
+        /**
+         * Инициализация формы контейнера ВЭД
+         */
+        function initVedContainerForm() {
             // Устанавливаем сегодняшнюю дату
             const today = new Date().toISOString().split('T')[0];
             const dateInput = document.getElementById('ved-container-date');
@@ -10880,8 +10902,6 @@ HTML_TEMPLATE = '''
             if (document.getElementById('ved-container-items-tbody').children.length === 0) {
                 addVedContainerItemRow();
             }
-
-            vedDataLoaded = true;
         }
 
         /**
@@ -10924,12 +10944,18 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('ved-container-items-tbody');
             const row = document.createElement('tr');
             row.id = 'ved-container-item-' + vedContainerItemCounter;
+
+            // Генерируем опции для выпадающего списка товаров
+            let productOptions = '<option value="">— Выберите товар —</option>';
+            vedProducts.forEach(p => {
+                productOptions += `<option value="${p.sku}">${p.offer_id || p.sku}</option>`;
+            });
+
             row.innerHTML = `
                 <td>${vedContainerItemCounter}</td>
                 <td>
-                    <select class="wh-input ved-container-product" style="width: 100%;" onchange="updateVedContainerTotals()">
-                        <option value="">Выберите товар</option>
-                        ${(suppliesProducts || []).map(p => `<option value="${p.sku}">${p.name}</option>`).join('')}
+                    <select class="wh-select ved-container-product" style="width: 100%;" onchange="updateVedContainerTotals()">
+                        ${productOptions}
                     </select>
                 </td>
                 <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0" oninput="updateVedContainerTotals()"></td>
@@ -10940,6 +10966,7 @@ HTML_TEMPLATE = '''
                 <td><input type="number" class="wh-input ved-container-logcn" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><input type="number" class="wh-input ved-container-terminal" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><input type="number" class="wh-input ved-container-customs" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td class="ved-container-alllog" style="font-weight: 500;">0 ₽</td>
                 <td><button class="wh-remove-btn" onclick="removeVedContainerItemRow(${vedContainerItemCounter})">×</button></td>
             `;
             tbody.appendChild(row);
@@ -10976,6 +11003,7 @@ HTML_TEMPLATE = '''
             let totalTerminal = 0;
             let totalCost = 0;
             let totalCustoms = 0;
+            let totalAllLog = 0;
 
             document.querySelectorAll('#ved-container-items-tbody tr').forEach(row => {
                 const qty = parseFloat(row.querySelector('.ved-container-qty')?.value) || 0;
@@ -10986,14 +11014,20 @@ HTML_TEMPLATE = '''
                 const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
                 const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
 
-                // Стоимость товара = (цена шт. * курс юаня * кол-во) + логистика РФ + логистика КНР + терминал + таможня
-                const cost = (price * vedCnyRate * qty) + logRf + logCn + terminal + customs;
+                // Вся логистика = Логистика РФ + Логистика КНР + Терминальные расходы + Пошлина и НДС
+                const allLog = logRf + logCn + terminal + customs;
+
+                // Себестоимость руб = (цена шт. * курс юаня * кол-во) + вся логистика
+                const cost = (price * vedCnyRate * qty) + allLog;
 
                 const supplierCell = row.querySelector('.ved-container-supplier-sum');
                 if (supplierCell) supplierCell.textContent = supplierSum.toFixed(2) + ' ¥';
 
                 const costCell = row.querySelector('.ved-container-cost');
                 if (costCell) costCell.textContent = cost.toFixed(2) + ' ₽';
+
+                const allLogCell = row.querySelector('.ved-container-alllog');
+                if (allLogCell) allLogCell.textContent = allLog.toFixed(2) + ' ₽';
 
                 totalQty += qty;
                 totalSupplier += supplierSum;
@@ -11002,6 +11036,7 @@ HTML_TEMPLATE = '''
                 totalTerminal += terminal;
                 totalCost += cost;
                 totalCustoms += customs;
+                totalAllLog += allLog;
             });
 
             document.getElementById('ved-container-total-qty').textContent = totalQty;
@@ -11011,6 +11046,7 @@ HTML_TEMPLATE = '''
             document.getElementById('ved-container-total-logcn').textContent = totalLogCn.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-terminal').textContent = totalTerminal.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-customs').textContent = totalCustoms.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-alllog').textContent = totalAllLog.toFixed(2) + ' ₽';
         }
 
         /**
