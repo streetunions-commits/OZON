@@ -13445,17 +13445,42 @@ def api_users_list():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # JOIN с telegram_users для получения username Telegram аккаунта
-        cursor.execute('''
-            SELECT u.id, u.username, u.role, u.created_at, u.telegram_chat_id,
-                   t.username as telegram_username, t.first_name as telegram_first_name
-            FROM users u
-            LEFT JOIN telegram_users t ON u.telegram_chat_id = t.chat_id
-            ORDER BY u.id
-        ''')
+        # Получаем пользователей
+        cursor.execute('SELECT id, username, role, created_at, telegram_chat_id FROM users ORDER BY id')
         users = [dict(row) for row in cursor.fetchall()]
-        conn.close()
 
+        # Собираем telegram_username из разных источников
+        for user in users:
+            user['telegram_username'] = None
+            chat_id = user.get('telegram_chat_id')
+            if chat_id:
+                # 1. Проверяем telegram_users
+                cursor.execute('SELECT username FROM telegram_users WHERE chat_id = ?', (chat_id,))
+                tg_row = cursor.fetchone()
+                if tg_row and tg_row['username']:
+                    user['telegram_username'] = f"@{tg_row['username'].lstrip('@')}"
+                else:
+                    # 2. Проверяем document_messages
+                    cursor.execute('''
+                        SELECT sender_name FROM document_messages
+                        WHERE sender_type = 'telegram' AND telegram_chat_id = ?
+                        LIMIT 1
+                    ''', (chat_id,))
+                    msg_row = cursor.fetchone()
+                    if msg_row and msg_row['sender_name']:
+                        user['telegram_username'] = f"@{msg_row['sender_name'].lstrip('@')}"
+                    else:
+                        # 3. Проверяем warehouse_receipt_docs
+                        cursor.execute('''
+                            SELECT created_by FROM warehouse_receipt_docs
+                            WHERE telegram_chat_id = ?
+                            LIMIT 1
+                        ''', (chat_id,))
+                        doc_row = cursor.fetchone()
+                        if doc_row and doc_row['created_by']:
+                            user['telegram_username'] = f"@{doc_row['created_by'].lstrip('@')}"
+
+        conn.close()
         return jsonify({'success': True, 'users': users})
 
     except Exception as e:
