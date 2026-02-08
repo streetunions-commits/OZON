@@ -13467,9 +13467,17 @@ def api_telegram_accounts():
 
         conn.close()
 
+        # Нормализация username: всегда с @ в начале
+        def normalize_username(name, chat_id):
+            if not name:
+                return f'ID:{chat_id}'
+            # Убираем лишние @ и добавляем один в начало
+            clean_name = name.lstrip('@').strip()
+            return f'@{clean_name}' if clean_name else f'ID:{chat_id}'
+
         # Формируем список для фронтенда
         accounts = [
-            {'chat_id': chat_id, 'username': username or f'ID:{chat_id}'}
+            {'chat_id': chat_id, 'username': normalize_username(username, chat_id)}
             for chat_id, username in accounts_dict.items()
         ]
         # Сортируем по username
