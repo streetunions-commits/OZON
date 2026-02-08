@@ -11182,8 +11182,8 @@ HTML_TEMPLATE = '''
                 const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
                 const adjustedCnyRate = vedCnyRate * (1 + cnyPercent / 100);
 
-                // Себестоимость руб = (цена шт. * скорректированный курс юаня * кол-во) + вся логистика
-                const cost = (price * adjustedCnyRate * qty) + allLog;
+                // Себестоимость руб = цена шт. * скорректированный курс юаня * кол-во
+                const cost = price * adjustedCnyRate * qty;
 
                 const supplierCell = row.querySelector('.ved-container-supplier-sum');
                 if (supplierCell) supplierCell.textContent = formatVedNumber(supplierSum, '¥');
