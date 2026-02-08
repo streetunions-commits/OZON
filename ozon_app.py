@@ -550,6 +550,44 @@ def init_database():
         pass  # Колонка уже существует
 
     # ============================================================================
+    # ТАБЛИЦЫ ДЛЯ ВЭД (КОНТЕЙНЕРЫ)
+    # ============================================================================
+
+    # Документы контейнеров ВЭД (шапка: дата, поставщик, комментарий, курс, процент)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ved_container_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_date TEXT NOT NULL,
+            supplier TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            cny_rate REAL DEFAULT 0,
+            cny_percent REAL DEFAULT 0,
+            created_by TEXT DEFAULT '',
+            updated_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Позиции контейнера ВЭД (товары с ценами и логистикой)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ved_container_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id INTEGER NOT NULL,
+            sku INTEGER NOT NULL,
+            quantity INTEGER DEFAULT 0,
+            price_cny REAL DEFAULT 0,
+            logistics_rf REAL DEFAULT 0,
+            logistics_cn REAL DEFAULT 0,
+            terminal REAL DEFAULT 0,
+            customs REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (doc_id) REFERENCES ved_container_docs(id)
+        )
+    ''')
+
+    # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
     # ============================================================================
 
@@ -10921,6 +10959,9 @@ HTML_TEMPLATE = '''
                 })
                 .catch(err => console.error('Ошибка загрузки товаров ВЭД:', err));
 
+            // Загружаем историю контейнеров
+            loadVedContainersHistory();
+
             vedDataLoaded = true;
         }
 
@@ -11102,17 +11143,232 @@ HTML_TEMPLATE = '''
             document.getElementById('ved-container-total-alllog').textContent = formatVedNumber(totalAllLog, '₽');
         }
 
+        // ID контейнера при редактировании (null = новый)
+        let editingVedContainerId = null;
+
         /**
-         * Сохранить контейнер ВЭД (заглушка)
+         * Сохранить контейнер ВЭД
          */
-        function saveVedContainer() {
-            alert('Функция сохранения контейнера в разработке');
+        async function saveVedContainer() {
+            const containerDate = document.getElementById('ved-container-date').value;
+            const supplier = document.getElementById('ved-container-supplier').value.trim();
+            const comment = document.getElementById('ved-container-comment').value.trim();
+            const cnyRate = vedCnyRate || 0;
+            const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
+
+            if (!containerDate) {
+                alert('Укажите дату контейнера');
+                return;
+            }
+
+            // Собираем позиции товаров
+            const items = [];
+            document.querySelectorAll('#ved-container-items-tbody tr').forEach(row => {
+                const select = row.querySelector('.ved-container-product');
+                const sku = select ? parseInt(select.value) : 0;
+                if (!sku) return;  // Пропускаем строки без выбранного товара
+
+                const qty = parseFloat(row.querySelector('.ved-container-qty')?.value) || 0;
+                const priceCny = parseFloat(row.querySelector('.ved-container-price')?.value) || 0;
+                const logRf = parseFloat(row.querySelector('.ved-container-logrf')?.value) || 0;
+                const logCn = parseFloat(row.querySelector('.ved-container-logcn')?.value) || 0;
+                const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
+                const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
+
+                items.push({
+                    sku: sku,
+                    quantity: qty,
+                    price_cny: priceCny,
+                    logistics_rf: logRf,
+                    logistics_cn: logCn,
+                    terminal: terminal,
+                    customs: customs
+                });
+            });
+
+            if (items.length === 0) {
+                alert('Добавьте хотя бы один товар');
+                return;
+            }
+
+            try {
+                const response = await authFetch('/api/ved/containers/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        doc_id: editingVedContainerId,
+                        container_date: containerDate,
+                        supplier: supplier,
+                        comment: comment,
+                        cny_rate: cnyRate,
+                        cny_percent: cnyPercent,
+                        items: items
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    clearVedContainerForm();
+                    loadVedContainersHistory();
+                } else {
+                    alert('Ошибка сохранения: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка сохранения контейнера:', error);
+                alert('Ошибка сохранения контейнера');
+            }
+        }
+
+        /**
+         * Загрузить историю контейнеров ВЭД
+         */
+        async function loadVedContainersHistory() {
+            try {
+                const response = await authFetch('/api/ved/containers');
+                const result = await response.json();
+
+                const tbody = document.getElementById('ved-containers-history-tbody');
+                const wrapper = document.getElementById('ved-containers-history-wrapper');
+                const empty = document.getElementById('ved-containers-history-empty');
+
+                if (!result.success || !result.containers || result.containers.length === 0) {
+                    if (wrapper) wrapper.style.display = 'none';
+                    if (empty) empty.style.display = 'block';
+                    return;
+                }
+
+                if (wrapper) wrapper.style.display = 'block';
+                if (empty) empty.style.display = 'none';
+
+                tbody.innerHTML = '';
+                result.containers.forEach(doc => {
+                    const row = document.createElement('tr');
+                    const dateFormatted = doc.container_date ? doc.container_date.split('-').reverse().join('.') : '';
+
+                    row.innerHTML = `
+                        <td>${doc.id}</td>
+                        <td>${dateFormatted}</td>
+                        <td>${doc.supplier || '-'}</td>
+                        <td>${doc.items_count}</td>
+                        <td>${formatVedNumber(doc.total_qty)}</td>
+                        <td>${formatVedNumber(doc.total_sum_cny, '¥')}</td>
+                        <td>${doc.comment || '-'}</td>
+                        <td><span class="status-badge status-processed">Сохранён</span></td>
+                        <td>
+                            <button class="wh-edit-btn" onclick="editVedContainer(${doc.id})" title="Редактировать">✏️</button>
+                            <button class="wh-delete-btn" onclick="deleteVedContainer(${doc.id})" title="Удалить">🗑️</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки истории контейнеров:', error);
+            }
+        }
+
+        /**
+         * Редактировать контейнер ВЭД
+         */
+        async function editVedContainer(docId) {
+            try {
+                const response = await authFetch('/api/ved/containers/' + docId);
+                const result = await response.json();
+
+                if (!result.success) {
+                    alert('Ошибка загрузки контейнера: ' + (result.error || 'Неизвестная ошибка'));
+                    return;
+                }
+
+                const doc = result.doc;
+                const items = result.items;
+
+                // Устанавливаем ID редактируемого контейнера
+                editingVedContainerId = docId;
+
+                // Заполняем шапку формы
+                document.getElementById('ved-container-date').value = doc.container_date || '';
+                document.getElementById('ved-container-supplier').value = doc.supplier || '';
+                document.getElementById('ved-container-comment').value = doc.comment || '';
+                if (doc.cny_percent) {
+                    document.getElementById('ved-cny-percent').value = doc.cny_percent;
+                }
+
+                // Очищаем и заполняем позиции
+                document.getElementById('ved-container-items-tbody').innerHTML = '';
+                vedContainerItemCounter = 0;
+
+                for (const item of items) {
+                    addVedContainerItemRow();
+                    const rows = document.querySelectorAll('#ved-container-items-tbody tr');
+                    const row = rows[rows.length - 1];
+
+                    // Устанавливаем значения
+                    const select = row.querySelector('.ved-container-product');
+                    if (select) select.value = item.sku;
+
+                    const qtyInput = row.querySelector('.ved-container-qty');
+                    if (qtyInput) qtyInput.value = item.quantity;
+
+                    const priceInput = row.querySelector('.ved-container-price');
+                    if (priceInput) priceInput.value = item.price_cny;
+
+                    const logRfInput = row.querySelector('.ved-container-logrf');
+                    if (logRfInput) logRfInput.value = item.logistics_rf || 0;
+
+                    const logCnInput = row.querySelector('.ved-container-logcn');
+                    if (logCnInput) logCnInput.value = item.logistics_cn || 0;
+
+                    const terminalInput = row.querySelector('.ved-container-terminal');
+                    if (terminalInput) terminalInput.value = item.terminal || 0;
+
+                    const customsInput = row.querySelector('.ved-container-customs');
+                    if (customsInput) customsInput.value = item.customs || 0;
+                }
+
+                updateVedContainerTotals();
+
+                // Прокручиваем к форме
+                document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                console.error('Ошибка загрузки контейнера для редактирования:', error);
+                alert('Ошибка загрузки контейнера');
+            }
+        }
+
+        /**
+         * Удалить контейнер ВЭД (с подтверждением)
+         */
+        async function deleteVedContainer(docId) {
+            if (!confirm('Вы уверены, что хотите удалить контейнер №' + docId + '?')) {
+                return;
+            }
+
+            try {
+                const response = await authFetch('/api/ved/containers/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: docId })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    loadVedContainersHistory();
+                } else {
+                    alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка удаления контейнера:', error);
+                alert('Ошибка удаления контейнера');
+            }
         }
 
         /**
          * Очистить форму контейнера ВЭД
          */
         function clearVedContainerForm() {
+            editingVedContainerId = null;  // Сбрасываем режим редактирования
             document.getElementById('ved-container-supplier').value = '';
             document.getElementById('ved-container-comment').value = '';
             document.getElementById('ved-container-items-tbody').innerHTML = '';
@@ -14721,6 +14977,217 @@ def get_unprocessed_count():
         return jsonify({'success': True, 'count': count})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'count': 0})
+
+
+# ============================================================================
+# API ВЭД (КОНТЕЙНЕРЫ)
+# ============================================================================
+
+@app.route('/api/ved/containers')
+@require_auth(['admin', 'viewer'])
+def get_ved_containers():
+    """
+    Получить список контейнеров ВЭД с агрегированными данными.
+
+    Возвращает:
+        - id: ID контейнера
+        - container_date: дата контейнера
+        - supplier: поставщик
+        - comment: комментарий
+        - cny_rate: курс юаня
+        - cny_percent: процент к переводу
+        - items_count: количество позиций (товаров)
+        - total_qty: общее количество единиц
+        - total_sum_cny: общая сумма в юанях
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT
+                d.id,
+                d.container_date,
+                d.supplier,
+                d.comment,
+                d.cny_rate,
+                d.cny_percent,
+                d.created_by,
+                d.updated_by,
+                d.created_at,
+                d.updated_at,
+                COUNT(i.id) as items_count,
+                COALESCE(SUM(i.quantity), 0) as total_qty,
+                COALESCE(SUM(i.quantity * i.price_cny), 0) as total_sum_cny
+            FROM ved_container_docs d
+            LEFT JOIN ved_container_items i ON i.doc_id = d.id
+            GROUP BY d.id
+            ORDER BY d.container_date DESC, d.created_at DESC
+        ''')
+
+        docs = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'containers': docs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'containers': []})
+
+
+@app.route('/api/ved/containers/<int:doc_id>')
+@require_auth(['admin', 'viewer'])
+def get_ved_container(doc_id):
+    """
+    Получить детальную информацию о контейнере ВЭД для редактирования.
+    Возвращает шапку документа и все позиции.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем шапку документа
+        cursor.execute('''
+            SELECT id, container_date, supplier, comment, cny_rate, cny_percent,
+                   created_by, updated_by, created_at, updated_at
+            FROM ved_container_docs WHERE id = ?
+        ''', (doc_id,))
+        doc = cursor.fetchone()
+
+        if not doc:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Контейнер не найден'})
+
+        # Получаем позиции
+        cursor.execute('''
+            SELECT id, sku, quantity, price_cny, logistics_rf, logistics_cn, terminal, customs
+            FROM ved_container_items WHERE doc_id = ?
+        ''', (doc_id,))
+        items = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'doc': dict(doc),
+            'items': items
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/containers/save', methods=['POST'])
+@require_auth(['admin'])
+def save_ved_container():
+    """
+    Сохранить или обновить контейнер ВЭД с позициями.
+
+    Ожидает JSON:
+    {
+        "doc_id": null,  // null для нового, число для редактирования
+        "container_date": "2026-02-08",
+        "supplier": "Поставщик",
+        "comment": "Комментарий",
+        "cny_rate": 12.5,
+        "cny_percent": 5,
+        "items": [
+            {"sku": 123, "quantity": 10, "price_cny": 100, "logistics_rf": 500, "logistics_cn": 300, "terminal": 200, "customs": 150},
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')  # None для нового, число для редактирования
+        container_date = data.get('container_date', '')
+        supplier = data.get('supplier', '')
+        comment = data.get('comment', '')
+        cny_rate = data.get('cny_rate', 0)
+        cny_percent = data.get('cny_percent', 0)
+        items = data.get('items', [])
+
+        if not container_date:
+            return jsonify({'success': False, 'error': 'Укажите дату контейнера'})
+
+        if not items:
+            return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
+
+        # Получаем username текущего пользователя
+        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        if doc_id:
+            # Редактирование существующего документа
+            cursor.execute('''
+                UPDATE ved_container_docs
+                SET container_date = ?, supplier = ?, comment = ?, cny_rate = ?, cny_percent = ?,
+                    updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (container_date, supplier, comment, cny_rate, cny_percent, username, doc_id))
+
+            # Удаляем старые позиции
+            cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
+        else:
+            # Создаём новый документ (шапку)
+            cursor.execute('''
+                INSERT INTO ved_container_docs (container_date, supplier, comment, cny_rate, cny_percent, created_by, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (container_date, supplier, comment, cny_rate, cny_percent, username, username))
+            doc_id = cursor.lastrowid
+
+        # Добавляем позиции
+        for item in items:
+            cursor.execute('''
+                INSERT INTO ved_container_items (doc_id, sku, quantity, price_cny, logistics_rf, logistics_cn, terminal, customs, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (
+                doc_id,
+                item.get('sku', 0),
+                item.get('quantity', 0),
+                item.get('price_cny', 0),
+                item.get('logistics_rf', 0),
+                item.get('logistics_cn', 0),
+                item.get('terminal', 0),
+                item.get('customs', 0)
+            ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/containers/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_ved_container():
+    """
+    Удалить контейнер ВЭД вместе со всеми позициями.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID контейнера'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Удаляем позиции
+        cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
+
+        # Удаляем шапку
+        cursor.execute('DELETE FROM ved_container_docs WHERE id = ?', (doc_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/telegram/create-receipt', methods=['POST'])
