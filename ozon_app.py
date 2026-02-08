@@ -596,6 +596,12 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем колонку is_completed для контейнеров ВЭД
+    try:
+        cursor.execute('ALTER TABLE ved_container_docs ADD COLUMN is_completed INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
     # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
     # ============================================================================
@@ -6458,6 +6464,7 @@ HTML_TEMPLATE = '''
                                         <th>Вся лог.</th>
                                         <th>Комментарий</th>
                                         <th>Изменено</th>
+                                        <th style="width: 70px;">Завершено</th>
                                         <th style="width: 80px;"></th>
                                     </tr>
                                 </thead>
@@ -11301,10 +11308,19 @@ HTML_TEMPLATE = '''
                 if (wrapper) wrapper.style.display = 'block';
                 if (empty) empty.style.display = 'none';
 
+                // Проверяем, является ли пользователь админом
+                const isAdmin = currentUser && currentUser.role === 'admin';
+
                 tbody.innerHTML = '';
                 result.containers.forEach(doc => {
                     const row = document.createElement('tr');
                     const dateFormatted = doc.container_date ? doc.container_date.split('-').reverse().join('.') : '';
+                    const isCompleted = doc.is_completed === 1;
+
+                    // Если завершено — зелёный фон строки
+                    if (isCompleted) {
+                        row.style.backgroundColor = '#d4edda';
+                    }
 
                     // Форматирование даты создания (дата время + логин)
                     let createdInfo = '-';
@@ -11328,6 +11344,20 @@ HTML_TEMPLATE = '''
                     const adjustedRate = cnyRate * (1 + cnyPercent / 100);
                     const costRub = doc.total_sum_cny * adjustedRate + doc.total_all_logistics;
 
+                    // Функция для форматирования с красным цветом для нулей
+                    const formatWithZeroColor = (val, suffix) => {
+                        const formatted = formatVedNumber(val, suffix);
+                        if (val === 0) {
+                            return '<span style="color: #dc3545;">' + formatted + '</span>';
+                        }
+                        return formatted;
+                    };
+
+                    // Чекбокс завершения (только для админа)
+                    const checkboxHtml = isAdmin
+                        ? '<input type="checkbox" ' + (isCompleted ? 'checked' : '') + ' onchange="toggleVedContainerCompleted(' + doc.id + ', this.checked)" style="cursor: pointer; width: 18px; height: 18px;">'
+                        : (isCompleted ? '✅' : '');
+
                     row.innerHTML = `
                         <td>${doc.id}</td>
                         <td style="white-space: nowrap;">${createdInfo}</td>
@@ -11336,13 +11366,14 @@ HTML_TEMPLATE = '''
                         <td>${formatVedNumber(doc.total_qty)}</td>
                         <td>${formatVedNumber(doc.total_sum_cny, '¥')}</td>
                         <td>${formatVedNumber(costRub, '₽')}</td>
-                        <td>${formatVedNumber(doc.total_logistics_rf, '₽')}</td>
-                        <td>${formatVedNumber(doc.total_logistics_cn, '₽')}</td>
-                        <td>${formatVedNumber(doc.total_terminal, '₽')}</td>
-                        <td>${formatVedNumber(doc.total_customs, '₽')}</td>
-                        <td>${formatVedNumber(doc.total_all_logistics, '₽')}</td>
+                        <td>${formatWithZeroColor(doc.total_logistics_rf, '₽')}</td>
+                        <td>${formatWithZeroColor(doc.total_logistics_cn, '₽')}</td>
+                        <td>${formatWithZeroColor(doc.total_terminal, '₽')}</td>
+                        <td>${formatWithZeroColor(doc.total_customs, '₽')}</td>
+                        <td>${formatWithZeroColor(doc.total_all_logistics, '₽')}</td>
                         <td>${doc.comment || '-'}</td>
                         <td style="white-space: nowrap;">${updatedInfo}</td>
+                        <td style="text-align: center;">${checkboxHtml}</td>
                         <td>
                             <button class="wh-edit-btn" onclick="editVedContainer(${doc.id})" title="Редактировать">✏️</button>
                             <button class="wh-delete-btn" onclick="deleteVedContainer(${doc.id})" title="Удалить">🗑️</button>
@@ -11449,6 +11480,32 @@ HTML_TEMPLATE = '''
             } catch (error) {
                 console.error('Ошибка удаления контейнера:', error);
                 alert('Ошибка удаления контейнера');
+            }
+        }
+
+        /**
+         * Переключить статус завершения контейнера ВЭД (только для админа)
+         */
+        async function toggleVedContainerCompleted(docId, isCompleted) {
+            try {
+                const response = await authFetch('/api/ved/containers/toggle-completed', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: docId, is_completed: isCompleted })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    loadVedContainersHistory();  // Перезагрузить список для обновления цвета
+                } else {
+                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
+                    loadVedContainersHistory();  // Сбросить чекбокс
+                }
+            } catch (error) {
+                console.error('Ошибка обновления статуса:', error);
+                alert('Ошибка обновления статуса');
+                loadVedContainersHistory();
             }
         }
 
@@ -15217,6 +15274,7 @@ def get_ved_containers():
                 d.updated_by,
                 d.created_at,
                 d.updated_at,
+                COALESCE(d.is_completed, 0) as is_completed,
                 COUNT(i.id) as items_count,
                 COALESCE(SUM(i.quantity), 0) as total_qty,
                 COALESCE(SUM(i.quantity * i.price_cny), 0) as total_sum_cny,
@@ -15228,7 +15286,7 @@ def get_ved_containers():
             FROM ved_container_docs d
             LEFT JOIN ved_container_items i ON i.doc_id = d.id
             GROUP BY d.id
-            ORDER BY d.container_date DESC, d.created_at DESC
+            ORDER BY d.is_completed ASC, d.container_date DESC, d.created_at DESC
         ''')
 
         docs = [dict(row) for row in cursor.fetchall()]
@@ -15386,6 +15444,38 @@ def delete_ved_container():
 
         # Удаляем шапку
         cursor.execute('DELETE FROM ved_container_docs WHERE id = ?', (doc_id,))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/containers/toggle-completed', methods=['POST'])
+@require_auth(['admin'])
+def toggle_ved_container_completed():
+    """
+    Переключить статус завершения контейнера ВЭД.
+    Только для администратора.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('id')
+        is_completed = data.get('is_completed', 0)
+
+        if not doc_id:
+            return jsonify({'success': False, 'error': 'Не указан ID контейнера'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE ved_container_docs
+            SET is_completed = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (1 if is_completed else 0, doc_id))
 
         conn.commit()
         conn.close()
