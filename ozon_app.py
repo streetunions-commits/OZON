@@ -4239,19 +4239,49 @@ HTML_TEMPLATE = '''
             color: #999;
         }
 
-        /* ВЭД - Внешнеэкономическая деятельность */
-        .ved-container {
-            padding: 0;
+        /* ============================================================================
+           СТИЛИ ВКЛАДКИ ВЭД (подвкладки)
+           ============================================================================ */
+
+        .ved-subtabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 2px solid #e9ecef;
+            padding: 0 20px;
+            background: #f8f9fa;
         }
 
-        .ved-header {
-            padding: 20px 0;
-            border-bottom: 1px solid #e9ecef;
-            margin-bottom: 20px;
+        .ved-subtab-button {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #666;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            margin-bottom: -2px;
         }
 
-        .ved-content {
-            min-height: 300px;
+        .ved-subtab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: #fff;
+        }
+
+        .ved-subtab-button:hover:not(.active) {
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .ved-subtab-content {
+            display: none;
+            padding: 20px;
+        }
+
+        .ved-subtab-content.active {
+            display: block;
         }
 
         .supplies-table-wrapper {
@@ -6198,13 +6228,101 @@ HTML_TEMPLATE = '''
 
             <!-- ТАБ: ВЭД (внешнеэкономическая деятельность) -->
             <div id="ved" class="tab-content">
-                <div class="ved-container">
-                    <div class="ved-header">
-                        <h3 style="margin: 0; color: #333; font-weight: 600;">Внешнеэкономическая деятельность</h3>
-                        <p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">Управление импортными операциями и расчётами</p>
+                <!-- Подвкладки ВЭД -->
+                <div class="ved-subtabs">
+                    <button class="ved-subtab-button active" onclick="switchVedSubtab(event, 'ved-orders')">Заказы</button>
+                </div>
+
+                <!-- Подвкладка: Заказы -->
+                <div id="ved-orders" class="ved-subtab-content active">
+                    <div class="wh-section-header">
+                        <h3>Заказы поставщикам</h3>
+                        <p>Создание и отслеживание заказов</p>
                     </div>
-                    <div class="ved-content" id="ved-content">
-                        <div class="loading">Раздел ВЭД в разработке...</div>
+
+                    <!-- Форма нового заказа -->
+                    <div class="receipt-form" id="ved-order-form">
+                        <div class="receipt-form-header">
+                            <div class="receipt-form-row">
+                                <div class="receipt-form-field" style="flex: 0 0 160px;">
+                                    <label>Дата заказа</label>
+                                    <input type="date" id="ved-order-date" class="wh-input" style="cursor: pointer;">
+                                </div>
+                                <div class="receipt-form-field" style="flex: 0 0 200px;">
+                                    <label>Поставщик</label>
+                                    <input type="text" id="ved-order-supplier" class="wh-input" placeholder="Название поставщика">
+                                </div>
+                                <div class="receipt-form-field" style="flex: 1;">
+                                    <label>Комментарий</label>
+                                    <input type="text" id="ved-order-comment" class="wh-input" placeholder="Примечания к заказу">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="receipt-items-header">
+                            <h4>Товары в заказе</h4>
+                            <button class="wh-add-btn-small" onclick="addVedOrderItemRow()">+ Добавить товар</button>
+                        </div>
+
+                        <div class="wh-table-wrapper">
+                            <table class="wh-table" id="ved-order-items-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">№</th>
+                                        <th>Товар</th>
+                                        <th style="width: 120px;">Количество</th>
+                                        <th style="width: 140px;">Цена, ¥</th>
+                                        <th style="width: 140px;">Сумма, ¥</th>
+                                        <th style="width: 40px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ved-order-items-tbody">
+                                </tbody>
+                                <tfoot id="ved-order-items-tfoot">
+                                    <tr>
+                                        <td colspan="2" style="text-align: right; font-weight: 600;">Итого:</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-order-total-qty">0</td>
+                                        <td></td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-order-total-sum">0 ¥</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="receipt-form-actions">
+                            <button class="wh-save-receipt-btn" onclick="saveVedOrder()">Сохранить заказ</button>
+                            <button class="wh-clear-btn" onclick="clearVedOrderForm()">Очистить форму</button>
+                        </div>
+                    </div>
+
+                    <!-- История заказов -->
+                    <div class="receipt-history">
+                        <div class="receipt-history-header">
+                            <h4>📋 История заказов</h4>
+                        </div>
+                        <div class="wh-table-wrapper" id="ved-orders-history-wrapper" style="display: none;">
+                            <table class="wh-table" id="ved-orders-history-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 60px;">№</th>
+                                        <th>Дата заказа</th>
+                                        <th>Поставщик</th>
+                                        <th>Товаров</th>
+                                        <th>Общее кол-во</th>
+                                        <th>Сумма, ¥</th>
+                                        <th>Комментарий</th>
+                                        <th>Статус</th>
+                                        <th style="width: 100px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ved-orders-history-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="wh-empty-state" id="ved-orders-history-empty">
+                            <p>Нет сохранённых заказов</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6478,6 +6596,7 @@ HTML_TEMPLATE = '''
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
             const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
+            const validVedSubtabs = ['ved-orders'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -6527,6 +6646,15 @@ HTML_TEMPLATE = '''
                 } else if (savedTab === 'supplies') {
                     loadProductsList();
                     loadSupplies();
+                } else if (savedTab === 'ved') {
+                    loadProductsList();
+                    loadVed();
+                    // Восстанавливаем подвкладку ВЭД если она сохранена
+                    if (savedSubtab && validVedSubtabs.includes(savedSubtab)) {
+                        setTimeout(() => {
+                            activateVedSubtab(savedSubtab);
+                        }, 50);
+                    }
                 } else if (savedTab === 'users') {
                     loadUsers();
                 }
@@ -10665,22 +10793,145 @@ HTML_TEMPLATE = '''
         // ВЭД - ВНЕШНЕЭКОНОМИЧЕСКАЯ ДЕЯТЕЛЬНОСТЬ
         // ============================================================================
 
+        let vedDataLoaded = false;
+        let vedOrderItemCounter = 0;
+
         /**
          * Загрузка данных вкладки "ВЭД"
-         * Раздел для управления импортными операциями и расчётами
+         * Загружает список товаров и историю заказов
          */
         function loadVed() {
-            // Placeholder - раздел в разработке
-            const vedContent = document.getElementById('ved-content');
-            if (vedContent) {
-                vedContent.innerHTML = `
-                    <div style="text-align: center; padding: 60px 20px; color: #666;">
-                        <div style="font-size: 48px; margin-bottom: 20px;">🚧</div>
-                        <h3 style="margin: 0 0 12px 0; color: #333;">Раздел ВЭД в разработке</h3>
-                        <p style="margin: 0; font-size: 14px;">Здесь будет функционал для управления внешнеэкономической деятельностью</p>
-                    </div>
-                `;
+            if (vedDataLoaded) return;
+
+            // Устанавливаем сегодняшнюю дату
+            const today = new Date().toISOString().split('T')[0];
+            const dateInput = document.getElementById('ved-order-date');
+            if (dateInput) dateInput.value = today;
+
+            // Добавляем первую строку товара
+            if (document.getElementById('ved-order-items-tbody').children.length === 0) {
+                addVedOrderItemRow();
             }
+
+            vedDataLoaded = true;
+        }
+
+        /**
+         * Переключение подвкладок ВЭД
+         */
+        function switchVedSubtab(e, subtab) {
+            document.querySelectorAll('.ved-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.ved-subtab-button').forEach(el => el.classList.remove('active'));
+            document.getElementById(subtab).classList.add('active');
+            e.target.classList.add('active');
+
+            // Сохраняем подвкладку в URL hash (формат: ved:subtab)
+            location.hash = 'ved:' + subtab;
+        }
+
+        /**
+         * Активировать подвкладку ВЭД программно (без события клика)
+         */
+        function activateVedSubtab(subtab) {
+            document.querySelectorAll('.ved-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.ved-subtab-button').forEach(el => el.classList.remove('active'));
+
+            const subtabContent = document.getElementById(subtab);
+            if (subtabContent) {
+                subtabContent.classList.add('active');
+            }
+
+            document.querySelectorAll('.ved-subtab-button').forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + subtab + "'")) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        /**
+         * Добавить строку товара в заказ ВЭД
+         */
+        function addVedOrderItemRow() {
+            vedOrderItemCounter++;
+            const tbody = document.getElementById('ved-order-items-tbody');
+            const row = document.createElement('tr');
+            row.id = 'ved-order-item-' + vedOrderItemCounter;
+            row.innerHTML = `
+                <td>${vedOrderItemCounter}</td>
+                <td>
+                    <select class="wh-input ved-order-product" style="width: 100%;" onchange="updateVedOrderTotals()">
+                        <option value="">Выберите товар</option>
+                        ${(suppliesProducts || []).map(p => `<option value="${p.product_id}">${p.name}</option>`).join('')}
+                    </select>
+                </td>
+                <td><input type="number" class="wh-input ved-order-qty" value="" min="1" placeholder="0" oninput="updateVedOrderTotals()"></td>
+                <td><input type="number" class="wh-input ved-order-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedOrderTotals()"></td>
+                <td class="ved-order-sum" style="font-weight: 500;">0 ¥</td>
+                <td><button class="wh-remove-btn" onclick="removeVedOrderItemRow(${vedOrderItemCounter})">×</button></td>
+            `;
+            tbody.appendChild(row);
+        }
+
+        /**
+         * Удалить строку товара из заказа ВЭД
+         */
+        function removeVedOrderItemRow(id) {
+            const row = document.getElementById('ved-order-item-' + id);
+            if (row) row.remove();
+            updateVedOrderTotals();
+            renumberVedOrderItems();
+        }
+
+        /**
+         * Перенумеровать строки заказа ВЭД
+         */
+        function renumberVedOrderItems() {
+            const rows = document.querySelectorAll('#ved-order-items-tbody tr');
+            rows.forEach((row, index) => {
+                row.querySelector('td:first-child').textContent = index + 1;
+            });
+        }
+
+        /**
+         * Обновить итоги заказа ВЭД
+         */
+        function updateVedOrderTotals() {
+            let totalQty = 0;
+            let totalSum = 0;
+
+            document.querySelectorAll('#ved-order-items-tbody tr').forEach(row => {
+                const qty = parseFloat(row.querySelector('.ved-order-qty')?.value) || 0;
+                const price = parseFloat(row.querySelector('.ved-order-price')?.value) || 0;
+                const sum = qty * price;
+
+                const sumCell = row.querySelector('.ved-order-sum');
+                if (sumCell) sumCell.textContent = sum.toFixed(2) + ' ¥';
+
+                totalQty += qty;
+                totalSum += sum;
+            });
+
+            document.getElementById('ved-order-total-qty').textContent = totalQty;
+            document.getElementById('ved-order-total-sum').textContent = totalSum.toFixed(2) + ' ¥';
+        }
+
+        /**
+         * Сохранить заказ ВЭД (заглушка)
+         */
+        function saveVedOrder() {
+            alert('Функция сохранения заказа в разработке');
+        }
+
+        /**
+         * Очистить форму заказа ВЭД
+         */
+        function clearVedOrderForm() {
+            document.getElementById('ved-order-supplier').value = '';
+            document.getElementById('ved-order-comment').value = '';
+            document.getElementById('ved-order-items-tbody').innerHTML = '';
+            vedOrderItemCounter = 0;
+            addVedOrderItemRow();
+            updateVedOrderTotals();
         }
 
         /**
