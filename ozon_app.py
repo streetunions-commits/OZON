@@ -6540,10 +6540,8 @@ HTML_TEMPLATE = '''
             overlay.style.display = 'none';
             document.getElementById('main-container').style.display = 'block';
 
-            // Обновляем панель пользователя
-            // Показываем telegram_username если есть, иначе обычный username
-            const displayName = currentUser.telegram_username || currentUser.username;
-            document.getElementById('current-username').textContent = displayName;
+            // Обновляем панель пользователя (показываем логин)
+            document.getElementById('current-username').textContent = currentUser.username;
             const badge = document.getElementById('current-role-badge');
             badge.textContent = currentUser.role;
             badge.className = 'role-badge ' + currentUser.role;
