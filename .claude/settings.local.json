@@ -43,7 +43,8 @@
       "WebFetch(domain:www.ozon.ru)",
       "WebFetch(domain:ai.google.dev)",
       "WebFetch(domain:developer.puter.com)",
-      "WebFetch(domain:toolkit.artlist.io)"
+      "WebFetch(domain:toolkit.artlist.io)",
+      "WebFetch(domain:blocklist.rkn.gov.ru)"
     ],
     "additionalDirectories": [
       "c:\\Users\\stree\\Documents\\GIT_OZON\\.claude"
