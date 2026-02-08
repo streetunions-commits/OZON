@@ -6481,11 +6481,6 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Поступления -->
                 <div id="ved-receipts" class="ved-subtab-content">
-                    <div class="wh-section-header">
-                        <h3>Поступления товаров</h3>
-                        <p>Товары из завершённых контейнеров</p>
-                    </div>
-
                     <div class="wh-table-wrapper" id="ved-receipts-wrapper" style="display: none; overflow-x: auto;">
                         <table class="wh-table" id="ved-receipts-table">
                             <thead>
@@ -6493,7 +6488,6 @@ HTML_TEMPLATE = '''
                                     <th>Дата выхода</th>
                                     <th>Поставщик</th>
                                     <th>Артикул</th>
-                                    <th>Товар</th>
                                     <th>Кол-во</th>
                                     <th>Цена, ¥</th>
                                     <th>Себест., ₽</th>
@@ -11458,13 +11452,11 @@ HTML_TEMPLATE = '''
                 result.items.forEach(item => {
                     const row = document.createElement('tr');
                     const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
-                    const productName = item.product_name || ('SKU ' + item.sku);
 
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
                         <td>${item.supplier || '-'}</td>
                         <td>${item.article || '-'}</td>
-                        <td>${productName}</td>
                         <td>${formatVedNumber(item.quantity)}</td>
                         <td>${formatVedNumber(item.price_cny, '¥')}</td>
                         <td>${formatVedNumber(item.cost_rub, '₽')}</td>
