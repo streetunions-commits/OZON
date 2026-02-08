@@ -12294,7 +12294,7 @@ HTML_TEMPLATE = '''
 
                     // Отображение привязанного Telegram аккаунта
                     const tgDisplay = user.telegram_username
-                        ? `<span style="color:#0088cc;">📱 @${escapeHtml(user.telegram_username)}</span>`
+                        ? `<span style="color:#0088cc;">📱 ${escapeHtml(user.telegram_username)}</span>`
                         : '<span style="color:#999;">—</span>';
 
                     tr.innerHTML = `
