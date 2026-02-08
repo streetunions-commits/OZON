@@ -13670,6 +13670,59 @@ def api_users_change_password():
         return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
 
 
+@app.route('/api/users/rename', methods=['POST'])
+@require_auth(['admin'])
+def api_users_rename():
+    """
+    Переименовать пользователя.
+
+    Принимает JSON: {"user_id": 2, "new_username": "new_name"}
+    """
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        new_username = data.get('new_username', '').strip()
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Укажите ID пользователя'}), 400
+        if not new_username:
+            return jsonify({'success': False, 'error': 'Введите новое имя пользователя'}), 400
+        if len(new_username) < 3:
+            return jsonify({'success': False, 'error': 'Имя должно быть минимум 3 символа'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+
+        old_username = user[0]
+
+        # Проверяем, не занято ли новое имя другим пользователем
+        cursor.execute('SELECT id FROM users WHERE username = ? AND id != ?', (new_username, user_id))
+        existing = cursor.fetchone()
+
+        if existing:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Имя "{new_username}" уже занято'}), 400
+
+        cursor.execute('UPDATE users SET username = ? WHERE id = ?', (new_username, user_id))
+        conn.commit()
+        conn.close()
+
+        print(f"✏️ Пользователь переименован: {old_username} → {new_username}")
+        return jsonify({'success': True, 'message': f'Пользователь переименован: "{old_username}" → "{new_username}"'})
+
+    except Exception as e:
+        print(f"❌ Ошибка при переименовании: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
 @app.route('/api/sync', methods=['POST'])
 @require_auth(['admin'])
 def api_sync():
