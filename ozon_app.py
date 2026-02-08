@@ -6502,7 +6502,8 @@ HTML_TEMPLATE = '''
                     currentUser = {
                         user_id: data.user_id,
                         username: data.username,
-                        role: data.role
+                        role: data.role,
+                        telegram_username: data.telegram_username
                     };
                     hideLoginForm();
                     applyRoleRestrictions();
@@ -6540,7 +6541,9 @@ HTML_TEMPLATE = '''
             document.getElementById('main-container').style.display = 'block';
 
             // Обновляем панель пользователя
-            document.getElementById('current-username').textContent = currentUser.username;
+            // Показываем telegram_username если есть, иначе обычный username
+            const displayName = currentUser.telegram_username || currentUser.username;
+            document.getElementById('current-username').textContent = displayName;
             const badge = document.getElementById('current-role-badge');
             badge.textContent = currentUser.role;
             badge.className = 'role-badge ' + currentUser.role;
@@ -6579,7 +6582,8 @@ HTML_TEMPLATE = '''
                     currentUser = {
                         user_id: data.user_id,
                         username: data.username,
-                        role: data.role
+                        role: data.role,
+                        telegram_username: data.telegram_username
                     };
                     hideLoginForm();
                     applyRoleRestrictions();
@@ -13305,16 +13309,39 @@ def api_login():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username,))
+        cursor.execute('SELECT id, username, password_hash, role, telegram_chat_id FROM users WHERE username = ?', (username,))
         user = cursor.fetchone()
-        conn.close()
 
         if not user:
+            conn.close()
             return jsonify({'success': False, 'error': 'Неверный логин или пароль'}), 401
 
         # Проверяем пароль
         if not check_password_hash(user['password_hash'], password):
+            conn.close()
             return jsonify({'success': False, 'error': 'Неверный логин или пароль'}), 401
+
+        # Получаем telegram_username если есть привязка
+        telegram_username = None
+        if user['telegram_chat_id']:
+            chat_id = user['telegram_chat_id']
+            # Сначала проверяем telegram_users
+            cursor.execute('SELECT username FROM telegram_users WHERE chat_id = ?', (chat_id,))
+            tg_row = cursor.fetchone()
+            if tg_row and tg_row['username']:
+                telegram_username = f"@{tg_row['username'].lstrip('@')}"
+            else:
+                # Иначе берём из сообщений
+                cursor.execute('''
+                    SELECT sender_name FROM document_messages
+                    WHERE sender_type = 'telegram' AND telegram_chat_id = ?
+                    LIMIT 1
+                ''', (chat_id,))
+                msg_row = cursor.fetchone()
+                if msg_row and msg_row['sender_name']:
+                    telegram_username = f"@{msg_row['sender_name'].lstrip('@')}"
+
+        conn.close()
 
         # Создаём JWT токен
         token = create_jwt_token(user['id'], user['username'], user['role'])
@@ -13323,7 +13350,8 @@ def api_login():
             'success': True,
             'token': token,
             'username': user['username'],
-            'role': user['role']
+            'role': user['role'],
+            'telegram_username': telegram_username
         })
 
     except Exception as e:
@@ -13358,12 +13386,41 @@ def api_me():
     try:
         # Декодируем JWT токен
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+        user_id = payload.get('user_id')
+
+        # Получаем привязанный Telegram из БД
+        telegram_username = None
+        if user_id:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT u.telegram_chat_id, t.username as tg_username,
+                       m.sender_name as msg_sender
+                FROM users u
+                LEFT JOIN telegram_users t ON u.telegram_chat_id = t.chat_id
+                LEFT JOIN (
+                    SELECT telegram_chat_id, sender_name
+                    FROM document_messages
+                    WHERE sender_type = 'telegram'
+                    GROUP BY telegram_chat_id
+                ) m ON u.telegram_chat_id = m.telegram_chat_id
+                WHERE u.id = ?
+            ''', (user_id,))
+            row = cursor.fetchone()
+            if row and row['telegram_chat_id']:
+                # Приоритет: telegram_users.username > document_messages.sender_name
+                tg_name = row['tg_username'] or row['msg_sender'] or ''
+                if tg_name:
+                    telegram_username = f"@{tg_name.lstrip('@')}"
+            conn.close()
 
         return jsonify({
             'success': True,
-            'user_id': payload.get('user_id'),
+            'user_id': user_id,
             'username': payload.get('username'),
-            'role': payload.get('role')
+            'role': payload.get('role'),
+            'telegram_username': telegram_username
         })
 
     except jwt.InvalidTokenError:
