@@ -4705,6 +4705,16 @@ HTML_TEMPLATE = '''
             color: #666;
         }
 
+        /* Скрыть стрелки у числовых полей */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
         .wh-select {
             width: 100%;
             min-width: 180px;
