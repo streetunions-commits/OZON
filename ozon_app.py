@@ -6445,7 +6445,8 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th style="width: 50px;">№</th>
-                                        <th>Дата</th>
+                                        <th>Дата создания</th>
+                                        <th>Дата выхода</th>
                                         <th>Поставщик</th>
                                         <th>Кол-во</th>
                                         <th>Себест., ¥</th>
@@ -6456,6 +6457,7 @@ HTML_TEMPLATE = '''
                                         <th>Пошлина</th>
                                         <th>Вся лог.</th>
                                         <th>Комментарий</th>
+                                        <th>Изменено</th>
                                         <th style="width: 80px;"></th>
                                     </tr>
                                 </thead>
@@ -11304,6 +11306,22 @@ HTML_TEMPLATE = '''
                     const row = document.createElement('tr');
                     const dateFormatted = doc.container_date ? doc.container_date.split('-').reverse().join('.') : '';
 
+                    // Форматирование даты создания (дата время + логин)
+                    let createdInfo = '-';
+                    if (doc.created_at) {
+                        const createdDate = new Date(doc.created_at);
+                        const createdStr = createdDate.toLocaleDateString('ru-RU') + ' ' + createdDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                        createdInfo = createdStr + (doc.created_by ? '<br><small>' + doc.created_by + '</small>' : '');
+                    }
+
+                    // Форматирование даты изменения (дата время + логин)
+                    let updatedInfo = '-';
+                    if (doc.updated_at) {
+                        const updatedDate = new Date(doc.updated_at);
+                        const updatedStr = updatedDate.toLocaleDateString('ru-RU') + ' ' + updatedDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                        updatedInfo = updatedStr + (doc.updated_by ? '<br><small>' + doc.updated_by + '</small>' : '');
+                    }
+
                     // Расчёт себестоимости в рублях с учётом курса и процента
                     const cnyRate = doc.cny_rate || 0;
                     const cnyPercent = doc.cny_percent || 0;
@@ -11312,6 +11330,7 @@ HTML_TEMPLATE = '''
 
                     row.innerHTML = `
                         <td>${doc.id}</td>
+                        <td style="white-space: nowrap;">${createdInfo}</td>
                         <td>${dateFormatted}</td>
                         <td>${doc.supplier || '-'}</td>
                         <td>${formatVedNumber(doc.total_qty)}</td>
@@ -11323,6 +11342,7 @@ HTML_TEMPLATE = '''
                         <td>${formatVedNumber(doc.total_customs, '₽')}</td>
                         <td>${formatVedNumber(doc.total_all_logistics, '₽')}</td>
                         <td>${doc.comment || '-'}</td>
+                        <td style="white-space: nowrap;">${updatedInfo}</td>
                         <td>
                             <button class="wh-edit-btn" onclick="editVedContainer(${doc.id})" title="Редактировать">✏️</button>
                             <button class="wh-delete-btn" onclick="deleteVedContainer(${doc.id})" title="Удалить">🗑️</button>
