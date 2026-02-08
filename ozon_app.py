@@ -6488,8 +6488,8 @@ HTML_TEMPLATE = '''
                                     <th>Дата выхода</th>
                                     <th>Артикул</th>
                                     <th>Кол-во</th>
-                                    <th>Цена, ¥</th>
-                                    <th>Себест., ₽</th>
+                                    <th>Цена/шт., ¥</th>
+                                    <th>Себест./шт., ₽</th>
                                     <th>Лог./шт., ₽</th>
                                 </tr>
                             </thead>
@@ -11452,12 +11452,13 @@ HTML_TEMPLATE = '''
                     const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
 
                     const logisticsPerUnit = item.quantity > 0 ? item.all_logistics / item.quantity : 0;
+                    const costPerUnit = item.quantity > 0 ? item.cost_rub / item.quantity : 0;
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
                         <td>${item.article || '-'}</td>
                         <td>${formatVedNumber(item.quantity)}</td>
                         <td>${formatVedNumber(item.price_cny, '¥')}</td>
-                        <td>${formatVedNumber(item.cost_rub, '₽')}</td>
+                        <td>${formatVedNumber(costPerUnit, '₽')}</td>
                         <td>${formatVedNumber(logisticsPerUnit, '₽')}</td>
                     `;
                     tbody.appendChild(row);
