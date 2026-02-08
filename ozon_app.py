@@ -6440,19 +6440,23 @@ HTML_TEMPLATE = '''
                         <div class="receipt-history-header">
                             <h4>📋 История контейнеров</h4>
                         </div>
-                        <div class="wh-table-wrapper" id="ved-containers-history-wrapper" style="display: none;">
+                        <div class="wh-table-wrapper" id="ved-containers-history-wrapper" style="display: none; overflow-x: auto;">
                             <table class="wh-table" id="ved-containers-history-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 60px;">№</th>
+                                        <th style="width: 50px;">№</th>
                                         <th>Дата</th>
                                         <th>Поставщик</th>
-                                        <th>Товаров</th>
                                         <th>Кол-во</th>
-                                        <th>Сумма, ¥</th>
+                                        <th>Себест., ¥</th>
+                                        <th>Себест., ₽</th>
+                                        <th>Лог. РФ</th>
+                                        <th>Лог. КНР</th>
+                                        <th>Терминал</th>
+                                        <th>Пошлина</th>
+                                        <th>Вся лог.</th>
                                         <th>Комментарий</th>
-                                        <th>Статус</th>
-                                        <th style="width: 100px;"></th>
+                                        <th style="width: 80px;"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="ved-containers-history-tbody">
@@ -11300,15 +11304,25 @@ HTML_TEMPLATE = '''
                     const row = document.createElement('tr');
                     const dateFormatted = doc.container_date ? doc.container_date.split('-').reverse().join('.') : '';
 
+                    // Расчёт себестоимости в рублях с учётом курса и процента
+                    const cnyRate = doc.cny_rate || 0;
+                    const cnyPercent = doc.cny_percent || 0;
+                    const adjustedRate = cnyRate * (1 + cnyPercent / 100);
+                    const costRub = doc.total_sum_cny * adjustedRate + doc.total_all_logistics;
+
                     row.innerHTML = `
                         <td>${doc.id}</td>
                         <td>${dateFormatted}</td>
                         <td>${doc.supplier || '-'}</td>
-                        <td>${doc.items_count}</td>
                         <td>${formatVedNumber(doc.total_qty)}</td>
                         <td>${formatVedNumber(doc.total_sum_cny, '¥')}</td>
+                        <td>${formatVedNumber(costRub, '₽')}</td>
+                        <td>${formatVedNumber(doc.total_logistics_rf, '₽')}</td>
+                        <td>${formatVedNumber(doc.total_logistics_cn, '₽')}</td>
+                        <td>${formatVedNumber(doc.total_terminal, '₽')}</td>
+                        <td>${formatVedNumber(doc.total_customs, '₽')}</td>
+                        <td>${formatVedNumber(doc.total_all_logistics, '₽')}</td>
                         <td>${doc.comment || '-'}</td>
-                        <td><span class="status-badge status-processed">Сохранён</span></td>
                         <td>
                             <button class="wh-edit-btn" onclick="editVedContainer(${doc.id})" title="Редактировать">✏️</button>
                             <button class="wh-delete-btn" onclick="deleteVedContainer(${doc.id})" title="Удалить">🗑️</button>
@@ -15185,7 +15199,12 @@ def get_ved_containers():
                 d.updated_at,
                 COUNT(i.id) as items_count,
                 COALESCE(SUM(i.quantity), 0) as total_qty,
-                COALESCE(SUM(i.quantity * i.price_cny), 0) as total_sum_cny
+                COALESCE(SUM(i.quantity * i.price_cny), 0) as total_sum_cny,
+                COALESCE(SUM(i.logistics_rf), 0) as total_logistics_rf,
+                COALESCE(SUM(i.logistics_cn), 0) as total_logistics_cn,
+                COALESCE(SUM(i.terminal), 0) as total_terminal,
+                COALESCE(SUM(i.customs), 0) as total_customs,
+                COALESCE(SUM(i.logistics_rf + i.logistics_cn + i.terminal + i.customs), 0) as total_all_logistics
             FROM ved_container_docs d
             LEFT JOIN ved_container_items i ON i.doc_id = d.id
             GROUP BY d.id
