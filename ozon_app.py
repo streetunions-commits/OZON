@@ -684,6 +684,12 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем поле telegram_chat_id для привязки к Telegram аккаунту
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN telegram_chat_id INTEGER')
+    except sqlite3.OperationalError:
+        pass  # Поле уже существует
+
     # ✅ Создаём дефолтных пользователей если таблица пустая
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
@@ -5735,6 +5741,27 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
+    <!-- ============================================================================
+         МОДАЛКА: ПРИВЯЗКА TELEGRAM АККАУНТА
+         ============================================================================ -->
+    <div id="link-telegram-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>📱 Привязка Telegram</h3>
+            <p style="color: #666; margin-bottom: 16px;">Пользователь: <strong id="link-tg-username"></strong></p>
+            <div class="form-group">
+                <label>Telegram аккаунт</label>
+                <select id="link-tg-select">
+                    <option value="">— Не привязан —</option>
+                </select>
+            </div>
+            <input type="hidden" id="link-tg-user-id">
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeLinkTelegramModal()">Отмена</button>
+                <button class="save-btn" onclick="linkTelegramAccount()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container" id="main-container" style="display: none;">
         <div class="header">
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -6288,12 +6315,12 @@ HTML_TEMPLATE = '''
                                         <th style="min-width: 180px;">Товар</th>
                                         <th style="width: 80px;">Кол-во</th>
                                         <th style="width: 100px;">Цена шт., ¥</th>
-                                        <th style="width: 120px;">Цена поставщика, ¥</th>
+                                        <th style="width: 120px;">Себестоимость, ¥</th>
+                                        <th style="width: 120px;">Себестоимость<br>руб, ₽</th>
                                         <th style="width: 100px;">Логистика<br>РФ, ₽</th>
                                         <th style="width: 100px;">Логистика<br>КНР, ₽</th>
-                                        <th style="width: 100px;">Терминал, ₽</th>
-                                        <th style="width: 110px;">Стоимость<br>товара, ₽</th>
-                                        <th style="width: 100px;">Таможня, ₽</th>
+                                        <th style="width: 120px;">Терминальные<br>расходы, ₽</th>
+                                        <th style="width: 110px;">Пошлина<br>и НДС, ₽</th>
                                         <th style="width: 35px;"></th>
                                     </tr>
                                 </thead>
@@ -6305,10 +6332,10 @@ HTML_TEMPLATE = '''
                                         <td style="text-align: center; font-weight: 600;" id="ved-container-total-qty">0</td>
                                         <td></td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-supplier">0 ¥</td>
+                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-cost">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-logrf">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-logcn">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-terminal">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-cost">0 ₽</td>
                                         <td style="text-align: right; font-weight: 600;" id="ved-container-total-customs">0 ₽</td>
                                         <td></td>
                                     </tr>
@@ -6401,6 +6428,7 @@ HTML_TEMPLATE = '''
                                 <th>ID</th>
                                 <th>Логин</th>
                                 <th>Роль</th>
+                                <th>Telegram</th>
                                 <th>Создан</th>
                                 <th>Действия</th>
                             </tr>
@@ -12160,19 +12188,19 @@ HTML_TEMPLATE = '''
          */
         async function loadUsers() {
             const tbody = document.getElementById('users-tbody');
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>';
 
             try {
                 const resp = await authFetch('/api/users');
                 const data = await resp.json();
 
                 if (!data.success) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#c33;">Ошибка: ' + (data.error || 'неизвестная') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c33;">Ошибка: ' + (data.error || 'неизвестная') + '</td></tr>';
                     return;
                 }
 
                 if (!data.users || data.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">Нет пользователей</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">Нет пользователей</td></tr>';
                     return;
                 }
 
@@ -12183,12 +12211,19 @@ HTML_TEMPLATE = '''
                     const roleIcon = user.role === 'admin' ? '👑' : '👁';
                     const canDelete = user.id !== currentUser.user_id;
 
+                    // Отображение привязанного Telegram аккаунта
+                    const tgDisplay = user.telegram_username
+                        ? `<span style="color:#0088cc;">📱 @${escapeHtml(user.telegram_username)}</span>`
+                        : '<span style="color:#999;">—</span>';
+
                     tr.innerHTML = `
                         <td>${user.id}</td>
                         <td><strong>${user.username}</strong></td>
                         <td><span class="role-badge ${roleClass}">${roleIcon} ${user.role}</span></td>
+                        <td>${tgDisplay}</td>
                         <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
                         <td class="actions">
+                            <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${user.username}', ${user.telegram_chat_id || 'null'})" title="Привязать Telegram">📱</button>
                             <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${user.username}')">🔑</button>
                             ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${user.username}')">🗑</button>` : ''}
                         </td>
@@ -12197,7 +12232,7 @@ HTML_TEMPLATE = '''
                 });
             } catch (err) {
                 console.error('Ошибка загрузки пользователей:', err);
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#c33;">Ошибка загрузки</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c33;">Ошибка загрузки</td></tr>';
             }
         }
 
@@ -12323,6 +12358,88 @@ HTML_TEMPLATE = '''
                 }
             } catch (err) {
                 console.error('Ошибка смены пароля:', err);
+            }
+        }
+
+        // ============================================================================
+        // ПРИВЯЗКА TELEGRAM АККАУНТА
+        // ============================================================================
+
+        /**
+         * Открыть модалку привязки Telegram.
+         * @param {number} userId - ID пользователя
+         * @param {string} username - Имя пользователя
+         * @param {number|null} currentChatId - Текущий привязанный chat_id
+         */
+        async function openLinkTelegramModal(userId, username, currentChatId) {
+            document.getElementById('link-tg-user-id').value = userId;
+            document.getElementById('link-tg-username').textContent = username;
+
+            const select = document.getElementById('link-tg-select');
+            select.innerHTML = '<option value="">Загрузка...</option>';
+
+            document.getElementById('link-telegram-modal').classList.remove('hidden');
+
+            // Загружаем список Telegram аккаунтов
+            try {
+                const resp = await authFetch('/api/telegram-accounts');
+                const data = await resp.json();
+
+                select.innerHTML = '<option value="">— Не привязан —</option>';
+
+                if (data.success && data.accounts) {
+                    data.accounts.forEach(acc => {
+                        const option = document.createElement('option');
+                        option.value = acc.chat_id;
+                        const displayName = acc.username
+                            ? `@${acc.username}`
+                            : `${acc.first_name || ''} ${acc.last_name || ''}`.trim() || `ID: ${acc.chat_id}`;
+                        option.textContent = displayName;
+                        if (currentChatId && acc.chat_id === currentChatId) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                }
+            } catch (err) {
+                console.error('Ошибка загрузки Telegram аккаунтов:', err);
+                select.innerHTML = '<option value="">Ошибка загрузки</option>';
+            }
+        }
+
+        /**
+         * Закрыть модалку привязки Telegram.
+         */
+        function closeLinkTelegramModal() {
+            document.getElementById('link-telegram-modal').classList.add('hidden');
+        }
+
+        /**
+         * Сохранить привязку Telegram аккаунта.
+         */
+        async function linkTelegramAccount() {
+            const userId = document.getElementById('link-tg-user-id').value;
+            const chatId = document.getElementById('link-tg-select').value;
+
+            try {
+                const resp = await authFetch('/api/users/link-telegram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: parseInt(userId),
+                        telegram_chat_id: chatId ? parseInt(chatId) : null
+                    })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    closeLinkTelegramModal();
+                    loadUsers();
+                } else {
+                    alert(data.error || 'Ошибка привязки');
+                }
+            } catch (err) {
+                console.error('Ошибка привязки Telegram:', err);
             }
         }
 
@@ -13132,14 +13249,21 @@ def api_users_list():
     Получить список всех пользователей.
 
     Только для администраторов.
-    Возвращает: {"success": true, "users": [{"id": 1, "username": "admin", "role": "admin", "created_at": "..."}]}
+    Возвращает: {"success": true, "users": [{"id": 1, "username": "admin", "role": "admin", "created_at": "...", "telegram_chat_id": null, "telegram_username": null}]}
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('SELECT id, username, role, created_at FROM users ORDER BY id')
+        # JOIN с telegram_users для получения username Telegram аккаунта
+        cursor.execute('''
+            SELECT u.id, u.username, u.role, u.created_at, u.telegram_chat_id,
+                   t.username as telegram_username, t.first_name as telegram_first_name
+            FROM users u
+            LEFT JOIN telegram_users t ON u.telegram_chat_id = t.chat_id
+            ORDER BY u.id
+        ''')
         users = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
@@ -13147,6 +13271,74 @@ def api_users_list():
 
     except Exception as e:
         print(f"❌ Ошибка при получении списка пользователей: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/telegram-accounts')
+@require_auth(['admin'])
+def api_telegram_accounts():
+    """
+    Получить список всех Telegram аккаунтов для привязки к пользователям.
+
+    Возвращает: {"success": true, "accounts": [{"chat_id": 123, "username": "user", "first_name": "Name"}]}
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT chat_id, username, first_name, last_name
+            FROM telegram_users
+            WHERE is_authorized = 1
+            ORDER BY username, first_name
+        ''')
+        accounts = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'accounts': accounts})
+
+    except Exception as e:
+        print(f"❌ Ошибка при получении Telegram аккаунтов: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/users/link-telegram', methods=['POST'])
+@require_auth(['admin'])
+def api_users_link_telegram():
+    """
+    Привязать Telegram аккаунт к пользователю.
+
+    Принимает JSON: {"user_id": 1, "telegram_chat_id": 123456789}
+    Если telegram_chat_id = null, отвязывает аккаунт.
+    """
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        telegram_chat_id = data.get('telegram_chat_id')
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Укажите user_id'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем что пользователь существует
+        cursor.execute('SELECT id FROM users WHERE id = ?', (user_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+
+        # Обновляем привязку
+        cursor.execute('UPDATE users SET telegram_chat_id = ? WHERE id = ?', (telegram_chat_id, user_id))
+        conn.commit()
+        conn.close()
+
+        action = 'привязан' if telegram_chat_id else 'отвязан'
+        return jsonify({'success': True, 'message': f'Telegram аккаунт {action}'})
+
+    except Exception as e:
+        print(f"❌ Ошибка при привязке Telegram: {e}")
         return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
 
 
@@ -14619,6 +14811,10 @@ def get_all_document_messages():
     """
     Получить все сообщения из Telegram для вкладки "Сообщения".
     Параметры: ?unread_only=true — только непрочитанные
+
+    Фильтрация по привязанному Telegram аккаунту:
+    - admin: видит все сообщения
+    - viewer: видит только сообщения привязанного Telegram аккаунта
     """
     try:
         unread_only = request.args.get('unread_only', 'false').lower() == 'true'
@@ -14627,26 +14823,45 @@ def get_all_document_messages():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем сообщения из Telegram с информацией о документе
-        if unread_only:
-            cursor.execute('''
-                SELECT m.*, d.receiver_name, d.receipt_datetime
-                FROM document_messages m
-                LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
-                WHERE m.sender_type = 'telegram' AND m.is_read = 0
-                ORDER BY m.created_at DESC
-                LIMIT 100
-            ''')
-        else:
-            cursor.execute('''
-                SELECT m.*, d.receiver_name, d.receipt_datetime
-                FROM document_messages m
-                LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
-                WHERE m.sender_type = 'telegram'
-                ORDER BY m.created_at DESC
-                LIMIT 100
-            ''')
+        # Получаем информацию о текущем пользователе (роль и привязанный Telegram)
+        user_info = getattr(request, 'current_user', {})
+        user_id = user_info.get('user_id')
+        user_role = user_info.get('role', 'viewer')
 
+        user_telegram_chat_id = None
+        if user_id:
+            cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (user_id,))
+            row = cursor.fetchone()
+            if row:
+                user_telegram_chat_id = row['telegram_chat_id']
+
+        # Формируем базовый запрос
+        base_query = '''
+            SELECT m.*, d.receiver_name, d.receipt_datetime
+            FROM document_messages m
+            LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
+            WHERE m.sender_type = 'telegram'
+        '''
+
+        params = []
+
+        # Фильтр по привязанному Telegram для viewer
+        if user_role != 'admin':
+            if user_telegram_chat_id:
+                base_query += ' AND m.telegram_chat_id = ?'
+                params.append(user_telegram_chat_id)
+            else:
+                # Viewer без привязки — пустой список
+                conn.close()
+                return jsonify({'success': True, 'messages': []})
+
+        # Фильтр только непрочитанные
+        if unread_only:
+            base_query += ' AND m.is_read = 0'
+
+        base_query += ' ORDER BY m.created_at DESC LIMIT 100'
+
+        cursor.execute(base_query, params)
         messages = [dict(row) for row in cursor.fetchall()]
         conn.close()
 
@@ -14656,9 +14871,14 @@ def get_all_document_messages():
 
 
 @app.route('/api/document-messages/mark-read-single', methods=['POST'])
-@require_auth(['admin'])
+@require_auth(['admin', 'viewer'])
 def mark_single_message_read():
-    """Отметить одно сообщение как прочитанное."""
+    """
+    Отметить одно сообщение как прочитанное.
+
+    - admin: может пометить любое сообщение
+    - viewer: может пометить только сообщения своего привязанного Telegram
+    """
     try:
         data = request.json
         message_id = data.get('message_id')
@@ -14667,9 +14887,35 @@ def mark_single_message_read():
             return jsonify({'success': False, 'error': 'Укажите message_id'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('UPDATE document_messages SET is_read = 1 WHERE id = ?', (message_id,))
+        # Получаем информацию о текущем пользователе
+        user_info = getattr(request, 'current_user', {})
+        user_id = user_info.get('user_id')
+        user_role = user_info.get('role', 'viewer')
+
+        # Для viewer проверяем привязку
+        if user_role != 'admin':
+            user_telegram_chat_id = None
+            if user_id:
+                cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (user_id,))
+                row = cursor.fetchone()
+                if row:
+                    user_telegram_chat_id = row['telegram_chat_id']
+
+            if not user_telegram_chat_id:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Нет привязанного Telegram аккаунта'})
+
+            # Обновляем только если сообщение принадлежит этому Telegram
+            cursor.execute('''
+                UPDATE document_messages SET is_read = 1
+                WHERE id = ? AND telegram_chat_id = ?
+            ''', (message_id, user_telegram_chat_id))
+        else:
+            cursor.execute('UPDATE document_messages SET is_read = 1 WHERE id = ?', (message_id,))
+
         conn.commit()
         conn.close()
 
@@ -14679,19 +14925,48 @@ def mark_single_message_read():
 
 
 @app.route('/api/document-messages/mark-all-read', methods=['POST'])
-@require_auth(['admin'])
+@require_auth(['admin', 'viewer'])
 def mark_all_messages_read_api():
-    """Отметить все сообщения как прочитанные."""
+    """
+    Отметить все сообщения как прочитанные.
+
+    - admin: помечает все сообщения
+    - viewer: помечает только сообщения своего привязанного Telegram аккаунта
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('''
-            UPDATE document_messages SET is_read = 1
-            WHERE sender_type = 'telegram' AND is_read = 0
-        ''')
-        updated = cursor.rowcount
+        # Получаем информацию о текущем пользователе
+        user_info = getattr(request, 'current_user', {})
+        user_id = user_info.get('user_id')
+        user_role = user_info.get('role', 'viewer')
 
+        user_telegram_chat_id = None
+        if user_id:
+            cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (user_id,))
+            row = cursor.fetchone()
+            if row:
+                user_telegram_chat_id = row['telegram_chat_id']
+
+        # Обновляем с учётом привязки
+        if user_role != 'admin':
+            if user_telegram_chat_id:
+                cursor.execute('''
+                    UPDATE document_messages SET is_read = 1
+                    WHERE sender_type = 'telegram' AND is_read = 0 AND telegram_chat_id = ?
+                ''', (user_telegram_chat_id,))
+            else:
+                conn.close()
+                return jsonify({'success': True, 'updated': 0})
+        else:
+            cursor.execute('''
+                UPDATE document_messages SET is_read = 1
+                WHERE sender_type = 'telegram' AND is_read = 0
+            ''')
+
+        updated = cursor.rowcount
         conn.commit()
         conn.close()
 
@@ -14703,15 +14978,46 @@ def mark_all_messages_read_api():
 @app.route('/api/document-messages/unread-count')
 @require_auth(['admin', 'viewer'])
 def get_unread_messages_count():
-    """Получить количество непрочитанных сообщений из Telegram."""
+    """
+    Получить количество непрочитанных сообщений из Telegram.
+
+    Фильтрация по привязанному Telegram аккаунту:
+    - admin: считает все непрочитанные сообщения
+    - viewer: считает только сообщения привязанного Telegram аккаунта
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('''
-            SELECT COUNT(*) FROM document_messages
-            WHERE sender_type = 'telegram' AND is_read = 0
-        ''')
+        # Получаем информацию о текущем пользователе
+        user_info = getattr(request, 'current_user', {})
+        user_id = user_info.get('user_id')
+        user_role = user_info.get('role', 'viewer')
+
+        user_telegram_chat_id = None
+        if user_id:
+            cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (user_id,))
+            row = cursor.fetchone()
+            if row:
+                user_telegram_chat_id = row['telegram_chat_id']
+
+        # Формируем запрос с учётом привязки
+        if user_role != 'admin':
+            if user_telegram_chat_id:
+                cursor.execute('''
+                    SELECT COUNT(*) FROM document_messages
+                    WHERE sender_type = 'telegram' AND is_read = 0 AND telegram_chat_id = ?
+                ''', (user_telegram_chat_id,))
+            else:
+                # Viewer без привязки — 0 непрочитанных
+                conn.close()
+                return jsonify({'success': True, 'count': 0})
+        else:
+            cursor.execute('''
+                SELECT COUNT(*) FROM document_messages
+                WHERE sender_type = 'telegram' AND is_read = 0
+            ''')
 
         count = cursor.fetchone()[0]
         conn.close()
