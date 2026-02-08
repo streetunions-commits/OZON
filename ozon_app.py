@@ -10929,16 +10929,16 @@ HTML_TEMPLATE = '''
                 <td>
                     <select class="wh-input ved-container-product" style="width: 100%;" onchange="updateVedContainerTotals()">
                         <option value="">Выберите товар</option>
-                        ${(suppliesProducts || []).map(p => `<option value="${p.product_id}">${p.name}</option>`).join('')}
+                        ${(suppliesProducts || []).map(p => `<option value="${p.sku}">${p.name}</option>`).join('')}
                     </select>
                 </td>
                 <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedContainerTotals()"></td>
                 <td class="ved-container-supplier-sum" style="font-weight: 500;">0 ¥</td>
+                <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
                 <td><input type="number" class="wh-input ved-container-logrf" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><input type="number" class="wh-input ved-container-logcn" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><input type="number" class="wh-input ved-container-terminal" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
-                <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
                 <td><input type="number" class="wh-input ved-container-customs" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
                 <td><button class="wh-remove-btn" onclick="removeVedContainerItemRow(${vedContainerItemCounter})">×</button></td>
             `;
@@ -11006,10 +11006,10 @@ HTML_TEMPLATE = '''
 
             document.getElementById('ved-container-total-qty').textContent = totalQty;
             document.getElementById('ved-container-total-supplier').textContent = totalSupplier.toFixed(2) + ' ¥';
+            document.getElementById('ved-container-total-cost').textContent = totalCost.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-logrf').textContent = totalLogRf.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-logcn').textContent = totalLogCn.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-terminal').textContent = totalTerminal.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-cost').textContent = totalCost.toFixed(2) + ' ₽';
             document.getElementById('ved-container-total-customs').textContent = totalCustoms.toFixed(2) + ' ₽';
         }
 
