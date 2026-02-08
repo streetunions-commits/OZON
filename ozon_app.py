@@ -13386,38 +13386,50 @@ def api_me():
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         user_id = payload.get('user_id')
 
+        # Получаем актуальные данные пользователя из БД
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT username, role FROM users WHERE id = ?', (user_id,))
+        user_row = cursor.fetchone()
+
+        if not user_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 401
+
+        # Актуальные username и role из БД
+        actual_username = user_row['username']
+        actual_role = user_row['role']
+
         # Получаем привязанный Telegram из БД
         telegram_username = None
-        if user_id:
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT u.telegram_chat_id, t.username as tg_username,
-                       m.sender_name as msg_sender
-                FROM users u
-                LEFT JOIN telegram_users t ON u.telegram_chat_id = t.chat_id
-                LEFT JOIN (
-                    SELECT telegram_chat_id, sender_name
-                    FROM document_messages
-                    WHERE sender_type = 'telegram'
-                    GROUP BY telegram_chat_id
-                ) m ON u.telegram_chat_id = m.telegram_chat_id
-                WHERE u.id = ?
-            ''', (user_id,))
-            row = cursor.fetchone()
-            if row and row['telegram_chat_id']:
-                # Приоритет: telegram_users.username > document_messages.sender_name
-                tg_name = row['tg_username'] or row['msg_sender'] or ''
-                if tg_name:
-                    telegram_username = f"@{tg_name.lstrip('@')}"
-            conn.close()
+        cursor.execute('''
+            SELECT u.telegram_chat_id, t.username as tg_username,
+                   m.sender_name as msg_sender
+            FROM users u
+            LEFT JOIN telegram_users t ON u.telegram_chat_id = t.chat_id
+            LEFT JOIN (
+                SELECT telegram_chat_id, sender_name
+                FROM document_messages
+                WHERE sender_type = 'telegram'
+                GROUP BY telegram_chat_id
+            ) m ON u.telegram_chat_id = m.telegram_chat_id
+            WHERE u.id = ?
+        ''', (user_id,))
+        row = cursor.fetchone()
+        if row and row['telegram_chat_id']:
+            tg_name = row['tg_username'] or row['msg_sender'] or ''
+            if tg_name:
+                telegram_username = f"@{tg_name.lstrip('@')}"
+
+        conn.close()
 
         return jsonify({
             'success': True,
             'user_id': user_id,
-            'username': payload.get('username'),
-            'role': payload.get('role'),
+            'username': actual_username,
+            'role': actual_role,
             'telegram_username': telegram_username
         })
 
