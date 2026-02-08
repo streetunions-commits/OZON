@@ -35,6 +35,11 @@ ExecStart=OZON_APP_DIR/venv/bin/gunicorn --config gunicorn_config.py ozon_app:ap
 Restart=always
 RestartSec=10
 
+# Graceful shutdown - ждём завершения синхронизации (до 5 минут)
+TimeoutStopSec=300
+KillMode=mixed
+KillSignal=SIGTERM
+
 # Логи
 StandardOutput=journal
 StandardError=journal
