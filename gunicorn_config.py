@@ -28,9 +28,14 @@ accesslog = "/var/log/ozon-tracker/access.log"
 errorlog = "/var/log/ozon-tracker/error.log"
 loglevel = "info"
 
-# Автоперезагрузка при изменении файлов (для удобства разработки)
-reload = True
-reload_extra_files = [".env"]
+# Автоперезагрузка при изменении файлов
+# ОТКЛЮЧЕНО для production - при reload=True любое изменение файла прерывает синхронизацию
+# Для разработки можно временно включить: reload = True
+reload = False
+# reload_extra_files = [".env"]
+
+# Graceful shutdown - даём время на завершение синхронизации (до 5 минут)
+graceful_timeout = 300
 
 # Производительность
 keepalive = 5
