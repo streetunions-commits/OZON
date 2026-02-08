@@ -11595,6 +11595,19 @@ HTML_TEMPLATE = '''
                     loadVedContainersHistory();  // Сбросить чекбокс
                     return;
                 }
+            } else {
+                // При СНЯТИИ чекбокса требуем ввод слова "завершено"
+                const userInput = prompt('Для снятия статуса "Завершено" введите слово "завершено":');
+                if (userInput === null) {
+                    // Пользователь нажал Отмена
+                    loadVedContainersHistory();  // Сбросить чекбокс
+                    return;
+                }
+                if (userInput.toLowerCase().trim() !== 'завершено') {
+                    alert('Неверное слово. Статус не изменён.');
+                    loadVedContainersHistory();  // Сбросить чекбокс
+                    return;
+                }
             }
 
             try {
@@ -15509,8 +15522,23 @@ def save_ved_container():
             ''', (container_date, supplier, comment, cny_rate, cny_percent, username, username))
             doc_id = cursor.lastrowid
 
-        # Добавляем позиции
+        # Добавляем позиции и считаем суммы логистики
+        total_logistics_rf = 0
+        total_logistics_cn = 0
+        total_terminal = 0
+        total_customs = 0
+
         for item in items:
+            logistics_rf = item.get('logistics_rf', 0) or 0
+            logistics_cn = item.get('logistics_cn', 0) or 0
+            terminal = item.get('terminal', 0) or 0
+            customs = item.get('customs', 0) or 0
+
+            total_logistics_rf += logistics_rf
+            total_logistics_cn += logistics_cn
+            total_terminal += terminal
+            total_customs += customs
+
             cursor.execute('''
                 INSERT INTO ved_container_items (doc_id, sku, quantity, price_cny, logistics_rf, logistics_cn, terminal, customs, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -15519,11 +15547,23 @@ def save_ved_container():
                 item.get('sku', 0),
                 item.get('quantity', 0),
                 item.get('price_cny', 0),
-                item.get('logistics_rf', 0),
-                item.get('logistics_cn', 0),
-                item.get('terminal', 0),
-                item.get('customs', 0)
+                logistics_rf,
+                logistics_cn,
+                terminal,
+                customs
             ))
+
+        # Вся логистика = сумма всех полей логистики
+        total_all_logistics = total_logistics_rf + total_logistics_cn + total_terminal + total_customs
+
+        # Проверяем: если любое из полей логистики стало нулём — автоматически снимаем статус "Завершено"
+        has_zeros = (total_logistics_rf == 0 or total_logistics_cn == 0 or
+                     total_terminal == 0 or total_customs == 0 or total_all_logistics == 0)
+
+        if has_zeros:
+            cursor.execute('''
+                UPDATE ved_container_docs SET is_completed = 0 WHERE id = ?
+            ''', (doc_id,))
 
         conn.commit()
         conn.close()
