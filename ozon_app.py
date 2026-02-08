@@ -6490,7 +6490,7 @@ HTML_TEMPLATE = '''
                                     <th>Кол-во</th>
                                     <th>Цена, ¥</th>
                                     <th>Себест., ₽</th>
-                                    <th>Вся лог., ₽</th>
+                                    <th>Лог./шт., ₽</th>
                                 </tr>
                             </thead>
                             <tbody id="ved-receipts-tbody">
@@ -11451,13 +11451,14 @@ HTML_TEMPLATE = '''
                     const row = document.createElement('tr');
                     const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
 
+                    const logisticsPerUnit = item.quantity > 0 ? item.all_logistics / item.quantity : 0;
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
                         <td>${item.article || '-'}</td>
                         <td>${formatVedNumber(item.quantity)}</td>
                         <td>${formatVedNumber(item.price_cny, '¥')}</td>
                         <td>${formatVedNumber(item.cost_rub, '₽')}</td>
-                        <td>${formatVedNumber(item.all_logistics, '₽')}</td>
+                        <td>${formatVedNumber(logisticsPerUnit, '₽')}</td>
                     `;
                     tbody.appendChild(row);
                 });
