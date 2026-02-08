@@ -6483,11 +6483,30 @@ HTML_TEMPLATE = '''
                 <div id="ved-receipts" class="ved-subtab-content">
                     <div class="wh-section-header">
                         <h3>Поступления товаров</h3>
-                        <p>Учёт поступлений товаров из контейнеров</p>
+                        <p>Товары из завершённых контейнеров</p>
                     </div>
 
-                    <div class="wh-empty-state">
-                        <p>Раздел в разработке</p>
+                    <div class="wh-table-wrapper" id="ved-receipts-wrapper" style="display: none; overflow-x: auto;">
+                        <table class="wh-table" id="ved-receipts-table">
+                            <thead>
+                                <tr>
+                                    <th>Дата выхода</th>
+                                    <th>Поставщик</th>
+                                    <th>Артикул</th>
+                                    <th>Товар</th>
+                                    <th>Кол-во</th>
+                                    <th>Цена, ¥</th>
+                                    <th>Себест., ₽</th>
+                                    <th>Вся лог., ₽</th>
+                                    <th>Итого, ₽</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ved-receipts-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="wh-empty-state" id="ved-receipts-empty">
+                        <p>Нет товаров из завершённых контейнеров</p>
                     </div>
                 </div>
             </div>
@@ -11039,6 +11058,11 @@ HTML_TEMPLATE = '''
             document.getElementById(subtab).classList.add('active');
             e.target.classList.add('active');
 
+            // Загружаем данные для подвкладки
+            if (subtab === 'ved-receipts') {
+                loadVedReceipts();
+            }
+
             // Сохраняем подвкладку в URL hash (формат: ved:subtab)
             location.hash = 'ved:' + subtab;
         }
@@ -11060,6 +11084,11 @@ HTML_TEMPLATE = '''
                     btn.classList.add('active');
                 }
             });
+
+            // Загружаем данные для подвкладки
+            if (subtab === 'ved-receipts') {
+                loadVedReceipts();
+            }
         }
 
         /**
@@ -11401,6 +11430,51 @@ HTML_TEMPLATE = '''
                 });
             } catch (error) {
                 console.error('Ошибка загрузки истории контейнеров:', error);
+            }
+        }
+
+        /**
+         * Загрузить список поступлений (товары из завершённых контейнеров)
+         */
+        async function loadVedReceipts() {
+            try {
+                const response = await authFetch('/api/ved/receipts');
+                const result = await response.json();
+
+                const tbody = document.getElementById('ved-receipts-tbody');
+                const wrapper = document.getElementById('ved-receipts-wrapper');
+                const empty = document.getElementById('ved-receipts-empty');
+
+                if (!result.success || !result.items || result.items.length === 0) {
+                    if (wrapper) wrapper.style.display = 'none';
+                    if (empty) empty.style.display = 'block';
+                    return;
+                }
+
+                if (wrapper) wrapper.style.display = 'block';
+                if (empty) empty.style.display = 'none';
+
+                tbody.innerHTML = '';
+                result.items.forEach(item => {
+                    const row = document.createElement('tr');
+                    const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
+                    const productName = item.product_name || ('SKU ' + item.sku);
+
+                    row.innerHTML = `
+                        <td>${dateFormatted}</td>
+                        <td>${item.supplier || '-'}</td>
+                        <td>${item.article || '-'}</td>
+                        <td>${productName}</td>
+                        <td>${formatVedNumber(item.quantity)}</td>
+                        <td>${formatVedNumber(item.price_cny, '¥')}</td>
+                        <td>${formatVedNumber(item.cost_rub, '₽')}</td>
+                        <td>${formatVedNumber(item.all_logistics, '₽')}</td>
+                        <td style="font-weight: 600;">${formatVedNumber(item.total_cost, '₽')}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки поступлений:', error);
             }
         }
 
@@ -15519,6 +15593,74 @@ def toggle_ved_container_completed():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/receipts')
+@require_auth(['admin', 'viewer'])
+def get_ved_receipts():
+    """
+    Получить список товаров из завершённых контейнеров ВЭД.
+    Возвращает построчно товары с себестоимостью и логистикой.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT
+                d.id as container_id,
+                d.container_date,
+                d.supplier,
+                d.cny_rate,
+                d.cny_percent,
+                i.sku,
+                p.name as product_name,
+                p.article,
+                i.quantity,
+                i.price_cny,
+                i.logistics_rf,
+                i.logistics_cn,
+                i.terminal,
+                i.customs
+            FROM ved_container_docs d
+            INNER JOIN ved_container_items i ON i.doc_id = d.id
+            LEFT JOIN products p ON p.sku = i.sku
+            WHERE d.is_completed = 1
+            ORDER BY d.container_date DESC, d.id, i.id
+        ''')
+
+        items = []
+        for row in cursor.fetchall():
+            row_dict = dict(row)
+            # Расчёт себестоимости в рублях
+            cny_rate = row_dict['cny_rate'] or 0
+            cny_percent = row_dict['cny_percent'] or 0
+            adjusted_rate = cny_rate * (1 + cny_percent / 100)
+            price_cny = row_dict['price_cny'] or 0
+            quantity = row_dict['quantity'] or 0
+
+            # Себестоимость = цена * курс * кол-во
+            cost_rub = price_cny * adjusted_rate * quantity
+
+            # Вся логистика
+            logistics_rf = row_dict['logistics_rf'] or 0
+            logistics_cn = row_dict['logistics_cn'] or 0
+            terminal = row_dict['terminal'] or 0
+            customs = row_dict['customs'] or 0
+            all_logistics = logistics_rf + logistics_cn + terminal + customs
+
+            row_dict['cost_rub'] = cost_rub
+            row_dict['all_logistics'] = all_logistics
+            row_dict['total_cost'] = cost_rub + all_logistics
+
+            items.append(row_dict)
+
+        conn.close()
+
+        return jsonify({'success': True, 'items': items})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'items': []})
 
 
 @app.route('/api/ved/suppliers')
