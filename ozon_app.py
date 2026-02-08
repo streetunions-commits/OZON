@@ -15656,7 +15656,7 @@ def get_ved_receipts():
                 d.cny_percent,
                 i.sku,
                 p.name as product_name,
-                p.article,
+                p.offer_id as article,
                 i.quantity,
                 i.price_cny,
                 i.logistics_rf,
