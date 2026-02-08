@@ -6340,6 +6340,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладки ВЭД -->
                 <div class="ved-subtabs">
                     <button class="ved-subtab-button active" onclick="switchVedSubtab(event, 'ved-containers')">Контейнеры</button>
+                    <button class="ved-subtab-button" onclick="switchVedSubtab(event, 'ved-receipts')">Поступления</button>
                 </div>
 
                 <!-- Подвкладка: Контейнеры -->
@@ -6475,6 +6476,18 @@ HTML_TEMPLATE = '''
                         <div class="wh-empty-state" id="ved-containers-history-empty">
                             <p>Нет сохранённых контейнеров</p>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Подвкладка: Поступления -->
+                <div id="ved-receipts" class="ved-subtab-content">
+                    <div class="wh-section-header">
+                        <h3>Поступления товаров</h3>
+                        <p>Учёт поступлений товаров из контейнеров</p>
+                    </div>
+
+                    <div class="wh-empty-state">
+                        <p>Раздел в разработке</p>
                     </div>
                 </div>
             </div>
