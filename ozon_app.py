@@ -6313,15 +6313,15 @@ HTML_TEMPLATE = '''
                                     <tr>
                                         <th style="width: 40px;">№</th>
                                         <th style="min-width: 180px;">Товар</th>
-                                        <th style="width: 80px;">Кол-во</th>
-                                        <th style="width: 100px;">Цена шт., ¥</th>
-                                        <th style="width: 120px;">Себестоимость, ¥</th>
-                                        <th style="width: 120px;">Себестоимость<br>руб, ₽</th>
-                                        <th style="width: 100px;">Логистика<br>РФ, ₽</th>
-                                        <th style="width: 100px;">Логистика<br>КНР, ₽</th>
-                                        <th style="width: 120px;">Терминальные<br>расходы, ₽</th>
-                                        <th style="width: 110px;">Пошлина<br>и НДС, ₽</th>
-                                        <th style="width: 110px;">Вся<br>логистика, ₽</th>
+                                        <th style="min-width: 100px;">Кол-во</th>
+                                        <th style="min-width: 120px;">Цена шт., ¥</th>
+                                        <th style="min-width: 140px;">Себестоимость, ¥</th>
+                                        <th style="min-width: 140px;">Себестоимость<br>руб, ₽</th>
+                                        <th style="min-width: 110px;">Логистика<br>РФ, ₽</th>
+                                        <th style="min-width: 110px;">Логистика<br>КНР, ₽</th>
+                                        <th style="min-width: 130px;">Терминальные<br>расходы, ₽</th>
+                                        <th style="min-width: 120px;">Пошлина<br>и НДС, ₽</th>
+                                        <th style="min-width: 130px;">Вся<br>логистика, ₽</th>
                                         <th style="width: 35px;"></th>
                                     </tr>
                                 </thead>
@@ -10993,6 +10993,20 @@ HTML_TEMPLATE = '''
         }
 
         /**
+         * Форматирование числа с пробелами между тысячными и без лишних нулей после точки
+         */
+        function formatVedNumber(num, suffix = '') {
+            if (num === 0) return '0' + (suffix ? ' ' + suffix : '');
+            // Округляем до целого если дробная часть .00
+            const rounded = Math.round(num * 100) / 100;
+            const isWhole = rounded === Math.floor(rounded);
+            const formatted = isWhole
+                ? Math.floor(rounded).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+                : rounded.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+            return formatted + (suffix ? ' ' + suffix : '');
+        }
+
+        /**
          * Обновить итоги контейнера ВЭД
          */
         function updateVedContainerTotals() {
@@ -11021,13 +11035,13 @@ HTML_TEMPLATE = '''
                 const cost = (price * vedCnyRate * qty) + allLog;
 
                 const supplierCell = row.querySelector('.ved-container-supplier-sum');
-                if (supplierCell) supplierCell.textContent = supplierSum.toFixed(2) + ' ¥';
+                if (supplierCell) supplierCell.textContent = formatVedNumber(supplierSum, '¥');
 
                 const costCell = row.querySelector('.ved-container-cost');
-                if (costCell) costCell.textContent = cost.toFixed(2) + ' ₽';
+                if (costCell) costCell.textContent = formatVedNumber(cost, '₽');
 
                 const allLogCell = row.querySelector('.ved-container-alllog');
-                if (allLogCell) allLogCell.textContent = allLog.toFixed(2) + ' ₽';
+                if (allLogCell) allLogCell.textContent = formatVedNumber(allLog, '₽');
 
                 totalQty += qty;
                 totalSupplier += supplierSum;
@@ -11039,14 +11053,14 @@ HTML_TEMPLATE = '''
                 totalAllLog += allLog;
             });
 
-            document.getElementById('ved-container-total-qty').textContent = totalQty;
-            document.getElementById('ved-container-total-supplier').textContent = totalSupplier.toFixed(2) + ' ¥';
-            document.getElementById('ved-container-total-cost').textContent = totalCost.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-logrf').textContent = totalLogRf.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-logcn').textContent = totalLogCn.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-terminal').textContent = totalTerminal.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-customs').textContent = totalCustoms.toFixed(2) + ' ₽';
-            document.getElementById('ved-container-total-alllog').textContent = totalAllLog.toFixed(2) + ' ₽';
+            document.getElementById('ved-container-total-qty').textContent = formatVedNumber(totalQty);
+            document.getElementById('ved-container-total-supplier').textContent = formatVedNumber(totalSupplier, '¥');
+            document.getElementById('ved-container-total-cost').textContent = formatVedNumber(totalCost, '₽');
+            document.getElementById('ved-container-total-logrf').textContent = formatVedNumber(totalLogRf, '₽');
+            document.getElementById('ved-container-total-logcn').textContent = formatVedNumber(totalLogCn, '₽');
+            document.getElementById('ved-container-total-terminal').textContent = formatVedNumber(totalTerminal, '₽');
+            document.getElementById('ved-container-total-customs').textContent = formatVedNumber(totalCustoms, '₽');
+            document.getElementById('ved-container-total-alllog').textContent = formatVedNumber(totalAllLog, '₽');
         }
 
         /**
