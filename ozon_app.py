@@ -13033,55 +13033,66 @@ HTML_TEMPLATE = '''
             tdVedQty.appendChild(vedQtySpan);
             row.appendChild(tdVedQty);
 
-            // 9. Стоимость логистики за единицу (из ВЭД, только для чтения)
-            // Используем средневзвешенное значение из тех позиций ВЭД, которые покрывают эту строку
+            // Проверяем, завершён ли контейнер (данные показываем только для завершённых)
+            const isContainerCompleted = data && (data.container_is_completed === 1 || data.container_is_completed === true);
+
+            // 5. Стоимость логистики за единицу (из ВЭД, только для завершённых контейнеров)
             const tdLogistics = document.createElement('td');
             const logisticsSpan = document.createElement('span');
             logisticsSpan.className = 'supply-logistics-auto';
-            // Берём среднюю логистику из расчёта покрытия (только из тех позиций, что покрывают эту строку)
             const avgLogistics = vedCoverage && vedCoverage.avg_logistics > 0 ? vedCoverage.avg_logistics : 0;
-            if (avgLogistics > 0) {
+            // Показываем только если контейнер завершён
+            if (isContainerCompleted && avgLogistics > 0) {
                 logisticsSpan.textContent = formatNumberWithSpaces(Math.round(avgLogistics));
                 logisticsSpan.title = 'Средневзвешенная логистика из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
             } else {
                 logisticsSpan.textContent = '—';
                 logisticsSpan.style.color = '#999';
+                if (!isContainerCompleted) {
+                    logisticsSpan.title = 'Контейнер не завершён';
+                }
             }
-            // Сохраняем значение для расчётов
-            logisticsSpan.dataset.value = avgLogistics;
+            // Сохраняем значение для расчётов (0 если контейнер не завершён)
+            logisticsSpan.dataset.value = isContainerCompleted ? avgLogistics : 0;
             tdLogistics.appendChild(logisticsSpan);
             row.appendChild(tdLogistics);
 
-            // 10. Цена товара единица в рублях (из ВЭД, только для чтения)
-            // Используем средневзвешенное значение из тех позиций ВЭД, которые покрывают эту строку
+            // 6. Цена товара единица в рублях (из ВЭД, только для завершённых контейнеров)
             const tdPrice = document.createElement('td');
             const priceSpan = document.createElement('span');
             priceSpan.className = 'supply-price-auto';
-            // Берём среднюю себестоимость из расчёта покрытия (только из тех позиций, что покрывают эту строку)
             const avgCostRub = vedCoverage && vedCoverage.avg_price_rub > 0 ? vedCoverage.avg_price_rub : 0;
-            if (avgCostRub > 0) {
+            // Показываем только если контейнер завершён
+            if (isContainerCompleted && avgCostRub > 0) {
                 priceSpan.textContent = formatNumberWithSpaces(Math.round(avgCostRub));
                 priceSpan.title = 'Средневзвешенная себестоимость из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
             } else {
                 priceSpan.textContent = '—';
                 priceSpan.style.color = '#999';
+                if (!isContainerCompleted) {
+                    priceSpan.title = 'Контейнер не завершён';
+                }
             }
-            // Сохраняем значение для расчётов
-            priceSpan.dataset.value = avgCostRub;
+            // Сохраняем значение для расчётов (0 если контейнер не завершён)
+            priceSpan.dataset.value = isContainerCompleted ? avgCostRub : 0;
             tdPrice.appendChild(priceSpan);
             row.appendChild(tdPrice);
 
-            // 11. Себестоимость товара +6% = (логистика + цена) * 1.06
+            // 7. Себестоимость товара +6% = (логистика + цена) * 1.06 (только для завершённых контейнеров)
             const tdCost = document.createElement('td');
             const costSpan = document.createElement('span');
             costSpan.className = 'supply-cost-auto';
-            // Формула: (логистика_за_ед + цена_за_ед) * 1.06
-            if (avgLogistics > 0 || avgCostRub > 0) {
+            // Показываем только если контейнер завершён
+            if (isContainerCompleted && (avgLogistics > 0 || avgCostRub > 0)) {
                 const costPlus6 = (avgLogistics + avgCostRub) * 1.06;
                 costSpan.textContent = formatNumberWithSpaces(Math.round(costPlus6));
                 costSpan.title = 'Формула: (логистика + цена) × 1.06';
             } else {
                 costSpan.textContent = '—';
+                costSpan.style.color = '#999';
+                if (!isContainerCompleted) {
+                    costSpan.title = 'Контейнер не завершён';
+                }
             }
             tdCost.appendChild(costSpan);
             row.appendChild(tdCost);
@@ -16243,15 +16254,20 @@ def get_supplies():
     Получить все строки поставок из базы данных.
 
     Возвращает список поставок, отсортированных по дате создания.
+    Включает статус завершённости контейнера (container_is_completed).
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        # Получаем поставки с информацией о завершённости контейнера
         cursor.execute('''
-            SELECT * FROM supplies
-            ORDER BY exit_factory_date ASC, created_at ASC
+            SELECT s.*,
+                   COALESCE(d.is_completed, 0) as container_is_completed
+            FROM supplies s
+            LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
+            ORDER BY s.exit_factory_date ASC, s.created_at ASC
         ''')
 
         supplies = [dict(row) for row in cursor.fetchall()]
