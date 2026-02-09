@@ -8456,7 +8456,9 @@ HTML_TEMPLATE = '''
                                 day: '2-digit', month: '2-digit', year: 'numeric',
                                 hour: '2-digit', minute: '2-digit'
                             });
-                            const unreadClass = msg.is_read ? '' : 'unread';
+                            // Свои сообщения не отмечаем как непрочитанные
+                            const isOwn = msg.is_own === true;
+                            const unreadClass = (msg.is_read || isOwn) ? '' : 'unread';
 
                             // Определяем тип сообщения
                             const isContainer = msg.msg_source === 'container' || msg.doc_type === 'container';
@@ -8498,7 +8500,7 @@ HTML_TEMPLATE = '''
                                         <button class="message-btn message-btn-open" onclick="openDocumentFromMessage('${msg.doc_type}', ${msg.doc_id})">
                                             ${openBtnText}
                                         </button>
-                                        ${!msg.is_read ? `
+                                        ${!msg.is_read && !isOwn ? `
                                             <button class="message-btn message-btn-read" onclick="markMessageRead(${msg.id}, false, '${msg.msg_source || 'document'}')">
                                                 ✓ Просмотрено
                                             </button>
@@ -17907,7 +17909,7 @@ def get_all_document_messages():
         # 2. Получаем сообщения контейнеров ВЭД
         container_query = '''
             SELECT cm.id, cm.container_id as doc_id, cm.sender_name, cm.message, cm.is_read,
-                   cm.created_at, cm.sender_type, c.supplier, c.container_date,
+                   cm.created_at, cm.sender_type, cm.sender_id, c.supplier, c.container_date,
                    'container' as msg_source
             FROM container_messages cm
             LEFT JOIN ved_container_docs c ON cm.container_id = c.id
@@ -17918,20 +17920,31 @@ def get_all_document_messages():
         # Для viewer фильтруем по получателям (recipient_ids содержит user_id)
         if user_role != 'admin':
             if user_id:
-                container_query += ' AND (cm.sender_id = ? OR cm.recipient_ids LIKE ?)'
-                container_params.append(user_id)
-                container_params.append(f'%{user_id}%')
+                if unread_only:
+                    # Только непрочитанные: только те, что адресованы пользователю, но НЕ им отправлены
+                    container_query += ' AND cm.recipient_ids LIKE ? AND cm.sender_id != ? AND cm.is_read = 0'
+                    container_params.append(f'%{user_id}%')
+                    container_params.append(user_id)
+                else:
+                    # Все сообщения: где пользователь отправитель или получатель
+                    container_query += ' AND (cm.sender_id = ? OR cm.recipient_ids LIKE ?)'
+                    container_params.append(user_id)
+                    container_params.append(f'%{user_id}%')
             else:
                 container_query = None
-
-        if container_query:
+        else:
             if unread_only:
                 container_query += ' AND cm.is_read = 0'
+
+        if container_query:
             cursor.execute(container_query, container_params)
             for row in cursor.fetchall():
                 msg = dict(row)
                 msg['msg_source'] = 'container'
                 msg['doc_type'] = 'container'
+                # Отмечаем свои сообщения — для них не показываем "Непрочитано"
+                if user_id and msg.get('sender_id') == user_id:
+                    msg['is_own'] = True
                 messages.append(msg)
 
         conn.close()
@@ -18098,12 +18111,13 @@ def get_unread_messages_count():
             count += cursor.fetchone()[0]
 
         # 2. Считаем непрочитанные сообщения контейнеров
+        # Для пользователя: только те, которые адресованы ему, но НЕ отправлены им самим
         if user_role != 'admin':
             if user_id:
                 cursor.execute('''
                     SELECT COUNT(*) FROM container_messages
-                    WHERE is_read = 0 AND (sender_id = ? OR recipient_ids LIKE ?)
-                ''', (user_id, f'%{user_id}%'))
+                    WHERE is_read = 0 AND recipient_ids LIKE ? AND sender_id != ?
+                ''', (f'%{user_id}%', user_id))
                 count += cursor.fetchone()[0]
         else:
             cursor.execute('SELECT COUNT(*) FROM container_messages WHERE is_read = 0')
