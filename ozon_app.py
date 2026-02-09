@@ -11517,6 +11517,8 @@ HTML_TEMPLATE = '''
                 const result = await response.json();
 
                 if (result.success) {
+                    // Очищаем список файлов сессии (файлы успешно сохранены, не удаляем их)
+                    vedContainerUploadedFilesSession = [];
                     clearVedContainerForm();
                     loadVedContainersHistory();
                 } else {
@@ -11820,6 +11822,9 @@ HTML_TEMPLATE = '''
 
                 // Устанавливаем ID редактируемого контейнера
                 editingVedContainerId = docId;
+
+                // Очищаем список файлов сессии (начинаем новую сессию, старые файлы не трогаем)
+                vedContainerUploadedFilesSession = [];
 
                 // Заполняем шапку формы
                 document.getElementById('ved-container-date').value = doc.container_date || '';
@@ -12157,6 +12162,9 @@ HTML_TEMPLATE = '''
 
                         const fileEl = createFileElement(result.file);
                         list.appendChild(fileEl);
+
+                        // Отслеживаем загруженный файл для отката при отмене
+                        vedContainerUploadedFilesSession.push(result.file.id);
                     } else {
                         alert('Ошибка загрузки файла ' + file.name + ': ' + (result.error || 'Неизвестная ошибка'));
                     }
@@ -15233,7 +15241,7 @@ def api_container_messages_send():
 
         # Отправляем уведомления в Telegram
         telegram_message_ids = []
-        site_url = os.environ.get('SITE_URL', 'https://ozon.sstrelyaev.ru')
+        site_url = os.environ.get('SITE_URL', 'https://moscowseller.ru')
 
         for recipient_id in recipient_ids:
             cursor.execute('SELECT telegram_chat_id, username FROM users WHERE id = ?', (recipient_id,))
