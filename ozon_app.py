@@ -16782,7 +16782,9 @@ def save_receipt_doc():
             # Сортируем по дате выхода с фабрики
             cursor.execute('''
                 SELECT s.id, s.exit_factory_qty, COALESCE(s.arrival_warehouse_qty, 0) as arrival_qty,
-                       s.logistics_cost_per_unit, s.price_cny, COALESCE(d.cny_rate, 0) as cny_rate
+                       s.logistics_cost_per_unit, s.price_cny,
+                       COALESCE(d.cny_rate, 0) as cny_rate,
+                       COALESCE(d.cny_percent, 0) as cny_percent
                 FROM supplies s
                 LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
                 WHERE s.sku = ? AND COALESCE(d.is_completed, 0) = 1
@@ -16806,10 +16808,13 @@ def save_receipt_doc():
                 to_distribute = min(remaining_qty, available)
 
                 # Рассчитываем себестоимость +6% для этой строки
+                # Учитываем процент наценки на курс (как в ВЭД Поступлениях)
                 logistics = supply['logistics_cost_per_unit'] or 0
                 price_cny = supply['price_cny'] or 0
                 cny_rate = supply['cny_rate'] or 0
-                price_rub = price_cny * cny_rate
+                cny_percent = supply['cny_percent'] or 0
+                adjusted_rate = cny_rate * (1 + cny_percent / 100)
+                price_rub = price_cny * adjusted_rate
                 cost_plus_6 = (logistics + price_rub) * 1.06
 
                 distributions.append({
