@@ -6588,7 +6588,7 @@ HTML_TEMPLATE = '''
 
                         <div class="receipt-form-actions">
                             <button class="wh-save-receipt-btn" onclick="saveVedContainer()">Сохранить контейнер</button>
-                            <button class="wh-clear-btn" onclick="clearVedContainerForm()">Очистить форму</button>
+                            <button class="wh-clear-btn" onclick="cancelVedContainer()">Отмена</button>
                         </div>
                     </div>
 
@@ -11313,6 +11313,9 @@ HTML_TEMPLATE = '''
          * Удалить строку товара из контейнера ВЭД
          */
         function removeVedContainerItemRow(id) {
+            if (!confirm('Вы уверены, что хотите удалить эту строку?')) {
+                return;
+            }
             const row = document.getElementById('ved-container-item-' + id);
             if (row) row.remove();
             updateVedContainerTotals();
@@ -11955,6 +11958,16 @@ HTML_TEMPLATE = '''
                 alert('Ошибка обновления статуса');
                 loadVedContainersHistory();
             }
+        }
+
+        /**
+         * Отменить редактирование контейнера ВЭД (сбросить все изменения)
+         */
+        function cancelVedContainer() {
+            if (!confirm('Вы уверены, что хотите отменить? Все несохранённые изменения будут потеряны.')) {
+                return;
+            }
+            clearVedContainerForm();
         }
 
         /**
