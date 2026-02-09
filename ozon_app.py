@@ -6440,31 +6440,6 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Контейнеры -->
                 <div id="ved-containers" class="ved-subtab-content active">
-                    <!-- Курсы валют ЦБ РФ (без заголовка) -->
-                    <div class="currency-rates-panel" style="margin-bottom: 20px;">
-                        <div class="currency-rates-row">
-                            <div class="currency-rate-card">
-                                <span class="currency-label">¥ Юань (CNY)</span>
-                                <span class="currency-value" id="ved-rate-cny">—</span>
-                                <span class="currency-rub">₽</span>
-                            </div>
-                            <div class="currency-rate-card" style="min-width: 120px;">
-                                <span class="currency-label">% к переводу</span>
-                                <input type="number" id="ved-cny-percent" class="wh-input" style="width: 80px; text-align: center; font-size: 18px; font-weight: 600; padding: 4px 8px;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
-                            </div>
-                            <div class="currency-rate-card">
-                                <span class="currency-label">$ Доллар (USD)</span>
-                                <span class="currency-value" id="ved-rate-usd">—</span>
-                                <span class="currency-rub">₽</span>
-                            </div>
-                            <div class="currency-rate-card">
-                                <span class="currency-label">€ Евро (EUR)</span>
-                                <span class="currency-value" id="ved-rate-eur">—</span>
-                                <span class="currency-rub">₽</span>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- Кнопка создания нового контейнера -->
                     <div id="ved-container-create-btn-wrapper" style="margin-bottom: 20px;">
                         <button class="wh-save-receipt-btn" onclick="showVedContainerForm()" style="display: flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
@@ -6474,6 +6449,20 @@ HTML_TEMPLATE = '''
 
                     <!-- Форма нового контейнера (скрыта по умолчанию) -->
                     <div class="receipt-form" id="ved-container-form" style="display: none;">
+                        <!-- Курс юаня и процент к переводу -->
+                        <div class="currency-rates-panel" style="margin-bottom: 20px;">
+                            <div class="currency-rates-row">
+                                <div class="currency-rate-card">
+                                    <span class="currency-label">¥ Юань (CNY)</span>
+                                    <span class="currency-value" id="ved-rate-cny">—</span>
+                                    <span class="currency-rub">₽</span>
+                                </div>
+                                <div class="currency-rate-card" style="min-width: 120px;">
+                                    <span class="currency-label">% к переводу</span>
+                                    <input type="number" id="ved-cny-percent" class="wh-input" style="width: 80px; text-align: center; font-size: 18px; font-weight: 600; padding: 4px 8px;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
+                                </div>
+                            </div>
+                        </div>
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
@@ -11219,7 +11208,7 @@ HTML_TEMPLATE = '''
         function loadVed() {
             if (vedDataLoaded) return;
 
-            // Загружаем курсы валют
+            // Загружаем курс юаня
             fetch('/api/currency-rates')
                 .then(r => r.json())
                 .then(data => {
@@ -11227,8 +11216,6 @@ HTML_TEMPLATE = '''
                         const rates = data.rates;
                         vedCnyRate = rates.CNY || 0;
                         document.getElementById('ved-rate-cny').textContent = formatCurrencyRate(rates.CNY);
-                        document.getElementById('ved-rate-usd').textContent = formatCurrencyRate(rates.USD);
-                        document.getElementById('ved-rate-eur').textContent = formatCurrencyRate(rates.EUR);
                     }
                 });
 
