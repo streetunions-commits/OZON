@@ -6530,34 +6530,35 @@ HTML_TEMPLATE = '''
                         </div>
 
                         <!-- ========================================
-                             БЛОК СООБЩЕНИЙ КОНТЕЙНЕРА (виден только при редактировании)
+                             БЛОК СООБЩЕНИЙ КОНТЕЙНЕРА
                              ======================================== -->
-                        <div id="ved-container-messages-section" class="container-messages-section" style="display: none; margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <div id="ved-container-messages-section" class="container-messages-section" style="margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
                             <h4 style="margin: 0 0 12px 0; color: #333;">💬 Сообщения по контейнеру</h4>
 
-                            <!-- История сообщений -->
-                            <div id="ved-container-messages-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd;">
-                                <div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>
+                            <!-- История сообщений (скрыта пока нет ID) -->
+                            <div id="ved-container-messages-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd; display: none;">
                             </div>
 
                             <!-- Форма отправки -->
                             <div class="container-message-form" style="display: flex; flex-direction: column; gap: 12px;">
-                                <div style="display: flex; gap: 12px; align-items: flex-start;">
+                                <div style="display: flex; gap: 16px; align-items: flex-start;">
+                                    <!-- Чекбоксы получателей -->
+                                    <div style="min-width: 200px;">
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 13px;">Получатели:</label>
+                                        <div id="ved-container-msg-recipients" style="display: flex; flex-direction: column; gap: 6px;">
+                                            <span style="color: #999; font-size: 12px;">Загрузка...</span>
+                                        </div>
+                                    </div>
+                                    <!-- Поле сообщения -->
                                     <div style="flex: 1;">
-                                        <label style="display: block; margin-bottom: 4px; font-weight: 500; font-size: 13px;">Получатели (обязательно):</label>
-                                        <select id="ved-container-msg-recipients" multiple style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-                                        </select>
-                                        <small style="color: #666; font-size: 11px;">Ctrl+клик для выбора нескольких</small>
-                                    </div>
-                                    <div style="flex: 2;">
-                                        <label style="display: block; margin-bottom: 4px; font-weight: 500; font-size: 13px;">Сообщение:</label>
+                                        <label style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 13px;">Сообщение:</label>
                                         <textarea id="ved-container-msg-text" placeholder="Введите сообщение..." style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
+                                        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+                                            <button onclick="sendContainerMessage()" class="wh-save-receipt-btn" style="padding: 8px 20px;">
+                                                📤 Отправить в Telegram
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                                <div style="display: flex; justify-content: flex-end;">
-                                    <button onclick="sendContainerMessage()" class="wh-save-receipt-btn" style="padding: 8px 20px;">
-                                        📤 Отправить в Telegram
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -11746,7 +11747,7 @@ HTML_TEMPLATE = '''
 
             // Заполняем строку итогов
             document.getElementById('ved-receipts-total-qty').textContent = totalQty.toLocaleString('ru-RU');
-            document.getElementById('ved-receipts-avg-price').textContent = avgPrice.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ¥';
+            document.getElementById('ved-receipts-avg-price').textContent = Math.ceil(avgPrice).toLocaleString('ru-RU') + ' ¥';
             document.getElementById('ved-receipts-avg-cost').textContent = avgCost.toLocaleString('ru-RU') + ' ₽';
             document.getElementById('ved-receipts-avg-log').textContent = avgLog.toLocaleString('ru-RU') + ' ₽';
         }
@@ -11943,29 +11944,34 @@ HTML_TEMPLATE = '''
 
         /**
          * Загрузить список получателей для сообщений (пользователи с привязанным Telegram)
+         * Отображает как чекбоксы
          */
         async function loadContainerMessageRecipients() {
-            const select = document.getElementById('ved-container-msg-recipients');
-            select.innerHTML = '<option disabled>Загрузка...</option>';
+            const container = document.getElementById('ved-container-msg-recipients');
+            container.innerHTML = '<span style="color: #999; font-size: 12px;">Загрузка...</span>';
 
             try {
                 const resp = await authFetch('/api/users-with-telegram');
                 const data = await resp.json();
 
-                select.innerHTML = '';
+                container.innerHTML = '';
                 if (data.success && data.users && data.users.length > 0) {
                     data.users.forEach(user => {
-                        const option = document.createElement('option');
-                        option.value = user.id;
-                        option.textContent = `${user.username} (${user.telegram_username || 'Telegram'})`;
-                        select.appendChild(option);
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 0;';
+                        label.innerHTML = `
+                            <input type="checkbox" class="container-msg-recipient" value="${user.id}" style="cursor: pointer;">
+                            <span>${escapeHtml(user.username)}</span>
+                            <small style="color: #0088cc;">${escapeHtml(user.telegram_username || '')}</small>
+                        `;
+                        container.appendChild(label);
                     });
                 } else {
-                    select.innerHTML = '<option disabled>Нет пользователей с Telegram</option>';
+                    container.innerHTML = '<span style="color: #999; font-size: 12px;">Нет пользователей с Telegram</span>';
                 }
             } catch (err) {
                 console.error('Ошибка загрузки получателей:', err);
-                select.innerHTML = '<option disabled>Ошибка загрузки</option>';
+                container.innerHTML = '<span style="color: #c33; font-size: 12px;">Ошибка загрузки</span>';
             }
         }
 
