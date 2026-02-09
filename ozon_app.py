@@ -6448,7 +6448,6 @@ HTML_TEMPLATE = '''
                                     <th>Товар</th>
                                     <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
-                                    <th class="sortable-date" data-col="3" onclick="sortSuppliesByDate(3)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
                                     <th>Кол-во прихода<br>на склад</th>
                                     <th title="Количество единиц товара, учтённых в ВЭД (Поступления). Отрицательное значение = не хватает данных.">Учтено<br>ВЭД</th>
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
@@ -12990,10 +12989,7 @@ HTML_TEMPLATE = '''
             // 3. Кол-во выхода с фабрики (из контейнера — нередактируемое)
             row.appendChild(createReadOnlyNumberCell(data ? data.exit_factory_qty : '', data && data.container_doc_id));
 
-            // 4. Дата прихода на склад (редактируемая)
-            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', false, row, 0, false));
-
-            // 5. Кол-во прихода на склад (редактируемое)
+            // 4. Кол-во прихода на склад (редактируемое)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', false, row, 'arrival_warehouse_qty'));
 
             // 8. Учтено ВЭД (распределённое покрытие данными ВЭД)
@@ -13425,8 +13421,7 @@ HTML_TEMPLATE = '''
             const exitFactoryDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
             const exitFactoryQtySpan = cells[2] ? cells[2].querySelector('.supply-readonly-value') : null;
 
-            // Редактируемые поля: приход на склад
-            const dateInputs = row.querySelectorAll('input[type="date"]');
+            // Редактируемые поля: приход на склад (только кол-во)
             const textInputs = row.querySelectorAll('input[type="text"]');
 
             // Вспомогательная функция: пустое поле → null, иначе число
@@ -13471,7 +13466,6 @@ HTML_TEMPLATE = '''
                 product_name: productName,
                 exit_factory_date: parseDateFromSpan(exitFactoryDateSpan),
                 exit_factory_qty: parseNumberFromSpan(exitFactoryQtySpan),
-                arrival_warehouse_date: dateInputs[0] ? dateInputs[0].value : '',
                 arrival_warehouse_qty: numOrNull(textInputs[0]),
                 logistics_cost_per_unit: logisticsValue,
                 price_rub: priceRubValue
@@ -16376,7 +16370,7 @@ def save_supply():
     """
     Обновить строку поставки.
 
-    Обновляются только редактируемые поля: arrival_warehouse_date и arrival_warehouse_qty.
+    Обновляется только редактируемое поле: arrival_warehouse_qty.
     Остальные данные (sku, exit_factory_date, exit_factory_qty) приходят из контейнеров ВЭД
     и не редактируются пользователем.
     """
@@ -16391,15 +16385,13 @@ def save_supply():
             conn.close()
             return jsonify({'success': False, 'error': 'Строки поставок создаются автоматически из контейнеров ВЭД'})
 
-        # Обновляем только редактируемые поля (приход на склад)
+        # Обновляем только кол-во прихода на склад
         cursor.execute('''
             UPDATE supplies SET
-                arrival_warehouse_date = ?,
                 arrival_warehouse_qty = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ''', (
-            data.get('arrival_warehouse_date', ''),
             data.get('arrival_warehouse_qty'),
             int(supply_id)
         ))
