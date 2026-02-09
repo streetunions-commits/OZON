@@ -6235,7 +6235,7 @@ HTML_TEMPLATE = '''
                                         <th>Приёмщик</th>
                                         <th>Товаров</th>
                                         <th>Общее кол-во</th>
-                                        <th>Общая сумма</th>
+                                        <th title="Рассчитано из поставок">Сумма по<br>поставкам</th>
                                         <th>Комментарий</th>
                                         <th>Изменено</th>
                                         <th>Источник</th>
@@ -8947,10 +8947,20 @@ HTML_TEMPLATE = '''
                 tdQty.textContent = doc.total_qty || 0;
                 row.appendChild(tdQty);
 
-                // Общая сумма
+                // Сумма по поставкам (рассчитанная себестоимость)
                 const tdSum = document.createElement('td');
                 tdSum.style.textAlign = 'right';
-                tdSum.textContent = doc.total_sum > 0 ? formatNumberWithSpaces(Math.round(doc.total_sum)) + ' ₽' : '—';
+                const calcCost = doc.total_calculated_cost || 0;
+                if (calcCost > 0) {
+                    tdSum.textContent = formatNumberWithSpaces(Math.round(calcCost)) + ' ₽';
+                    tdSum.title = 'Рассчитано из себестоимости +6% по поставкам';
+                } else if (doc.total_sum > 0) {
+                    tdSum.textContent = formatNumberWithSpaces(Math.round(doc.total_sum)) + ' ₽';
+                    tdSum.style.color = '#999';
+                    tdSum.title = 'Ручной ввод (нет данных из поставок)';
+                } else {
+                    tdSum.textContent = '—';
+                }
                 row.appendChild(tdSum);
 
                 // Комментарий
@@ -9125,15 +9135,17 @@ HTML_TEMPLATE = '''
             tdQty.appendChild(inputQty);
             row.appendChild(tdQty);
 
-            // Цена закупки (автозаполняется из Поставок - поле "Себестоимость +6%")
+            // Цена закупки (рассчитывается автоматически при сохранении из поставок)
             const tdPrice = document.createElement('td');
             const inputPrice = document.createElement('input');
             inputPrice.type = 'text';
             inputPrice.className = 'wh-input';
             inputPrice.style.cssText = 'width:100%;text-align:right;background:#f5f5f5;color:#666;';
-            inputPrice.value = item && item.purchase_price ? formatNumberWithSpaces(Math.round(item.purchase_price)) : '';
+            // Показываем calculated_cost если есть, иначе purchase_price
+            const displayPrice = item ? (item.calculated_cost || item.purchase_price || 0) : 0;
+            inputPrice.value = displayPrice > 0 ? formatNumberWithSpaces(Math.round(displayPrice)) : '';
             inputPrice.disabled = true;  // Поле недоступно для редактирования
-            inputPrice.title = 'Цена берётся автоматически из Поставок (Себестоимость +6%)';
+            inputPrice.title = 'Себестоимость +6% рассчитывается автоматически при сохранении из поставок';
             tdPrice.appendChild(inputPrice);
             row.appendChild(tdPrice);
 
@@ -9143,7 +9155,8 @@ HTML_TEMPLATE = '''
                 if (selectedSku && suppliesCostBySku[selectedSku]) {
                     inputPrice.value = formatNumberWithSpaces(suppliesCostBySku[selectedSku]);
                 } else {
-                    inputPrice.value = '';
+                    inputPrice.value = '(авто)';
+                    inputPrice.style.color = '#999';
                 }
                 updateReceiptItemSum(row);
                 updateReceiptTotals();
@@ -9154,8 +9167,9 @@ HTML_TEMPLATE = '''
             tdSum.className = 'wh-sum-cell';
             tdSum.style.textAlign = 'right';
             const qty = item ? (parseInt(item.quantity) || 0) : 0;
-            const price = item ? (parseFloat(item.purchase_price) || 0) : 0;
-            tdSum.textContent = qty * price > 0 ? formatNumberWithSpaces(Math.round(qty * price)) + ' ₽' : '—';
+            // Используем calculated_cost если есть
+            const costPrice = item ? (item.calculated_cost || item.purchase_price || 0) : 0;
+            tdSum.textContent = qty * costPrice > 0 ? formatNumberWithSpaces(Math.round(qty * costPrice)) + ' ₽' : '—';
             row.appendChild(tdSum);
 
             // Кнопка удаления
@@ -16633,6 +16647,7 @@ def get_receipt_docs():
                 COUNT(r.id) as items_count,
                 COALESCE(SUM(r.quantity), 0) as total_qty,
                 COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum,
+                COALESCE(SUM(r.quantity * r.calculated_cost), 0) as total_calculated_cost,
                 GROUP_CONCAT(DISTINCT r.sku) as item_skus
             FROM warehouse_receipt_docs d
             LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
@@ -16683,9 +16698,9 @@ def get_receipt_doc(doc_id):
             conn.close()
             return jsonify({'success': False, 'error': 'Документ не найден'})
 
-        # Получаем позиции
+        # Получаем позиции с рассчитанной себестоимостью
         cursor.execute('''
-            SELECT id, sku, quantity, purchase_price
+            SELECT id, sku, quantity, purchase_price, COALESCE(calculated_cost, 0) as calculated_cost
             FROM warehouse_receipts WHERE doc_id = ?
         ''', (doc_id,))
         items = [dict(row) for row in cursor.fetchall()]
