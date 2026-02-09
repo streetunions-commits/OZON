@@ -799,22 +799,33 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Поле уже существует
 
+    # Миграция: добавляем поле display_name для отображаемого имени пользователя
+    # Это имя будет показываться в столбцах "Изменено", "Создано" вместо логина
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # Поле уже существует
+
+    # Миграция: для существующих пользователей устанавливаем display_name = username
+    # если display_name пустой (чтобы по умолчанию отображался логин)
+    cursor.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR display_name = ''")
+
     # ✅ Создаём дефолтных пользователей если таблица пустая
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
         # Создаём администратора (admin/admin123 - СМЕНИТЬ ПОСЛЕ УСТАНОВКИ!)
         admin_hash = generate_password_hash('admin123')
         cursor.execute('''
-            INSERT INTO users (username, password_hash, role)
-            VALUES (?, ?, ?)
-        ''', ('admin', admin_hash, 'admin'))
+            INSERT INTO users (username, password_hash, role, display_name)
+            VALUES (?, ?, ?, ?)
+        ''', ('admin', admin_hash, 'admin', 'admin'))
 
         # Создаём пользователя для просмотра (viewer/viewer123)
         viewer_hash = generate_password_hash('viewer123')
         cursor.execute('''
-            INSERT INTO users (username, password_hash, role)
-            VALUES (?, ?, ?)
-        ''', ('viewer', viewer_hash, 'viewer'))
+            INSERT INTO users (username, password_hash, role, display_name)
+            VALUES (?, ?, ?, ?)
+        ''', ('viewer', viewer_hash, 'viewer', 'viewer'))
 
         print("✅ Созданы дефолтные пользователи: admin/admin123, viewer/viewer123")
         print("⚠️  ВАЖНО: Смените пароли после первого входа!")
@@ -15025,9 +15036,10 @@ def api_users_create():
         cursor = conn.cursor()
 
         try:
+            # display_name по умолчанию равен логину
             cursor.execute(
-                'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
-                (username, password_hash, role)
+                'INSERT INTO users (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)',
+                (username, password_hash, role, username)
             )
             conn.commit()
             user_id = cursor.lastrowid
@@ -15040,7 +15052,7 @@ def api_users_create():
         print(f"✅ Создан пользователь: {username} (роль: {role})")
         return jsonify({
             'success': True,
-            'user': {'id': user_id, 'username': username, 'role': role}
+            'user': {'id': user_id, 'username': username, 'display_name': username, 'role': role}
         })
 
     except Exception as e:
