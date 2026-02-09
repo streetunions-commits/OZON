@@ -12057,7 +12057,7 @@ HTML_TEMPLATE = '''
                 <span style="font-size: 18px;">${icon}</span>
                 <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.filename}">${file.filename}</span>
                 <span style="color: #888; font-size: 11px;">${sizeStr}</span>
-                ${canPreview ? '<button onclick="previewVedFile(' + file.id + ', \'' + file.file_type + '\')" style="padding: 4px 8px; border: none; background: #e3f2fd; color: #1976d2; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Просмотреть">👁️</button>' : ''}
+                ${canPreview ? '<button onclick="previewVedFile(' + file.id + ', \\'' + file.file_type + '\\')" style="padding: 4px 8px; border: none; background: #e3f2fd; color: #1976d2; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Просмотреть">👁️</button>' : ''}
                 <button onclick="downloadVedFile(${file.id})" style="padding: 4px 8px; border: none; background: #e8f5e9; color: #388e3c; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Скачать">⬇️</button>
                 ${isAdmin ? '<button onclick="deleteVedFile(' + file.id + ')" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>' : ''}
             `;
