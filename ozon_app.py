@@ -6409,7 +6409,8 @@ HTML_TEMPLATE = '''
                                     <th>Кол-во выхода<br>с фабрики</th>
                                     <th class="sortable-date" data-col="5" onclick="sortSuppliesByDate(5)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
                                     <th>Кол-во прихода<br>на склад</th>
-                                    <th>Стоимость логистики<br>за единицу, ₽</th>
+                                    <th title="Количество единиц товара, учтённых в ВЭД (Поступления). Отрицательное значение = не хватает данных.">Учтено<br>ВЭД</th>
+                                    <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
                                     <th>Цена товара<br>единица, ¥</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
                                     <th>Внести<br>в долги</th>
@@ -11106,12 +11107,14 @@ HTML_TEMPLATE = '''
         let suppliesLoaded = false;
         let suppliesProducts = [];  // Все товары для выпадающего списка
         let currentCnyRate = 0;     // Текущий курс юаня
+        let vedProductLogistics = {}; // Данные логистики из ВЭД по SKU: {sku: {avg_logistics_per_unit, total_quantity}}
 
         /**
          * Загрузка данных вкладки "Поставки":
          * 1. Курсы валют ЦБ РФ
          * 2. Список товаров для выпадающего списка
-         * 3. Существующие строки поставок из базы
+         * 3. Данные логистики из ВЭД (средняя логистика за единицу)
+         * 4. Существующие строки поставок из базы
          */
         function loadSupplies() {
             // Загружаем курсы валют (независимый запрос)
@@ -11127,8 +11130,7 @@ HTML_TEMPLATE = '''
                     }
                 });
 
-            // Загружаем товары и поставки параллельно, но рендерим только когда ОБА готовы
-            // Иначе suppliesProducts может быть пустым при отрисовке таблицы
+            // Загружаем товары, логистику ВЭД и поставки параллельно
             const productsPromise = fetch('/api/products/list')
                 .then(r => r.json())
                 .then(data => {
@@ -11137,10 +11139,20 @@ HTML_TEMPLATE = '''
                     }
                 });
 
+            // Загружаем данные логистики из ВЭД
+            const vedLogisticsPromise = fetch('/api/ved/product-logistics')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        vedProductLogistics = data.logistics || {};
+                    }
+                });
+
             const suppliesPromise = fetch('/api/supplies')
                 .then(r => r.json());
 
-            Promise.all([productsPromise, suppliesPromise]).then(([_, suppliesData]) => {
+            // Рендерим только когда ВСЕ данные готовы
+            Promise.all([productsPromise, vedLogisticsPromise, suppliesPromise]).then(([_, __, suppliesData]) => {
                 if (suppliesData.success) {
                     renderSuppliesTable(suppliesData.supplies);
                 }
@@ -11973,11 +11985,21 @@ HTML_TEMPLATE = '''
         /**
          * Очистить форму контейнера ВЭД
          */
+        // Список файлов, загруженных в текущей сессии редактирования (для отката при отмене)
+        let vedContainerUploadedFilesSession = [];
+
         function clearVedContainerForm() {
+            // Удаляем файлы, загруженные в этой сессии редактирования
+            deleteSessionUploadedFiles();
+
             editingVedContainerId = null;  // Сбрасываем режим редактирования
             document.getElementById('ved-container-supplier').value = '';
             document.getElementById('ved-container-comment').value = '';
             document.getElementById('ved-container-important').value = '';
+            document.getElementById('ved-cny-percent').value = 0;  // Сбрасываем процент к переводу
+            // Сбрасываем дату на сегодня
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('ved-container-date').value = today;
             document.getElementById('ved-container-items-tbody').innerHTML = '';
             vedContainerItemCounter = 0;
             addVedContainerItemRow();
@@ -12000,6 +12022,22 @@ HTML_TEMPLATE = '''
         // ============================================================================
         // ФАЙЛЫ КОНТЕЙНЕРА ВЭД
         // ============================================================================
+
+        /**
+         * Удалить файлы, загруженные в текущей сессии (при отмене)
+         */
+        async function deleteSessionUploadedFiles() {
+            if (vedContainerUploadedFilesSession.length === 0) return;
+
+            for (const fileId of vedContainerUploadedFilesSession) {
+                try {
+                    await authFetch('/api/ved/containers/files/' + fileId, { method: 'DELETE' });
+                } catch (e) {
+                    console.error('Ошибка удаления файла сессии:', e);
+                }
+            }
+            vedContainerUploadedFilesSession = [];
+        }
 
         /**
          * Очистить список файлов контейнера
@@ -12229,7 +12267,6 @@ HTML_TEMPLATE = '''
                         label.innerHTML = `
                             <input type="checkbox" class="container-msg-recipient" value="${user.id}" style="cursor: pointer;">
                             <span>${escapeHtml(user.username)}</span>
-                            <small style="color: #0088cc;">${escapeHtml(user.telegram_username || '')}</small>
                         `;
                         container.appendChild(label);
                     });
@@ -12561,10 +12598,56 @@ HTML_TEMPLATE = '''
             // 7. Кол-во прихода на склад (число)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', isLocked, row, 'arrival_warehouse_qty'));
 
-            // 8. Стоимость логистики за единицу (руб)
-            row.appendChild(createNumberCell(data ? data.logistics_cost_per_unit : '', isLocked, row, 'logistics_cost'));
+            // 8. Учтено ВЭД (разница между приходом и данными ВЭД)
+            const tdVedQty = document.createElement('td');
+            tdVedQty.className = 'ved-qty-cell';
+            const vedQtySpan = document.createElement('span');
+            vedQtySpan.className = 'supply-ved-qty';
+            // Получаем SKU и данные из ВЭД
+            const sku = data ? data.sku : null;
+            const arrivalQty = data ? (data.arrival_warehouse_qty || 0) : 0;
+            const vedData = sku ? (vedProductLogistics[String(sku)] || null) : null;
+            const vedTotalQty = vedData ? vedData.total_quantity : 0;
+            // Разница: положительная = достаточно данных, отрицательная = не хватает
+            const qtyDiff = vedTotalQty - arrivalQty;
+            if (vedData && arrivalQty > 0) {
+                vedQtySpan.textContent = formatNumberWithSpaces(qtyDiff);
+                if (qtyDiff < 0) {
+                    vedQtySpan.style.color = '#dc2626'; // красный - не хватает данных
+                    vedQtySpan.title = 'Не хватает данных ВЭД для ' + Math.abs(qtyDiff) + ' ед.';
+                } else {
+                    vedQtySpan.style.color = '#16a34a'; // зелёный - данных достаточно
+                    vedQtySpan.title = 'Учтено в ВЭД: ' + vedTotalQty + ' ед.';
+                }
+            } else if (arrivalQty > 0) {
+                vedQtySpan.textContent = '—';
+                vedQtySpan.style.color = '#999';
+                vedQtySpan.title = 'Нет данных в ВЭД по этому товару';
+            } else {
+                vedQtySpan.textContent = '';
+            }
+            tdVedQty.appendChild(vedQtySpan);
+            row.appendChild(tdVedQty);
 
-            // 9. Цена товара единица (юани)
+            // 9. Стоимость логистики за единицу (из ВЭД, только для чтения)
+            const tdLogistics = document.createElement('td');
+            const logisticsSpan = document.createElement('span');
+            logisticsSpan.className = 'supply-logistics-auto';
+            // Берём среднюю логистику из ВЭД
+            const avgLogistics = vedData ? vedData.avg_logistics_per_unit : 0;
+            if (avgLogistics > 0) {
+                logisticsSpan.textContent = formatNumberWithSpaces(Math.round(avgLogistics));
+                logisticsSpan.title = 'Средняя логистика из ВЭД (Поступления)';
+            } else {
+                logisticsSpan.textContent = '—';
+                logisticsSpan.style.color = '#999';
+            }
+            // Сохраняем значение для расчётов
+            logisticsSpan.dataset.value = avgLogistics;
+            tdLogistics.appendChild(logisticsSpan);
+            row.appendChild(tdLogistics);
+
+            // 10. Цена товара единица (юани)
             row.appendChild(createNumberCell(data ? data.price_cny : '', isLocked, row, 'price_cny'));
 
             // 10. Себестоимость товара +6% (рассчитывается автоматически)
@@ -12939,6 +13022,10 @@ HTML_TEMPLATE = '''
                 return parseNumberFromSpaces(input.value);
             }
 
+            // Логистика теперь берётся из ВЭД (span с dataset.value)
+            const logisticsSpan = row.querySelector('.supply-logistics-auto');
+            const logisticsValue = logisticsSpan ? parseFloat(logisticsSpan.dataset.value) || 0 : 0;
+
             return {
                 id: row.dataset.supplyId,
                 sku: select ? parseInt(select.value) || 0 : 0,
@@ -12949,8 +13036,8 @@ HTML_TEMPLATE = '''
                 exit_factory_qty: numOrNull(textInputs[1]),
                 arrival_warehouse_date: dateInputs[2] ? dateInputs[2].value : '',
                 arrival_warehouse_qty: numOrNull(textInputs[2]),
-                logistics_cost_per_unit: numOrNull(textInputs[3]),
-                price_cny: numOrNull(textInputs[4]),
+                logistics_cost_per_unit: logisticsValue,
+                price_cny: numOrNull(textInputs[3]),
                 add_to_marketing: false,
                 add_to_debts: checkboxes[0] ? checkboxes[0].checked : false,
                 plan_fbo: checkboxes[1] ? checkboxes[1].checked : false
@@ -16958,6 +17045,61 @@ def get_ved_receipts():
         return jsonify({'success': True, 'items': items})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'items': []})
+
+
+@app.route('/api/ved/product-logistics')
+@require_auth(['admin', 'viewer'])
+def get_ved_product_logistics():
+    """
+    Получить среднюю логистику за единицу товара из завершённых контейнеров ВЭД.
+
+    Возвращает для каждого SKU:
+    - avg_logistics_per_unit: средняя логистика за штуку (взвешенная по количеству)
+    - total_quantity: общее количество товара в поступлениях ВЭД
+
+    Расчёт: SUM(all_logistics) / SUM(quantity) для каждого SKU
+    где all_logistics = logistics_rf + logistics_cn + terminal + customs
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Получаем агрегированные данные по каждому SKU из завершённых контейнеров
+        cursor.execute('''
+            SELECT
+                i.sku,
+                SUM(i.quantity) as total_qty,
+                SUM(
+                    COALESCE(i.logistics_rf, 0) +
+                    COALESCE(i.logistics_cn, 0) +
+                    COALESCE(i.terminal, 0) +
+                    COALESCE(i.customs, 0)
+                ) as total_logistics
+            FROM ved_container_items i
+            INNER JOIN ved_container_docs d ON d.id = i.doc_id
+            WHERE d.is_completed = 1 AND i.quantity > 0
+            GROUP BY i.sku
+        ''')
+
+        result = {}
+        for row in cursor.fetchall():
+            sku = row[0]
+            total_qty = row[1] or 0
+            total_logistics = row[2] or 0
+
+            # Средняя логистика за единицу
+            avg_logistics = round(total_logistics / total_qty, 2) if total_qty > 0 else 0
+
+            result[str(sku)] = {
+                'avg_logistics_per_unit': avg_logistics,
+                'total_quantity': total_qty
+            }
+
+        conn.close()
+
+        return jsonify({'success': True, 'logistics': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'logistics': {}})
 
 
 @app.route('/api/ved/suppliers')
