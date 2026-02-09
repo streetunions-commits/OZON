@@ -4478,11 +4478,6 @@ HTML_TEMPLATE = '''
             background: #f8f9fa;
         }
 
-        .supplies-table tbody tr.locked-row td {
-            background: #fafafa;
-            color: #888;
-        }
-
         .supply-input {
             width: 100%;
             border: 1px solid transparent;
@@ -4645,6 +4640,7 @@ HTML_TEMPLATE = '''
             z-index: 2;
         }
 
+        /* Модальное окно подтверждения (добавление/удаление строки) */
         .supply-edit-confirm {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -12941,30 +12937,12 @@ HTML_TEMPLATE = '''
             row.appendChild(tdCost);
 
             // 11. Внести в долги (чекбокс)
-            row.appendChild(createCheckboxCell(data ? data.add_to_debts : false, isLocked, row));
+            row.appendChild(createCheckboxCell(data ? data.add_to_debts : false, false, row));
 
-            // 13. План на FBO (чекбокс)
-            row.appendChild(createCheckboxCell(data ? data.plan_fbo : false, isLocked, row));
+            // 12. План на FBO (чекбокс)
+            row.appendChild(createCheckboxCell(data ? data.plan_fbo : false, false, row));
 
-            // 14. Кнопка блокировки/разблокировки
-            const tdLock = document.createElement('td');
-            const lockBtn = document.createElement('button');
-            lockBtn.className = 'supply-lock-btn';
-            lockBtn.style.cssText = 'background:none; border:none; cursor:pointer; font-size:16px; padding:4px;';
-            lockBtn.textContent = isLocked ? '🔒' : '🔓';
-            lockBtn.title = isLocked ? 'Дважды кликните строку для разблокировки' : 'Нажмите чтобы заблокировать';
-            lockBtn.onclick = function(e) {
-                e.stopPropagation();
-                if (row.classList.contains('locked-row')) {
-                    showEditConfirm(row);
-                } else {
-                    lockSupplyRow(row);
-                }
-            };
-            tdLock.appendChild(lockBtn);
-            row.appendChild(tdLock);
-
-            // 15. Кнопка удаления строки
+            // 13. Кнопка удаления строки
             const tdDel = document.createElement('td');
             const delBtn = document.createElement('button');
             delBtn.className = 'supply-delete-btn';
@@ -12977,27 +12955,50 @@ HTML_TEMPLATE = '''
             tdDel.appendChild(delBtn);
             row.appendChild(tdDel);
 
-            // Если строка заблокирована — ставим обработчик двойного клика
-            if (isLocked) {
-                row.ondblclick = function() {
-                    showEditConfirm(row);
-                };
-            }
-
             return row;
         }
 
         /**
          * Создание ячейки с полем даты (без года — отображается ДД.ММ)
+         * @param {string} value - значение даты
+         * @param {boolean} isLocked - не используется (оставлено для совместимости)
+         * @param {HTMLElement} row - строка таблицы
+         * @param {number} dateIndex - индекс даты (0=план, 1=выход с фабрики, 2=приход на склад)
+         * @param {boolean} withEditButton - добавить кнопку редактирования
          */
-        function createDateCell(value, isLocked, row, dateIndex) {
+        function createDateCell(value, isLocked, row, dateIndex, withEditButton = false) {
             const td = document.createElement('td');
+            td.style.position = 'relative';
             const input = document.createElement('input');
             input.type = 'date';
             input.className = 'supply-input supply-date-input';
             input.style.minWidth = '110px';
             if (value) input.value = value;
-            input.disabled = isLocked;
+
+            // Если есть значение и нужна кнопка редактирования — блокируем поле
+            const hasValue = value && value.trim() !== '';
+            if (withEditButton && hasValue) {
+                input.disabled = true;
+            }
+
+            let dateEditBtn = null;
+            if (withEditButton) {
+                dateEditBtn = document.createElement('button');
+                dateEditBtn.type = 'button';
+                dateEditBtn.className = 'supply-field-edit-btn';
+                dateEditBtn.textContent = 'Ред.';
+                dateEditBtn.title = 'Редактировать дату плана';
+                dateEditBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;display:none;';
+                if (hasValue) {
+                    dateEditBtn.style.display = 'inline-block';
+                }
+                dateEditBtn.onclick = function() {
+                    input.disabled = false;
+                    dateEditBtn.style.display = 'none';
+                    input.focus();
+                };
+            }
+
             input.onchange = () => {
                 // Валидация порядка дат внутри строки
                 const dateInputs = row.querySelectorAll('input[type="date"]');
@@ -13021,7 +13022,19 @@ HTML_TEMPLATE = '''
                 highlightEmptyCells(row);
                 updateSupplyTotals();
             };
+
+            // При потере фокуса — блокируем поле и показываем кнопку (если нужно)
+            if (withEditButton) {
+                input.onblur = function() {
+                    if (input.value.trim() !== '' && dateEditBtn) {
+                        input.disabled = true;
+                        dateEditBtn.style.display = 'inline-block';
+                    }
+                };
+            }
+
             td.appendChild(input);
+            if (dateEditBtn) td.appendChild(dateEditBtn);
             return td;
         }
 
@@ -13096,14 +13109,18 @@ HTML_TEMPLATE = '''
             if (value !== null && value !== undefined && value !== '') {
                 input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
             }
-            input.disabled = isLocked;
 
             // Кнопка-карандаш для редактирования плана (только для order_qty_plan)
             let pencilBtn = null;
             if (fieldName === 'order_qty_plan') {
+                // Если есть значение — блокируем поле
+                if (input.value.trim() !== '') {
+                    input.disabled = true;
+                }
+
                 pencilBtn = document.createElement('button');
                 pencilBtn.type = 'button';
-                pencilBtn.className = 'supply-plan-edit-btn';
+                pencilBtn.className = 'supply-plan-edit-btn supply-field-edit-btn';
                 pencilBtn.textContent = 'Ред.';
                 pencilBtn.title = 'Редактировать план';
                 pencilBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;display:none;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
@@ -13111,17 +13128,13 @@ HTML_TEMPLATE = '''
                 td.style.position = 'relative';
                 td.style.overflow = 'visible';
 
-                // Показываем карандаш если план заполнен (независимо от блокировки строки)
+                // Показываем карандаш если план заполнен
                 if (input.value.trim() !== '') {
                     pencilBtn.style.display = 'inline-block';
                 }
 
-                // Клик по карандашу — разблокирует строку и разрешает редактирование поля план
+                // Клик по карандашу — разрешает редактирование поля план
                 pencilBtn.onclick = function() {
-                    // Если строка заблокирована — сначала разблокируем её
-                    if (row.classList.contains('locked-row')) {
-                        unlockSupplyRow(row);
-                    }
                     input.disabled = false;
                     pencilBtn.style.display = 'none';
                     input.focus();
@@ -13415,118 +13428,6 @@ HTML_TEMPLATE = '''
         }
 
         // findNextSameSkuRow, modifyPlanQty, createRedistributionRow — удалены вместе с перераспределением.
-
-        /**
-         * Показать диалог подтверждения для редактирования заблокированного поля.
-         * При нажатии "Да" — разблокирует строку, при "Отмена" — ничего не делает.
-         */
-        function showEditConfirm(row) {
-            const overlay = document.createElement('div');
-            overlay.className = 'supply-edit-confirm';
-            overlay.innerHTML = `
-                <div class="supply-edit-confirm-box">
-                    <h3>Подтверждение</h3>
-                    <p>Эта строка заблокирована. Разрешить редактирование?</p>
-                    <button class="supply-confirm-yes">Да, редактировать</button>
-                    <button class="supply-confirm-no">Отмена</button>
-                </div>
-            `;
-
-            overlay.querySelector('.supply-confirm-yes').onclick = () => {
-                overlay.remove();
-                unlockSupplyRow(row);
-                // Разблокируем на сервере
-                authFetch('/api/supplies/unlock', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: row.dataset.supplyId })
-                });
-            };
-            overlay.querySelector('.supply-confirm-no').onclick = () => {
-                overlay.remove();
-            };
-
-            document.body.appendChild(overlay);
-        }
-
-        /**
-         * Блокировка строки (защита от случайного редактирования).
-         * Вызывается по нажатию кнопки-замка в строке.
-         */
-        function lockSupplyRow(row) {
-            const inputs = row.querySelectorAll('.supply-input, .supply-select, .supply-checkbox');
-            inputs.forEach(el => el.disabled = true);
-            row.classList.add('locked-row');
-
-            // Скрываем кнопку-карандаш при блокировке
-            const pencilBtn = row.querySelector('.supply-plan-edit-btn');
-            if (pencilBtn) {
-                pencilBtn.style.display = 'none';
-            }
-
-            // Обновляем иконку замка
-            const lockBtn = row.querySelector('.supply-lock-btn');
-            if (lockBtn) {
-                lockBtn.textContent = '🔒';
-                lockBtn.title = 'Дважды кликните для разблокировки';
-            }
-
-            // Двойной клик — разблокировка с подтверждением
-            row.ondblclick = function(e) {
-                // Не срабатывает на кнопке замка (у неё свой обработчик)
-                showEditConfirm(row);
-            };
-
-            // Убираем из списка разблокированных
-            const supplyId = row.dataset.supplyId;
-            if (supplyId) {
-                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
-                delete unlocks[supplyId];
-                localStorage.setItem('supply_unlocks', JSON.stringify(unlocks));
-            }
-
-            // Блокируем на сервере
-            if (supplyId && !String(supplyId).startsWith('new_')) {
-                authFetch('/api/supplies/lock', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: supplyId })
-                });
-            }
-        }
-
-        /**
-         * Разблокировка строки для редактирования
-         */
-        function unlockSupplyRow(row) {
-            const inputs = row.querySelectorAll('.supply-input, .supply-select, .supply-checkbox');
-            inputs.forEach(el => el.disabled = false);
-            row.classList.remove('locked-row');
-            row.ondblclick = null;
-
-            // Обновляем иконку замка
-            const lockBtn = row.querySelector('.supply-lock-btn');
-            if (lockBtn) {
-                lockBtn.textContent = '🔓';
-                lockBtn.title = 'Нажмите чтобы заблокировать';
-            }
-
-            // Если план заполнен — оставляем поле заблокированным, показываем карандаш
-            const planInput = row.querySelector('input[data-field="order_qty_plan"]');
-            const pencilBtn = row.querySelector('.supply-plan-edit-btn');
-            if (planInput && planInput.value.trim() !== '' && pencilBtn) {
-                planInput.disabled = true;
-                pencilBtn.style.display = 'inline-block';
-            }
-
-            // Запоминаем время разблокировки (сохраняется 30 минут)
-            const supplyId = row.dataset.supplyId;
-            if (supplyId) {
-                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
-                unlocks[supplyId] = Date.now();
-                localStorage.setItem('supply_unlocks', JSON.stringify(unlocks));
-            }
-        }
 
         // ============================================================
         // УДАЛЕНИЕ СТРОКИ С ПОДТВЕРЖДЕНИЕМ
