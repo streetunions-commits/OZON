@@ -5964,10 +5964,9 @@ HTML_TEMPLATE = '''
             <h3>📱 Привязка Telegram</h3>
             <p style="color: #666; margin-bottom: 16px;">Пользователь: <strong id="link-tg-username"></strong></p>
             <div class="form-group">
-                <label>Telegram аккаунт</label>
-                <select id="link-tg-select">
-                    <option value="">— Не привязан —</option>
-                </select>
+                <label>Telegram username</label>
+                <input type="text" id="link-tg-input" placeholder="@username" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                <small style="color: #888; display: block; margin-top: 4px;">Введите @username или оставьте пустым для отвязки</small>
             </div>
             <input type="hidden" id="link-tg-user-id">
             <div class="modal-buttons">
@@ -6430,8 +6429,6 @@ HTML_TEMPLATE = '''
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
                                     <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
-                                    <th>Внести<br>в долги</th>
-                                    <th>План<br>на FBO</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
                                 <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
@@ -12975,13 +12972,7 @@ HTML_TEMPLATE = '''
             tdCost.appendChild(costSpan);
             row.appendChild(tdCost);
 
-            // 11. Внести в долги (чекбокс)
-            row.appendChild(createCheckboxCell(data ? data.add_to_debts : false, false, row));
-
-            // 12. План на FBO (чекбокс)
-            row.appendChild(createCheckboxCell(data ? data.plan_fbo : false, false, row));
-
-            // 13. Кнопка удаления строки
+            // 11. Кнопка удаления строки
             const tdDel = document.createElement('td');
             const delBtn = document.createElement('button');
             delBtn.className = 'supply-delete-btn';
@@ -13435,8 +13426,8 @@ HTML_TEMPLATE = '''
                 logistics_cost_per_unit: logisticsValue,
                 price_rub: priceRubValue,
                 add_to_marketing: false,
-                add_to_debts: checkboxes[0] ? checkboxes[0].checked : false,
-                plan_fbo: checkboxes[1] ? checkboxes[1].checked : false
+                add_to_debts: false,
+                plan_fbo: false
             };
         }
 
