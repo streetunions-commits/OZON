@@ -6419,7 +6419,6 @@ HTML_TEMPLATE = '''
                                     <th>Себестоимость<br>товара +6%, ₽</th>
                                     <th>Внести<br>в долги</th>
                                     <th>План<br>на FBO</th>
-                                    <th style="width: 40px;">🔒</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
                                 <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
@@ -9021,9 +9020,14 @@ HTML_TEMPLATE = '''
             updateRowNumbers();
         }
 
-        // Удалить документ прихода
+        // Удалить документ прихода (требуется ввод слова "удалить")
         function deleteReceiptDoc(docId) {
-            if (!confirm('Удалить этот приход? Все позиции будут удалены.')) return;
+            const confirmation = prompt('Для удаления оприходования введите слово "удалить":');
+            if (confirmation === null) return; // Отмена
+            if (confirmation.toLowerCase().trim() !== 'удалить') {
+                alert('Удаление отменено. Вы ввели неверное слово.');
+                return;
+            }
 
             authFetch('/api/warehouse/receipt-docs/delete', {
                 method: 'POST',
@@ -12776,25 +12780,20 @@ HTML_TEMPLATE = '''
          */
         function createSupplyRowElement(data, vedCoverage) {
             const row = document.createElement('tr');
-            // По умолчанию все существующие строки заблокированы
-            // Проверяем: если строка была разблокирована менее 30 минут назад — оставляем открытой
-            let isLocked = data ? true : false;
-            if (isLocked && data && data.id) {
-                const unlocks = JSON.parse(localStorage.getItem('supply_unlocks') || '{}');
-                const unlockTime = unlocks[data.id];
-                if (unlockTime && (Date.now() - unlockTime) < 30 * 60 * 1000) {
-                    isLocked = false; // разблокирована менее 30 мин назад
-                }
-            }
+            // Больше не используем глобальную блокировку строк
+            // Вместо этого используем кнопки редактирования для каждого поля плана
+            const isNewRow = !data;
             const rowId = data ? data.id : 'new_' + Date.now();
             row.dataset.supplyId = rowId;
-            if (isLocked) row.classList.add('locked-row');
 
-            // 1. Товар (выпадающий список)
+            // 1. Товар (выпадающий список) с кнопкой редактирования
             const tdProduct = document.createElement('td');
+            tdProduct.style.position = 'relative';
             const selectProduct = document.createElement('select');
             selectProduct.className = 'supply-select';
-            selectProduct.disabled = isLocked;
+            // Если товар уже выбран — блокируем поле
+            const hasProduct = data && data.sku;
+            selectProduct.disabled = hasProduct;
             selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
             suppliesProducts.forEach(p => {
                 const opt = document.createElement('option');
@@ -12805,25 +12804,47 @@ HTML_TEMPLATE = '''
             });
             selectProduct.onchange = () => onSupplyFieldChange(row);
             tdProduct.appendChild(selectProduct);
+
+            // Кнопка редактирования для товара
+            if (hasProduct) {
+                const productEditBtn = document.createElement('button');
+                productEditBtn.type = 'button';
+                productEditBtn.className = 'supply-field-edit-btn';
+                productEditBtn.textContent = 'Ред.';
+                productEditBtn.title = 'Редактировать товар';
+                productEditBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
+                productEditBtn.onclick = function() {
+                    selectProduct.disabled = false;
+                    productEditBtn.style.display = 'none';
+                    selectProduct.focus();
+                };
+                selectProduct.onblur = function() {
+                    if (selectProduct.value) {
+                        selectProduct.disabled = true;
+                        productEditBtn.style.display = 'inline-block';
+                    }
+                };
+                tdProduct.appendChild(productEditBtn);
+            }
             row.appendChild(tdProduct);
 
-            // 2. Выход с фабрики ПЛАН (дата без года)
-            row.appendChild(createDateCell(data ? data.exit_plan_date : '', isLocked, row, 0));
+            // 2. Выход с фабрики ПЛАН (дата без года) — с кнопкой редактирования
+            row.appendChild(createDateCell(data ? data.exit_plan_date : '', false, row, 0, true));
 
-            // 3. Заказ кол-во ПЛАН (число)
-            row.appendChild(createNumberCell(data ? data.order_qty_plan : '', isLocked, row, 'order_qty_plan'));
+            // 3. Заказ кол-во ПЛАН (число) — с кнопкой редактирования
+            row.appendChild(createNumberCell(data ? data.order_qty_plan : '', false, row, 'order_qty_plan'));
 
             // 4. Дата выхода с фабрики (дата)
-            row.appendChild(createDateCell(data ? data.exit_factory_date : '', isLocked, row, 1));
+            row.appendChild(createDateCell(data ? data.exit_factory_date : '', false, row, 1, false));
 
             // 5. Кол-во выхода с фабрики (число) — с логикой перераспределения
-            row.appendChild(createNumberCell(data ? data.exit_factory_qty : '', isLocked, row, 'exit_factory_qty'));
+            row.appendChild(createNumberCell(data ? data.exit_factory_qty : '', false, row, 'exit_factory_qty'));
 
             // 6. Дата прихода на склад (дата)
-            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', isLocked, row, 2));
+            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', false, row, 2, false));
 
             // 7. Кол-во прихода на склад (число)
-            row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', isLocked, row, 'arrival_warehouse_qty'));
+            row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', false, row, 'arrival_warehouse_qty'));
 
             // 8. Учтено ВЭД (распределённое покрытие данными ВЭД)
             const tdVedQty = document.createElement('td');
