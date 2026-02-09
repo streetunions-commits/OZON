@@ -6308,26 +6308,8 @@ HTML_TEMPLATE = '''
 
             <!-- ТАБ: Поставки -->
             <div id="supplies" class="tab-content">
-                <!-- Курсы валют ЦБ РФ -->
+                <!-- Статистика поставок -->
                 <div class="currency-rates-panel">
-                    <div class="currency-rates-title">Курсы ЦБ РФ</div>
-                    <div class="currency-rates-row">
-                        <div class="currency-rate-card">
-                            <span class="currency-label">¥ Юань (CNY)</span>
-                            <span class="currency-value" id="rate-cny">—</span>
-                            <span class="currency-rub">₽</span>
-                        </div>
-                        <div class="currency-rate-card">
-                            <span class="currency-label">$ Доллар (USD)</span>
-                            <span class="currency-value" id="rate-usd">—</span>
-                            <span class="currency-rub">₽</span>
-                        </div>
-                        <div class="currency-rate-card">
-                            <span class="currency-label">€ Евро (EUR)</span>
-                            <span class="currency-value" id="rate-eur">—</span>
-                            <span class="currency-rub">₽</span>
-                        </div>
-                    </div>
                     <!-- Стоимость товара в пути -->
                     <div class="currency-rates-row" style="margin-top: 12px; flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
@@ -11092,9 +11074,6 @@ HTML_TEMPLATE = '''
                     if (data.success) {
                         const rates = data.rates;
                         currentCnyRate = rates.CNY || 0;
-                        document.getElementById('rate-cny').textContent = formatCurrencyRate(rates.CNY);
-                        document.getElementById('rate-usd').textContent = formatCurrencyRate(rates.USD);
-                        document.getElementById('rate-eur').textContent = formatCurrencyRate(rates.EUR);
 
                         // Пересчитываем себестоимости при обновлении курса
                         recalcAllCosts();
@@ -11177,6 +11156,9 @@ HTML_TEMPLATE = '''
 
             // Загружаем историю контейнеров
             loadVedContainersHistory();
+
+            // Загружаем получателей для сообщений
+            loadContainerMessageRecipients();
 
             vedDataLoaded = true;
         }
@@ -14599,8 +14581,8 @@ def api_users_list():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем пользователей
-        cursor.execute('SELECT id, username, role, created_at, telegram_chat_id FROM users ORDER BY id')
+        # Получаем пользователей (включая display_name - отображаемое имя)
+        cursor.execute('SELECT id, username, display_name, role, created_at, telegram_chat_id FROM users ORDER BY id')
         users = [dict(row) for row in cursor.fetchall()]
 
         # Собираем telegram_username из разных источников
