@@ -12704,10 +12704,11 @@ HTML_TEMPLATE = '''
          * Логика:
          * 1. Группируем поставки по SKU
          * 2. Сортируем каждую группу по exit_plan_date (по возрастанию)
-         * 3. "Расходуем" данные ВЭД начиная с самой ранней поставки
-         * 4. Для каждой строки возвращаем: сколько данных учтено и есть ли дефицит
+         * 3. "Расходуем" данные ВЭД (отдельные позиции) начиная с самой ранней поставки
+         * 4. Для каждой строки рассчитываем средневзвешенные логистику и цену
+         *    только из тех позиций ВЭД, которые покрывают эту строку
          *
-         * Возвращает объект: { supply_id: { covered: число, shortage: число } }
+         * Возвращает объект: { supply_id: { covered, shortage, avg_logistics, avg_price_rub } }
          */
         function calculateVedCoverage(supplies) {
             const result = {};
@@ -12724,7 +12725,26 @@ HTML_TEMPLATE = '''
             Object.keys(bysku).forEach(sku => {
                 const rows = bysku[sku];
                 const vedData = vedProductLogistics[String(sku)];
-                let vedRemaining = vedData ? vedData.total_quantity : 0;
+                if (!vedData || !vedData.items || vedData.items.length === 0) {
+                    // Нет данных ВЭД - все строки без покрытия
+                    rows.forEach(s => {
+                        const arrivalQty = s.arrival_warehouse_qty || 0;
+                        result[s.id] = {
+                            covered: 0,
+                            shortage: arrivalQty,
+                            avg_logistics: 0,
+                            avg_price_rub: 0
+                        };
+                    });
+                    return;
+                }
+
+                // Копируем позиции ВЭД для распределения (с оставшимся количеством)
+                const vedItems = vedData.items.map(item => ({
+                    remaining: item.quantity,
+                    logistics_per_unit: item.logistics_per_unit,
+                    cost_per_unit_rub: item.cost_per_unit_rub
+                }));
 
                 // Сортируем по дате выхода с фабрики ПЛАН (по возрастанию)
                 rows.sort((a, b) => {
@@ -12733,22 +12753,40 @@ HTML_TEMPLATE = '''
                     return dateA.localeCompare(dateB);
                 });
 
-                // Распределяем данные ВЭД
+                // Распределяем позиции ВЭД по строкам поставок
                 rows.forEach(s => {
                     const arrivalQty = s.arrival_warehouse_qty || 0;
+                    let needQty = arrivalQty;
+                    let totalCovered = 0;
+                    let weightedLogistics = 0;
+                    let weightedPrice = 0;
 
-                    if (vedRemaining >= arrivalQty) {
-                        // Полностью покрыто данными ВЭД
-                        result[s.id] = { covered: arrivalQty, shortage: 0 };
-                        vedRemaining -= arrivalQty;
-                    } else if (vedRemaining > 0) {
-                        // Частично покрыто
-                        result[s.id] = { covered: vedRemaining, shortage: arrivalQty - vedRemaining };
-                        vedRemaining = 0;
-                    } else {
-                        // Не покрыто (данных ВЭД не осталось)
-                        result[s.id] = { covered: 0, shortage: arrivalQty };
+                    // Берём позиции ВЭД пока не покроем или не кончатся
+                    for (const item of vedItems) {
+                        if (needQty <= 0 || item.remaining <= 0) continue;
+
+                        // Сколько берём из этой позиции
+                        const take = Math.min(needQty, item.remaining);
+                        item.remaining -= take;
+                        needQty -= take;
+                        totalCovered += take;
+
+                        // Накапливаем для средневзвешенного
+                        weightedLogistics += take * item.logistics_per_unit;
+                        weightedPrice += take * item.cost_per_unit_rub;
                     }
+
+                    // Рассчитываем средние только из покрытой части
+                    const shortage = arrivalQty - totalCovered;
+                    const avgLogistics = totalCovered > 0 ? weightedLogistics / totalCovered : 0;
+                    const avgPriceRub = totalCovered > 0 ? weightedPrice / totalCovered : 0;
+
+                    result[s.id] = {
+                        covered: totalCovered,
+                        shortage: shortage,
+                        avg_logistics: avgLogistics,
+                        avg_price_rub: avgPriceRub
+                    };
                 });
             });
 
@@ -12855,14 +12893,15 @@ HTML_TEMPLATE = '''
             row.appendChild(tdVedQty);
 
             // 9. Стоимость логистики за единицу (из ВЭД, только для чтения)
+            // Используем средневзвешенное значение из тех позиций ВЭД, которые покрывают эту строку
             const tdLogistics = document.createElement('td');
             const logisticsSpan = document.createElement('span');
             logisticsSpan.className = 'supply-logistics-auto';
-            // Берём среднюю логистику из ВЭД
-            const avgLogistics = vedData ? vedData.avg_logistics_per_unit : 0;
+            // Берём среднюю логистику из расчёта покрытия (только из тех позиций, что покрывают эту строку)
+            const avgLogistics = vedCoverage && vedCoverage.avg_logistics > 0 ? vedCoverage.avg_logistics : 0;
             if (avgLogistics > 0) {
                 logisticsSpan.textContent = formatNumberWithSpaces(Math.round(avgLogistics));
-                logisticsSpan.title = 'Средняя логистика из ВЭД (Поступления)';
+                logisticsSpan.title = 'Средневзвешенная логистика из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
             } else {
                 logisticsSpan.textContent = '—';
                 logisticsSpan.style.color = '#999';
@@ -12873,14 +12912,15 @@ HTML_TEMPLATE = '''
             row.appendChild(tdLogistics);
 
             // 10. Цена товара единица в рублях (из ВЭД, только для чтения)
+            // Используем средневзвешенное значение из тех позиций ВЭД, которые покрывают эту строку
             const tdPrice = document.createElement('td');
             const priceSpan = document.createElement('span');
             priceSpan.className = 'supply-price-auto';
-            // Берём среднюю себестоимость из ВЭД (в рублях)
-            const avgCostRub = vedData ? vedData.avg_cost_per_unit_rub : 0;
+            // Берём среднюю себестоимость из расчёта покрытия (только из тех позиций, что покрывают эту строку)
+            const avgCostRub = vedCoverage && vedCoverage.avg_price_rub > 0 ? vedCoverage.avg_price_rub : 0;
             if (avgCostRub > 0) {
                 priceSpan.textContent = formatNumberWithSpaces(Math.round(avgCostRub));
-                priceSpan.title = 'Средняя себестоимость из ВЭД (Поступления)';
+                priceSpan.title = 'Средневзвешенная себестоимость из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
             } else {
                 priceSpan.textContent = '—';
                 priceSpan.style.color = '#999';
