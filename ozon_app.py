@@ -13036,61 +13036,67 @@ HTML_TEMPLATE = '''
             // Проверяем, завершён ли контейнер (данные показываем только для завершённых)
             const isContainerCompleted = data && (data.container_is_completed === 1 || data.container_is_completed === true);
 
-            // 5. Стоимость логистики за единицу (из ВЭД, только для завершённых контейнеров)
+            // Данные из конкретного контейнера (не усреднённые!)
+            // logistics_cost_per_unit - уже рассчитано при создании поставки из контейнера
+            // price_cny * container_cny_rate - цена в рублях
+            const containerLogistics = data ? (data.logistics_cost_per_unit || 0) : 0;
+            const containerPriceCny = data ? (data.price_cny || 0) : 0;
+            const containerCnyRate = data ? (data.container_cny_rate || 0) : 0;
+            const containerPriceRub = containerPriceCny * containerCnyRate;
+
+            // 5. Стоимость логистики за единицу (из контейнера, только для завершённых)
             const tdLogistics = document.createElement('td');
             const logisticsSpan = document.createElement('span');
             logisticsSpan.className = 'supply-logistics-auto';
-            const avgLogistics = vedCoverage && vedCoverage.avg_logistics > 0 ? vedCoverage.avg_logistics : 0;
             // Показываем только если контейнер завершён
-            if (isContainerCompleted && avgLogistics > 0) {
-                logisticsSpan.textContent = formatNumberWithSpaces(Math.round(avgLogistics));
-                logisticsSpan.title = 'Средневзвешенная логистика из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
+            if (isContainerCompleted && containerLogistics > 0) {
+                logisticsSpan.textContent = formatNumberWithSpaces(Math.round(containerLogistics));
+                logisticsSpan.title = 'Логистика за единицу из контейнера';
             } else {
                 logisticsSpan.textContent = '—';
                 logisticsSpan.style.color = '#999';
-                if (!isContainerCompleted) {
+                if (!isContainerCompleted && data && data.container_doc_id) {
                     logisticsSpan.title = 'Контейнер не завершён';
                 }
             }
             // Сохраняем значение для расчётов (0 если контейнер не завершён)
-            logisticsSpan.dataset.value = isContainerCompleted ? avgLogistics : 0;
+            logisticsSpan.dataset.value = isContainerCompleted ? containerLogistics : 0;
             tdLogistics.appendChild(logisticsSpan);
             row.appendChild(tdLogistics);
 
-            // 6. Цена товара единица в рублях (из ВЭД, только для завершённых контейнеров)
+            // 6. Цена товара единица в рублях (из контейнера, только для завершённых)
             const tdPrice = document.createElement('td');
             const priceSpan = document.createElement('span');
             priceSpan.className = 'supply-price-auto';
-            const avgCostRub = vedCoverage && vedCoverage.avg_price_rub > 0 ? vedCoverage.avg_price_rub : 0;
             // Показываем только если контейнер завершён
-            if (isContainerCompleted && avgCostRub > 0) {
-                priceSpan.textContent = formatNumberWithSpaces(Math.round(avgCostRub));
-                priceSpan.title = 'Средневзвешенная себестоимость из ВЭД (учтено: ' + (vedCoverage ? vedCoverage.covered : 0) + ' ед.)';
+            if (isContainerCompleted && containerPriceRub > 0) {
+                priceSpan.textContent = formatNumberWithSpaces(Math.round(containerPriceRub));
+                priceSpan.title = 'Цена ' + containerPriceCny + ' ¥ × ' + containerCnyRate.toFixed(2) + ' = ' + Math.round(containerPriceRub) + ' ₽';
             } else {
                 priceSpan.textContent = '—';
                 priceSpan.style.color = '#999';
-                if (!isContainerCompleted) {
+                if (!isContainerCompleted && data && data.container_doc_id) {
                     priceSpan.title = 'Контейнер не завершён';
                 }
             }
             // Сохраняем значение для расчётов (0 если контейнер не завершён)
-            priceSpan.dataset.value = isContainerCompleted ? avgCostRub : 0;
+            priceSpan.dataset.value = isContainerCompleted ? containerPriceRub : 0;
             tdPrice.appendChild(priceSpan);
             row.appendChild(tdPrice);
 
-            // 7. Себестоимость товара +6% = (логистика + цена) * 1.06 (только для завершённых контейнеров)
+            // 7. Себестоимость товара +6% = (логистика + цена) * 1.06 (только для завершённых)
             const tdCost = document.createElement('td');
             const costSpan = document.createElement('span');
             costSpan.className = 'supply-cost-auto';
             // Показываем только если контейнер завершён
-            if (isContainerCompleted && (avgLogistics > 0 || avgCostRub > 0)) {
-                const costPlus6 = (avgLogistics + avgCostRub) * 1.06;
+            if (isContainerCompleted && (containerLogistics > 0 || containerPriceRub > 0)) {
+                const costPlus6 = (containerLogistics + containerPriceRub) * 1.06;
                 costSpan.textContent = formatNumberWithSpaces(Math.round(costPlus6));
-                costSpan.title = 'Формула: (логистика + цена) × 1.06';
+                costSpan.title = 'Формула: (' + Math.round(containerLogistics) + ' + ' + Math.round(containerPriceRub) + ') × 1.06';
             } else {
                 costSpan.textContent = '—';
                 costSpan.style.color = '#999';
-                if (!isContainerCompleted) {
+                if (!isContainerCompleted && data && data.container_doc_id) {
                     costSpan.title = 'Контейнер не завершён';
                 }
             }
@@ -16261,10 +16267,11 @@ def get_supplies():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем поставки с информацией о завершённости контейнера
+        # Получаем поставки с информацией о завершённости контейнера и курсе юаня
         cursor.execute('''
             SELECT s.*,
-                   COALESCE(d.is_completed, 0) as container_is_completed
+                   COALESCE(d.is_completed, 0) as container_is_completed,
+                   COALESCE(d.cny_rate, 0) as container_cny_rate
             FROM supplies s
             LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
             ORDER BY s.exit_factory_date ASC, s.created_at ASC
