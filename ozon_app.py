@@ -6523,13 +6523,13 @@ HTML_TEMPLATE = '''
                                         <td colspan="2" style="text-align: right; font-weight: 600;">Итого:</td>
                                         <td style="text-align: center; font-weight: 600;" id="ved-container-total-qty">0</td>
                                         <td></td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-supplier">0 ¥</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-cost">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-logrf">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-logcn">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-terminal">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-customs">0 ₽</td>
-                                        <td style="text-align: right; font-weight: 600;" id="ved-container-total-alllog">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-supplier">0 ¥</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-cost">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-logrf">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-logcn">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-terminal">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-customs">0 ₽</td>
+                                        <td style="text-align: center; font-weight: 600;" id="ved-container-total-alllog">0 ₽</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -12088,11 +12088,10 @@ HTML_TEMPLATE = '''
                 formData.append('file', file);
 
                 try {
-                    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
                     const response = await fetch('/api/ved/containers/' + editingVedContainerId + '/files', {
                         method: 'POST',
                         headers: {
-                            'Authorization': 'Bearer ' + token
+                            'Authorization': 'Bearer ' + authToken
                         },
                         body: formData
                     });
@@ -12124,16 +12123,14 @@ HTML_TEMPLATE = '''
          * Скачать файл
          */
         function downloadVedFile(fileId) {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-            window.open('/api/ved/containers/files/' + fileId + '?token=' + token, '_blank');
+            window.open('/api/ved/containers/files/' + fileId + '?token=' + authToken, '_blank');
         }
 
         /**
          * Просмотреть файл в модальном окне
          */
         function previewVedFile(fileId, fileType) {
-            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-            const url = '/api/ved/containers/files/' + fileId + '?view=1&token=' + token;
+            const url = '/api/ved/containers/files/' + fileId + '?view=1&token=' + authToken;
 
             // Создаём модальное окно
             let modal = document.getElementById('ved-file-preview-modal');
