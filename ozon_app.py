@@ -6597,13 +6597,20 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Поступления -->
                 <div id="ved-receipts" class="ved-subtab-content">
-                    <!-- Фильтр по артикулу -->
-                    <div class="ved-receipts-filter" style="margin-bottom: 15px; display: flex; gap: 15px; align-items: center;">
+                    <!-- Фильтры -->
+                    <div class="ved-receipts-filter" style="margin-bottom: 15px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <label style="font-weight: 500;">Артикул:</label>
                             <select id="ved-receipts-article-filter" class="wh-input" style="width: 200px;" onchange="filterVedReceipts()">
                                 <option value="">Все артикулы</option>
                             </select>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-weight: 500;">с:</label>
+                            <input type="date" id="ved-receipts-date-from" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterVedReceipts()">
+                            <label style="font-weight: 500;">по:</label>
+                            <input type="date" id="ved-receipts-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterVedReceipts()">
+                            <button class="wh-clear-btn" onclick="resetVedReceiptsDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
                         </div>
                     </div>
                     <div class="wh-table-wrapper" id="ved-receipts-wrapper" style="display: none; overflow-x: auto;">
@@ -11632,10 +11639,19 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Фильтровать поступления по артикулу
+         * Фильтровать поступления по артикулу и датам
          */
         function filterVedReceipts() {
             renderVedReceipts();
+        }
+
+        /**
+         * Сбросить фильтр по датам
+         */
+        function resetVedReceiptsDateFilter() {
+            document.getElementById('ved-receipts-date-from').value = '';
+            document.getElementById('ved-receipts-date-to').value = '';
+            filterVedReceipts();
         }
 
         /**
@@ -11648,16 +11664,28 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Отрисовать таблицу поступлений с учётом фильтра и сортировки
+         * Отрисовать таблицу поступлений с учётом фильтров и сортировки
          */
         function renderVedReceipts() {
             const tbody = document.getElementById('ved-receipts-tbody');
             const articleFilter = document.getElementById('ved-receipts-article-filter')?.value || '';
+            const dateFrom = document.getElementById('ved-receipts-date-from')?.value || '';
+            const dateTo = document.getElementById('ved-receipts-date-to')?.value || '';
 
             // Фильтруем данные
             let filteredData = vedReceiptsData;
+
+            // Фильтр по артикулу
             if (articleFilter) {
-                filteredData = vedReceiptsData.filter(item => item.article === articleFilter);
+                filteredData = filteredData.filter(item => item.article === articleFilter);
+            }
+
+            // Фильтр по датам
+            if (dateFrom) {
+                filteredData = filteredData.filter(item => item.container_date >= dateFrom);
+            }
+            if (dateTo) {
+                filteredData = filteredData.filter(item => item.container_date <= dateTo);
             }
 
             // Сортируем по дате
