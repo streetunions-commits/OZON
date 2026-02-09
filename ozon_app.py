@@ -226,6 +226,36 @@ def create_jwt_token(user_id, username, role):
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
+
+def get_user_display_name(user_id):
+    """
+    Получить отображаемое имя пользователя по ID.
+
+    Если display_name задан - возвращает его.
+    Иначе возвращает username.
+
+    Параметры:
+        user_id: ID пользователя в БД
+
+    Возвращает:
+        str: Отображаемое имя или username
+    """
+    if not user_id:
+        return ''
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT username, display_name FROM users WHERE id = ?', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            username, display_name = row
+            return display_name if display_name else username
+        return ''
+    except Exception:
+        return ''
+
+
 # ============================================================================
 # СИНХРОНИЗАЦИЯ ДАННЫХ
 # ============================================================================
@@ -593,6 +623,26 @@ def init_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # ============================================================================
+    # СООБЩЕНИЯ КОНТЕЙНЕРОВ ВЭД (чат с выбором получателей)
+    # ============================================================================
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS container_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            container_id INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            sender_id INTEGER NOT NULL,
+            sender_name TEXT DEFAULT '',
+            recipient_ids TEXT DEFAULT '',
+            sender_type TEXT NOT NULL DEFAULT 'web',
+            telegram_message_ids TEXT DEFAULT '',
+            is_read INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (container_id) REFERENCES ved_container_docs(id),
+            FOREIGN KEY (sender_id) REFERENCES users(id)
         )
     ''')
 
@@ -5830,6 +5880,26 @@ HTML_TEMPLATE = '''
     </div>
 
     <!-- ============================================================================
+         МОДАЛКА: УСТАНОВКА ОТОБРАЖАЕМОГО ИМЕНИ
+         ============================================================================ -->
+    <div id="set-display-name-modal" class="modal-overlay hidden">
+        <div class="modal-box">
+            <h3>Отображаемое имя</h3>
+            <p style="color: #666; margin-bottom: 16px;">Пользователь: <strong id="display-name-username"></strong></p>
+            <p style="color: #888; font-size: 13px; margin-bottom: 12px;">Это имя будет показываться в столбцах "Изменено" и "Создано" вместо логина.</p>
+            <div class="form-group">
+                <label>Отображаемое имя</label>
+                <input type="text" id="display-name-input" placeholder="Например: Иван Иванов">
+            </div>
+            <input type="hidden" id="display-name-user-id">
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeSetDisplayNameModal()">Отмена</button>
+                <button class="save-btn" onclick="setDisplayName()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================================
          МОДАЛКА: ПРИВЯЗКА TELEGRAM АККАУНТА
          ============================================================================ -->
     <div id="link-telegram-modal" class="modal-overlay hidden">
@@ -6448,6 +6518,39 @@ HTML_TEMPLATE = '''
                             </table>
                         </div>
 
+                        <!-- ========================================
+                             БЛОК СООБЩЕНИЙ КОНТЕЙНЕРА (виден только при редактировании)
+                             ======================================== -->
+                        <div id="ved-container-messages-section" class="container-messages-section" style="display: none; margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                            <h4 style="margin: 0 0 12px 0; color: #333;">💬 Сообщения по контейнеру</h4>
+
+                            <!-- История сообщений -->
+                            <div id="ved-container-messages-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 16px; padding: 8px; background: #fff; border-radius: 4px; border: 1px solid #ddd;">
+                                <div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>
+                            </div>
+
+                            <!-- Форма отправки -->
+                            <div class="container-message-form" style="display: flex; flex-direction: column; gap: 12px;">
+                                <div style="display: flex; gap: 12px; align-items: flex-start;">
+                                    <div style="flex: 1;">
+                                        <label style="display: block; margin-bottom: 4px; font-weight: 500; font-size: 13px;">Получатели (обязательно):</label>
+                                        <select id="ved-container-msg-recipients" multiple style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                        </select>
+                                        <small style="color: #666; font-size: 11px;">Ctrl+клик для выбора нескольких</small>
+                                    </div>
+                                    <div style="flex: 2;">
+                                        <label style="display: block; margin-bottom: 4px; font-weight: 500; font-size: 13px;">Сообщение:</label>
+                                        <textarea id="ved-container-msg-text" placeholder="Введите сообщение..." style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
+                                    </div>
+                                </div>
+                                <div style="display: flex; justify-content: flex-end;">
+                                    <button onclick="sendContainerMessage()" class="wh-save-receipt-btn" style="padding: 8px 20px;">
+                                        📤 Отправить в Telegram
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="receipt-form-actions">
                             <button class="wh-save-receipt-btn" onclick="saveVedContainer()">Сохранить контейнер</button>
                             <button class="wh-clear-btn" onclick="clearVedContainerForm()">Очистить форму</button>
@@ -6625,6 +6728,7 @@ HTML_TEMPLATE = '''
                     currentUser = {
                         user_id: data.user_id,
                         username: data.username,
+                        display_name: data.display_name || '',
                         role: data.role,
                         telegram_username: data.telegram_username
                     };
@@ -6703,6 +6807,7 @@ HTML_TEMPLATE = '''
                     currentUser = {
                         user_id: data.user_id,
                         username: data.username,
+                        display_name: data.display_name || '',
                         role: data.role,
                         telegram_username: data.telegram_username
                     };
@@ -11669,6 +11774,11 @@ HTML_TEMPLATE = '''
 
                 updateVedContainerTotals();
 
+                // Показываем блок сообщений и загружаем данные
+                document.getElementById('ved-container-messages-section').style.display = 'block';
+                loadContainerMessages(docId);
+                loadContainerMessageRecipients();
+
                 // Прокручиваем к форме
                 document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
             } catch (error) {
@@ -11781,6 +11891,138 @@ HTML_TEMPLATE = '''
             vedContainerItemCounter = 0;
             addVedContainerItemRow();
             updateVedContainerTotals();
+
+            // Скрываем блок сообщений
+            document.getElementById('ved-container-messages-section').style.display = 'none';
+            document.getElementById('ved-container-messages-list').innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>';
+            document.getElementById('ved-container-msg-text').value = '';
+        }
+
+        // ============================================================================
+        // СООБЩЕНИЯ КОНТЕЙНЕРОВ ВЭД
+        // ============================================================================
+
+        /**
+         * Загрузить список получателей для сообщений (пользователи с привязанным Telegram)
+         */
+        async function loadContainerMessageRecipients() {
+            const select = document.getElementById('ved-container-msg-recipients');
+            select.innerHTML = '<option disabled>Загрузка...</option>';
+
+            try {
+                const resp = await authFetch('/api/users-with-telegram');
+                const data = await resp.json();
+
+                select.innerHTML = '';
+                if (data.success && data.users && data.users.length > 0) {
+                    data.users.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        option.textContent = `${user.username} (${user.telegram_username || 'Telegram'})`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    select.innerHTML = '<option disabled>Нет пользователей с Telegram</option>';
+                }
+            } catch (err) {
+                console.error('Ошибка загрузки получателей:', err);
+                select.innerHTML = '<option disabled>Ошибка загрузки</option>';
+            }
+        }
+
+        /**
+         * Загрузить сообщения контейнера
+         */
+        async function loadContainerMessages(containerId) {
+            const listDiv = document.getElementById('ved-container-messages-list');
+            listDiv.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Загрузка...</div>';
+
+            try {
+                const resp = await authFetch('/api/container-messages/' + containerId);
+                const data = await resp.json();
+
+                if (!data.success || !data.messages || data.messages.length === 0) {
+                    listDiv.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>';
+                    return;
+                }
+
+                listDiv.innerHTML = '';
+                data.messages.forEach(msg => {
+                    const isFromTelegram = msg.sender_type === 'telegram';
+                    const bgColor = isFromTelegram ? '#e3f2fd' : '#fff3e0';
+                    const icon = isFromTelegram ? '📱' : '🌐';
+                    const time = new Date(msg.created_at).toLocaleString('ru-RU');
+
+                    const msgDiv = document.createElement('div');
+                    msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${isFromTelegram ? '#2196f3' : '#ff9800'};`;
+                    msgDiv.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <strong>${icon} ${escapeHtml(msg.sender_name)}</strong>
+                            <small style="color: #666;">${time}</small>
+                        </div>
+                        <div style="white-space: pre-wrap;">${escapeHtml(msg.message)}</div>
+                        ${msg.recipient_names ? `<div style="margin-top: 4px; font-size: 11px; color: #666;">Кому: ${escapeHtml(msg.recipient_names)}</div>` : ''}
+                    `;
+                    listDiv.appendChild(msgDiv);
+                });
+
+                // Прокручиваем вниз
+                listDiv.scrollTop = listDiv.scrollHeight;
+            } catch (err) {
+                console.error('Ошибка загрузки сообщений:', err);
+                listDiv.innerHTML = '<div style="color: #c33; text-align: center; padding: 20px;">Ошибка загрузки</div>';
+            }
+        }
+
+        /**
+         * Отправить сообщение по контейнеру
+         */
+        async function sendContainerMessage() {
+            if (!editingVedContainerId) {
+                alert('Сначала сохраните контейнер');
+                return;
+            }
+
+            const select = document.getElementById('ved-container-msg-recipients');
+            const selectedOptions = Array.from(select.selectedOptions);
+            const recipientIds = selectedOptions.map(opt => parseInt(opt.value));
+
+            if (recipientIds.length === 0) {
+                alert('Выберите хотя бы одного получателя');
+                return;
+            }
+
+            const message = document.getElementById('ved-container-msg-text').value.trim();
+            if (!message) {
+                alert('Введите сообщение');
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/container-messages/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        container_id: editingVedContainerId,
+                        recipient_ids: recipientIds,
+                        message: message
+                    })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    document.getElementById('ved-container-msg-text').value = '';
+                    // Снимаем выделение с получателей
+                    select.querySelectorAll('option').forEach(opt => opt.selected = false);
+                    // Перезагружаем сообщения
+                    loadContainerMessages(editingVedContainerId);
+                } else {
+                    alert(data.error || 'Ошибка отправки');
+                }
+            } catch (err) {
+                console.error('Ошибка отправки сообщения:', err);
+                alert('Ошибка отправки');
+            }
         }
 
         // ============================================================================
@@ -13089,15 +13331,16 @@ HTML_TEMPLATE = '''
 
                     tr.innerHTML = `
                         <td>${user.id}</td>
-                        <td><strong>${user.username}</strong></td>
+                        <td><strong>${escapeHtml(user.username)}</strong></td>
+                        <td>${displayNameHtml} <button class="action-btn" onclick="openSetDisplayNameModal(${user.id}, '${safeUsername}', '${safeDisplayName}')" title="Изменить" style="padding:2px 6px;font-size:11px;">✏️</button></td>
                         <td><span class="role-badge ${roleClass}">${roleIcon} ${user.role}</span></td>
                         <td>${tgDisplay}</td>
                         <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
                         <td class="actions">
-                            <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${user.username}', ${user.telegram_chat_id || 'null'})" title="Привязать Telegram">📱</button>
-                            <button class="action-btn" onclick="openRenameUserModal(${user.id}, '${user.username}')" title="Переименовать">✏️</button>
-                            <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${user.username}')">🔑</button>
-                            ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${user.username}')">🗑</button>` : ''}
+                            <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${safeUsername}', ${user.telegram_chat_id || 'null'})" title="Привязать Telegram">📱</button>
+                            <button class="action-btn" onclick="openRenameUserModal(${user.id}, '${safeUsername}')" title="Переименовать логин">✏️</button>
+                            <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${safeUsername}')">🔑</button>
+                            ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${safeUsername}')">🗑</button>` : ''}
                         </td>
                     `;
                     tbody.appendChild(tr);
@@ -13284,6 +13527,61 @@ HTML_TEMPLATE = '''
                 }
             } catch (err) {
                 console.error('Ошибка переименования:', err);
+            }
+        }
+
+        // ============================================================================
+        // УСТАНОВКА ОТОБРАЖАЕМОГО ИМЕНИ
+        // ============================================================================
+
+        /**
+         * Открыть модалку установки отображаемого имени.
+         * @param {number} userId - ID пользователя
+         * @param {string} username - Логин пользователя
+         * @param {string} currentDisplayName - Текущее отображаемое имя
+         */
+        function openSetDisplayNameModal(userId, username, currentDisplayName) {
+            document.getElementById('display-name-user-id').value = userId;
+            document.getElementById('display-name-username').textContent = username;
+            document.getElementById('display-name-input').value = currentDisplayName || '';
+            document.getElementById('set-display-name-modal').classList.remove('hidden');
+            document.getElementById('display-name-input').focus();
+        }
+
+        /**
+         * Закрыть модалку установки отображаемого имени.
+         */
+        function closeSetDisplayNameModal() {
+            document.getElementById('set-display-name-modal').classList.add('hidden');
+        }
+
+        /**
+         * Сохранить отображаемое имя пользователя.
+         */
+        async function setDisplayName() {
+            const userId = document.getElementById('display-name-user-id').value;
+            const displayName = document.getElementById('display-name-input').value.trim();
+
+            try {
+                const resp = await authFetch('/api/users/set-display-name', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: parseInt(userId), display_name: displayName })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    closeSetDisplayNameModal();
+                    loadUsers();
+                    // Обновляем currentUser если это текущий пользователь
+                    if (parseInt(userId) === currentUser.user_id) {
+                        currentUser.display_name = displayName;
+                    }
+                } else {
+                    alert(data.error || 'Ошибка сохранения');
+                }
+            } catch (err) {
+                console.error('Ошибка сохранения отображаемого имени:', err);
             }
         }
 
@@ -15342,8 +15640,9 @@ def save_receipt_doc():
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
 
-        # Получаем username текущего пользователя
-        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+        # Получаем отображаемое имя пользователя (display_name или username)
+        user_id = request.current_user.get('user_id') if hasattr(request, 'current_user') else None
+        username = get_user_display_name(user_id)
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -15645,8 +15944,9 @@ def save_ved_container():
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
 
-        # Получаем username текущего пользователя
-        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+        # Получаем отображаемое имя пользователя (display_name или username)
+        user_id = request.current_user.get('user_id') if hasattr(request, 'current_user') else None
+        username = get_user_display_name(user_id)
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
