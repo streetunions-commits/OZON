@@ -179,9 +179,13 @@ def require_auth(allowed_roles=None):
             if not AUTH_ENABLED:
                 return f(*args, **kwargs)
 
-            # Получаем токен из заголовка Authorization
+            # Получаем токен из заголовка Authorization или query параметра
             auth_header = request.headers.get('Authorization', '')
             token = auth_header.replace('Bearer ', '') if auth_header.startswith('Bearer ') else ''
+
+            # Также проверяем query параметр token (для скачивания файлов)
+            if not token:
+                token = request.args.get('token', '')
 
             if not token:
                 return jsonify({'success': False, 'error': 'Требуется авторизация'}), 401
@@ -4367,13 +4371,9 @@ HTML_TEMPLATE = '''
             background: #fff;
             border: 1px solid #e9ecef;
             border-radius: 8px;
-            padding: 8px 12px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 2px;
-            min-width: 100px;
-            max-width: 140px;
+            padding: 8px 10px;
+            width: 150px;
+            flex: 0 0 150px;
         }
 
         .currency-label {
@@ -4381,20 +4381,21 @@ HTML_TEMPLATE = '''
             color: #555;
             font-weight: 500;
             line-height: 1.2;
+            display: block;
+            margin-bottom: 4px;
+            min-height: 26px;
         }
 
         .currency-value {
             font-size: 16px;
             font-weight: 700;
             color: #333;
-            display: inline;
         }
 
         .currency-rub {
             font-size: 12px;
             color: #999;
-            display: inline;
-            margin-left: 2px;
+            margin-left: 3px;
         }
 
         /* ============================================================================
@@ -11855,6 +11856,9 @@ HTML_TEMPLATE = '''
                 loadContainerMessages(docId);
                 loadContainerMessageRecipients();
 
+                // Загружаем файлы контейнера
+                loadVedContainerFiles(docId);
+
                 // Прокручиваем к форме
                 document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
             } catch (error) {
@@ -11977,6 +11981,220 @@ HTML_TEMPLATE = '''
             document.querySelectorAll('.container-msg-recipient').forEach(cb => cb.checked = false);
             // Загружаем получателей
             loadContainerMessageRecipients();
+
+            // Очищаем список файлов
+            clearVedContainerFiles();
+        }
+
+        // ============================================================================
+        // ФАЙЛЫ КОНТЕЙНЕРА ВЭД
+        // ============================================================================
+
+        /**
+         * Очистить список файлов контейнера
+         */
+        function clearVedContainerFiles() {
+            const list = document.getElementById('ved-container-files-list');
+            const empty = document.getElementById('ved-container-files-empty');
+            if (list) list.innerHTML = '<p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>';
+        }
+
+        /**
+         * Загрузить список файлов контейнера
+         */
+        async function loadVedContainerFiles(docId) {
+            if (!docId) {
+                clearVedContainerFiles();
+                return;
+            }
+
+            try {
+                const response = await authFetch('/api/ved/containers/' + docId + '/files');
+                const result = await response.json();
+
+                const list = document.getElementById('ved-container-files-list');
+                if (!list) return;
+
+                if (!result.success || !result.files || result.files.length === 0) {
+                    list.innerHTML = '<p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>';
+                    return;
+                }
+
+                list.innerHTML = '';
+                result.files.forEach(file => {
+                    const fileEl = createFileElement(file);
+                    list.appendChild(fileEl);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки файлов:', error);
+            }
+        }
+
+        /**
+         * Создать элемент файла для отображения
+         */
+        function createFileElement(file) {
+            const div = document.createElement('div');
+            div.className = 'ved-file-item';
+            div.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; border: 1px solid #ddd; border-radius: 6px; font-size: 13px;';
+            div.dataset.fileId = file.id;
+
+            // Иконка в зависимости от типа файла
+            let icon = '📄';
+            if (file.file_type && file.file_type.startsWith('image/')) icon = '🖼️';
+            else if (file.file_type === 'application/pdf') icon = '📕';
+            else if (file.file_type && file.file_type.includes('word')) icon = '📘';
+            else if (file.file_type && file.file_type.includes('excel') || file.file_type && file.file_type.includes('spreadsheet')) icon = '📗';
+            else if (file.file_type && (file.file_type.includes('zip') || file.file_type.includes('rar'))) icon = '📦';
+
+            // Размер файла
+            const sizeKb = Math.round(file.file_size / 1024);
+            const sizeStr = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' МБ' : sizeKb + ' КБ';
+
+            // Проверяем, можно ли просмотреть файл
+            const canPreview = file.file_type && (file.file_type.startsWith('image/') || file.file_type === 'application/pdf');
+            const isAdmin = currentUser && currentUser.role === 'admin';
+
+            div.innerHTML = `
+                <span style="font-size: 18px;">${icon}</span>
+                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.filename}">${file.filename}</span>
+                <span style="color: #888; font-size: 11px;">${sizeStr}</span>
+                ${canPreview ? '<button onclick="previewVedFile(' + file.id + ', \'' + file.file_type + '\')" style="padding: 4px 8px; border: none; background: #e3f2fd; color: #1976d2; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Просмотреть">👁️</button>' : ''}
+                <button onclick="downloadVedFile(${file.id})" style="padding: 4px 8px; border: none; background: #e8f5e9; color: #388e3c; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Скачать">⬇️</button>
+                ${isAdmin ? '<button onclick="deleteVedFile(' + file.id + ')" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>' : ''}
+            `;
+
+            return div;
+        }
+
+        /**
+         * Загрузить файл к контейнеру
+         */
+        async function uploadVedContainerFile() {
+            const input = document.getElementById('ved-container-file-input');
+            if (!input || !input.files || input.files.length === 0) return;
+
+            // Контейнер должен быть сохранён
+            if (!editingVedContainerId) {
+                alert('Сначала сохраните контейнер, затем прикрепите файлы');
+                input.value = '';
+                return;
+            }
+
+            const files = input.files;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+                    const response = await fetch('/api/ved/containers/' + editingVedContainerId + '/files', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        // Добавляем файл в список
+                        const list = document.getElementById('ved-container-files-list');
+                        const empty = document.getElementById('ved-container-files-empty');
+                        if (empty) empty.remove();
+
+                        const fileEl = createFileElement(result.file);
+                        list.appendChild(fileEl);
+                    } else {
+                        alert('Ошибка загрузки файла ' + file.name + ': ' + (result.error || 'Неизвестная ошибка'));
+                    }
+                } catch (error) {
+                    console.error('Ошибка загрузки файла:', error);
+                    alert('Ошибка загрузки файла ' + file.name);
+                }
+            }
+
+            // Очищаем input
+            input.value = '';
+        }
+
+        /**
+         * Скачать файл
+         */
+        function downloadVedFile(fileId) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            window.open('/api/ved/containers/files/' + fileId + '?token=' + token, '_blank');
+        }
+
+        /**
+         * Просмотреть файл в модальном окне
+         */
+        function previewVedFile(fileId, fileType) {
+            const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+            const url = '/api/ved/containers/files/' + fileId + '?view=1&token=' + token;
+
+            // Создаём модальное окно
+            let modal = document.getElementById('ved-file-preview-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'ved-file-preview-modal';
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+                modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+                document.body.appendChild(modal);
+            }
+
+            // Контент в зависимости от типа
+            if (fileType && fileType.startsWith('image/')) {
+                modal.innerHTML = `
+                    <div style="position: relative; max-width: 90%; max-height: 90%;">
+                        <button onclick="document.getElementById('ved-file-preview-modal').remove()" style="position: absolute; top: -40px; right: 0; background: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; font-size: 18px; cursor: pointer;">✕</button>
+                        <img src="${url}" style="max-width: 100%; max-height: 85vh; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" onload="this.parentElement.style.display='block'" onerror="alert('Ошибка загрузки изображения'); document.getElementById('ved-file-preview-modal').remove();">
+                    </div>
+                `;
+            } else if (fileType === 'application/pdf') {
+                modal.innerHTML = `
+                    <div style="position: relative; width: 90%; height: 90%; background: #fff; border-radius: 8px; overflow: hidden;">
+                        <button onclick="document.getElementById('ved-file-preview-modal').remove()" style="position: absolute; top: 10px; right: 10px; background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; font-size: 14px; cursor: pointer; z-index: 1;">Закрыть</button>
+                        <iframe src="${url}" style="width: 100%; height: 100%; border: none;"></iframe>
+                    </div>
+                `;
+            }
+        }
+
+        /**
+         * Удалить файл
+         */
+        async function deleteVedFile(fileId) {
+            if (!confirm('Удалить этот файл?')) return;
+
+            try {
+                const response = await authFetch('/api/ved/containers/files/' + fileId, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Удаляем элемент из DOM
+                    const fileEl = document.querySelector('.ved-file-item[data-file-id="' + fileId + '"]');
+                    if (fileEl) fileEl.remove();
+
+                    // Если файлов не осталось, показываем заглушку
+                    const list = document.getElementById('ved-container-files-list');
+                    if (list && list.children.length === 0) {
+                        list.innerHTML = '<p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>';
+                    }
+                } else {
+                    alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка удаления файла:', error);
+                alert('Ошибка удаления файла');
+            }
         }
 
         // ============================================================================
