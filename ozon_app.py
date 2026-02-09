@@ -12825,21 +12825,19 @@ HTML_TEMPLATE = '''
          * Расчёт распределения данных ВЭД по строкам поставок.
          *
          * Логика:
-         * 1. Группируем поставки по SKU
-         * 2. Сортируем каждую группу по exit_plan_date (по возрастанию)
-         * 3. "Расходуем" данные ВЭД (отдельные позиции) начиная с самой ранней поставки
-         * 4. Для каждой строки рассчитываем средневзвешенные логистику и цену
-         *    только из тех позиций ВЭД, которые покрывают эту строку
+         * 1. Группируем поставки по SKU (включая строки без прихода)
+         * 2. Для строк С приходом: распределяем позиции ВЭД и считаем средневзвешенные
+         * 3. Для строк БЕЗ прихода: показываем средние значения из ВЭД
          *
          * Возвращает объект: { supply_id: { covered, shortage, avg_logistics, avg_price_rub } }
          */
         function calculateVedCoverage(supplies) {
             const result = {};
 
-            // Группируем по SKU
+            // Группируем по SKU (ВСЕ строки с SKU, не только с приходом)
             const bysku = {};
             supplies.forEach(s => {
-                if (!s.sku || !s.arrival_warehouse_qty) return;
+                if (!s.sku) return;
                 if (!bysku[s.sku]) bysku[s.sku] = [];
                 bysku[s.sku].push(s);
             });
@@ -12848,8 +12846,9 @@ HTML_TEMPLATE = '''
             Object.keys(bysku).forEach(sku => {
                 const rows = bysku[sku];
                 const vedData = vedProductLogistics[String(sku)];
+
+                // Нет данных ВЭД - все строки без покрытия
                 if (!vedData || !vedData.items || vedData.items.length === 0) {
-                    // Нет данных ВЭД - все строки без покрытия
                     rows.forEach(s => {
                         const arrivalQty = s.arrival_warehouse_qty || 0;
                         result[s.id] = {
@@ -12862,6 +12861,23 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
+                // Разделяем строки: с приходом и без прихода
+                const rowsWithArrival = rows.filter(s => s.arrival_warehouse_qty > 0);
+                const rowsWithoutArrival = rows.filter(s => !s.arrival_warehouse_qty || s.arrival_warehouse_qty <= 0);
+
+                // Для строк БЕЗ прихода - показываем средние значения из ВЭД
+                rowsWithoutArrival.forEach(s => {
+                    result[s.id] = {
+                        covered: 0,
+                        shortage: 0,
+                        avg_logistics: vedData.avg_logistics_per_unit || 0,
+                        avg_price_rub: vedData.avg_cost_per_unit_rub || 0
+                    };
+                });
+
+                // Для строк С приходом - распределяем позиции ВЭД
+                if (rowsWithArrival.length === 0) return;
+
                 // Копируем позиции ВЭД для распределения (с оставшимся количеством)
                 const vedItems = vedData.items.map(item => ({
                     remaining: item.quantity,
@@ -12870,14 +12886,14 @@ HTML_TEMPLATE = '''
                 }));
 
                 // Сортируем по дате выхода с фабрики ПЛАН (по возрастанию)
-                rows.sort((a, b) => {
+                rowsWithArrival.sort((a, b) => {
                     const dateA = a.exit_plan_date || '9999-12-31';
                     const dateB = b.exit_plan_date || '9999-12-31';
                     return dateA.localeCompare(dateB);
                 });
 
                 // Распределяем позиции ВЭД по строкам поставок
-                rows.forEach(s => {
+                rowsWithArrival.forEach(s => {
                     const arrivalQty = s.arrival_warehouse_qty || 0;
                     let needQty = arrivalQty;
                     let totalCovered = 0;
@@ -12901,8 +12917,8 @@ HTML_TEMPLATE = '''
 
                     // Рассчитываем средние только из покрытой части
                     const shortage = arrivalQty - totalCovered;
-                    const avgLogistics = totalCovered > 0 ? weightedLogistics / totalCovered : 0;
-                    const avgPriceRub = totalCovered > 0 ? weightedPrice / totalCovered : 0;
+                    const avgLogistics = totalCovered > 0 ? weightedLogistics / totalCovered : vedData.avg_logistics_per_unit || 0;
+                    const avgPriceRub = totalCovered > 0 ? weightedPrice / totalCovered : vedData.avg_cost_per_unit_rub || 0;
 
                     result[s.id] = {
                         covered: totalCovered,
