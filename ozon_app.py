@@ -16262,7 +16262,10 @@ def save_ved_container():
         has_zeros = (total_logistics_rf == 0 or total_logistics_cn == 0 or
                      total_terminal == 0 or total_customs == 0 or total_all_logistics == 0)
 
-        if has_zeros:
+        # Проверяем: если поле "Важно" заполнено — автоматически снимаем статус "Завершено"
+        has_important = important and important.strip() != ''
+
+        if has_zeros or has_important:
             cursor.execute('''
                 UPDATE ved_container_docs SET is_completed = 0 WHERE id = ?
             ''', (doc_id,))
