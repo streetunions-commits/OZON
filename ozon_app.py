@@ -17937,7 +17937,9 @@ def get_document_messages(doc_type, doc_id):
 
 def send_admin_notification(text: str) -> dict:
     """
-    Отправить уведомление администратору в Telegram.
+    Отправить уведомление всем администраторам в Telegram.
+
+    Берёт chat_id из таблицы users (role = 'admin' и telegram_chat_id заполнен).
 
     Используется для критических ошибок, требующих внимания:
     - Нехватка данных о поставках при оприходовании
@@ -17947,38 +17949,62 @@ def send_admin_notification(text: str) -> dict:
         text: Текст уведомления (поддерживает HTML)
 
     Возвращает:
-        {'success': True/False, 'message_id': int или 'error': str}
+        {'success': True/False, 'sent_count': int, 'errors': list}
     """
     import requests
 
-    admin_chat_id = os.environ.get('TELEGRAM_ADMIN_CHAT_ID', '')
     bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-
-    if not admin_chat_id:
-        print("⚠️ TELEGRAM_ADMIN_CHAT_ID не настроен - уведомление не отправлено")
-        return {'success': False, 'error': 'TELEGRAM_ADMIN_CHAT_ID не настроен'}
 
     if not bot_token:
         return {'success': False, 'error': 'TELEGRAM_BOT_TOKEN не настроен'}
 
+    # Получаем chat_id всех админов из базы данных
     try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT telegram_chat_id FROM users
+            WHERE role = 'admin' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+        ''')
+        admin_rows = cursor.fetchall()
+        conn.close()
+
+        if not admin_rows:
+            print("⚠️ Нет админов с привязанным Telegram - уведомление не отправлено")
+            return {'success': False, 'error': 'Нет админов с привязанным Telegram'}
+
+        # Отправляем уведомление каждому админу
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
-        payload = {
-            'chat_id': admin_chat_id,
-            'text': text,
-            'parse_mode': 'HTML'
-        }
+        sent_count = 0
+        errors = []
 
-        response = requests.post(url, json=payload, timeout=10)
-        data = response.json()
+        for admin in admin_rows:
+            chat_id = admin['telegram_chat_id']
+            try:
+                payload = {
+                    'chat_id': chat_id,
+                    'text': text,
+                    'parse_mode': 'HTML'
+                }
+                response = requests.post(url, json=payload, timeout=10)
+                data = response.json()
 
-        if data.get('ok'):
-            return {'success': True, 'message_id': data['result']['message_id']}
-        else:
-            print(f"❌ Ошибка отправки уведомления админу: {data.get('description')}")
-            return {'success': False, 'error': data.get('description', 'Неизвестная ошибка')}
+                if data.get('ok'):
+                    sent_count += 1
+                else:
+                    errors.append(f"chat_id {chat_id}: {data.get('description')}")
+            except Exception as e:
+                errors.append(f"chat_id {chat_id}: {str(e)}")
+
+        if errors:
+            print(f"⚠️ Ошибки при отправке уведомлений: {errors}")
+
+        return {'success': sent_count > 0, 'sent_count': sent_count, 'errors': errors}
+
     except Exception as e:
-        print(f"❌ Исключение при отправке уведомления админу: {e}")
+        print(f"❌ Исключение при отправке уведомления админам: {e}")
         return {'success': False, 'error': str(e)}
 
 
