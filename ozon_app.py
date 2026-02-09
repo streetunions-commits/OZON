@@ -14052,7 +14052,7 @@ HTML_TEMPLATE = '''
                         <td>${tgDisplay}</td>
                         <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
                         <td class="actions">
-                            <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${safeUsername}', ${user.telegram_chat_id || 'null'})" title="Привязать Telegram">📱</button>
+                            <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${safeUsername}', '${user.telegram_username || ''}')" title="Привязать Telegram">📱</button>
                             <button class="action-btn" onclick="openRenameUserModal(${user.id}, '${safeUsername}')" title="Переименовать логин">✏️</button>
                             <button class="action-btn change-pwd-btn" onclick="openChangePwdModal(${user.id}, '${safeUsername}')">🔑</button>
                             ${canDelete ? `<button class="action-btn delete-btn" onclick="deleteUser(${user.id}, '${safeUsername}')">🗑</button>` : ''}
@@ -14308,40 +14308,13 @@ HTML_TEMPLATE = '''
          * Открыть модалку привязки Telegram.
          * @param {number} userId - ID пользователя
          * @param {string} username - Имя пользователя
-         * @param {number|null} currentChatId - Текущий привязанный chat_id
+         * @param {string} currentTelegramUsername - Текущий Telegram username
          */
-        async function openLinkTelegramModal(userId, username, currentChatId) {
+        function openLinkTelegramModal(userId, username, currentTelegramUsername) {
             document.getElementById('link-tg-user-id').value = userId;
             document.getElementById('link-tg-username').textContent = username;
-
-            const select = document.getElementById('link-tg-select');
-            select.innerHTML = '<option value="">Загрузка...</option>';
-
+            document.getElementById('link-tg-input').value = currentTelegramUsername || '';
             document.getElementById('link-telegram-modal').classList.remove('hidden');
-
-            // Загружаем список Telegram аккаунтов
-            try {
-                const resp = await authFetch('/api/telegram-accounts');
-                const data = await resp.json();
-
-                select.innerHTML = '<option value="">— Не привязан —</option>';
-
-                if (data.success && data.accounts && data.accounts.length > 0) {
-                    data.accounts.forEach(acc => {
-                        const option = document.createElement('option');
-                        option.value = acc.chat_id;
-                        // username уже содержит полное имя (@username или ID:xxx)
-                        option.textContent = acc.username || `ID: ${acc.chat_id}`;
-                        if (currentChatId && acc.chat_id === currentChatId) {
-                            option.selected = true;
-                        }
-                        select.appendChild(option);
-                    });
-                }
-            } catch (err) {
-                console.error('Ошибка загрузки Telegram аккаунтов:', err);
-                select.innerHTML = '<option value="">Ошибка загрузки</option>';
-            }
         }
 
         /**
@@ -14356,10 +14329,7 @@ HTML_TEMPLATE = '''
          */
         async function linkTelegramAccount() {
             const userId = document.getElementById('link-tg-user-id').value;
-            const select = document.getElementById('link-tg-select');
-            const chatId = select.value;
-            // Получаем telegram_username из текста выбранной опции
-            const telegramUsername = chatId ? select.options[select.selectedIndex].textContent : '';
+            const telegramUsername = document.getElementById('link-tg-input').value.trim();
 
             try {
                 const resp = await authFetch('/api/users/link-telegram', {
@@ -14367,7 +14337,6 @@ HTML_TEMPLATE = '''
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_id: parseInt(userId),
-                        telegram_chat_id: chatId ? parseInt(chatId) : null,
                         telegram_username: telegramUsername
                     })
                 });
@@ -15255,47 +15224,16 @@ def api_users_list():
     Получить список всех пользователей.
 
     Только для администраторов.
-    Возвращает: {"success": true, "users": [{"id": 1, "username": "admin", "role": "admin", "created_at": "...", "telegram_chat_id": null, "telegram_username": null}]}
+    Возвращает: {"success": true, "users": [{"id": 1, "username": "admin", "role": "admin", "created_at": "...", "telegram_username": "@user"}]}
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем пользователей (включая display_name - отображаемое имя)
-        cursor.execute('SELECT id, username, display_name, role, created_at, telegram_chat_id FROM users ORDER BY id')
+        # Получаем пользователей (включая display_name и telegram_username)
+        cursor.execute('SELECT id, username, display_name, role, created_at, telegram_username FROM users ORDER BY id')
         users = [dict(row) for row in cursor.fetchall()]
-
-        # Собираем telegram_username из разных источников
-        for user in users:
-            user['telegram_username'] = None
-            chat_id = user.get('telegram_chat_id')
-            if chat_id:
-                # 1. Проверяем telegram_users
-                cursor.execute('SELECT username FROM telegram_users WHERE chat_id = ?', (chat_id,))
-                tg_row = cursor.fetchone()
-                if tg_row and tg_row['username']:
-                    user['telegram_username'] = f"@{tg_row['username'].lstrip('@')}"
-                else:
-                    # 2. Проверяем document_messages
-                    cursor.execute('''
-                        SELECT sender_name FROM document_messages
-                        WHERE sender_type = 'telegram' AND telegram_chat_id = ?
-                        LIMIT 1
-                    ''', (chat_id,))
-                    msg_row = cursor.fetchone()
-                    if msg_row and msg_row['sender_name']:
-                        user['telegram_username'] = f"@{msg_row['sender_name'].lstrip('@')}"
-                    else:
-                        # 3. Проверяем warehouse_receipt_docs
-                        cursor.execute('''
-                            SELECT created_by FROM warehouse_receipt_docs
-                            WHERE telegram_chat_id = ?
-                            LIMIT 1
-                        ''', (chat_id,))
-                        doc_row = cursor.fetchone()
-                        if doc_row and doc_row['created_by']:
-                            user['telegram_username'] = f"@{doc_row['created_by'].lstrip('@')}"
 
         conn.close()
         return jsonify({'success': True, 'users': users})
@@ -15395,14 +15333,13 @@ def api_users_link_telegram():
     """
     Привязать Telegram аккаунт к пользователю.
 
-    Принимает JSON: {"user_id": 1, "telegram_chat_id": 123456789, "telegram_username": "@username"}
-    Если telegram_chat_id = null, отвязывает аккаунт.
+    Принимает JSON: {"user_id": 1, "telegram_username": "@username"}
+    Если telegram_username пустой, отвязывает аккаунт.
     """
     try:
         data = request.json or {}
         user_id = data.get('user_id')
-        telegram_chat_id = data.get('telegram_chat_id')
-        telegram_username = data.get('telegram_username', '')
+        telegram_username = data.get('telegram_username', '').strip()
 
         if not user_id:
             return jsonify({'success': False, 'error': 'Укажите user_id'}), 400
@@ -15416,18 +15353,14 @@ def api_users_link_telegram():
             conn.close()
             return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
 
-        # Обновляем привязку (chat_id и username)
-        if telegram_chat_id:
-            cursor.execute('UPDATE users SET telegram_chat_id = ?, telegram_username = ? WHERE id = ?',
-                          (telegram_chat_id, telegram_username, user_id))
-        else:
-            # При отвязке очищаем оба поля
-            cursor.execute('UPDATE users SET telegram_chat_id = NULL, telegram_username = NULL WHERE id = ?', (user_id,))
+        # Обновляем telegram_username
+        cursor.execute('UPDATE users SET telegram_username = ? WHERE id = ?',
+                      (telegram_username if telegram_username else None, user_id))
         conn.commit()
         conn.close()
 
-        action = 'привязан' if telegram_chat_id else 'отвязан'
-        return jsonify({'success': True, 'message': f'Telegram аккаунт {action}'})
+        action = 'сохранён' if telegram_username else 'очищен'
+        return jsonify({'success': True, 'message': f'Telegram {action}'})
 
     except Exception as e:
         print(f"❌ Ошибка при привязке Telegram: {e}")
