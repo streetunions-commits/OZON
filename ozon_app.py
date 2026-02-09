@@ -11428,9 +11428,9 @@ HTML_TEMPLATE = '''
                     };
 
                     // Чекбокс завершения (только для админа)
-                    // Передаём hasZeros для проверки при клике
+                    // Передаём hasZeros и hasImportant для проверки при клике
                     const checkboxHtml = isAdmin
-                        ? '<input type="checkbox" ' + (isCompleted ? 'checked' : '') + ' onchange="toggleVedContainerCompleted(' + doc.id + ', this.checked, ' + hasZeros + ')" style="cursor: pointer; width: 18px; height: 18px;">'
+                        ? '<input type="checkbox" ' + (isCompleted ? 'checked' : '') + ' onchange="toggleVedContainerCompleted(' + doc.id + ', this.checked, ' + hasZeros + ', ' + hasImportant + ')" style="cursor: pointer; width: 18px; height: 18px;">'
                         : (isCompleted ? '✅' : '');
 
                     row.innerHTML = `
@@ -11447,6 +11447,7 @@ HTML_TEMPLATE = '''
                         <td>${formatWithZeroBg(doc.total_customs, '₽')}</td>
                         <td>${formatWithZeroBg(doc.total_all_logistics, '₽')}</td>
                         <td style="white-space: pre-wrap; word-break: break-word; max-width: 450px; text-align: left;">${doc.comment || '-'}</td>
+                        <td style="white-space: pre-wrap; word-break: break-word; max-width: 350px; text-align: left;${hasImportant ? ' background-color: #fff3cd;' : ''}">${doc.important || '-'}</td>
                         <td style="white-space: nowrap;">${updatedInfo}</td>
                         <td style="text-align: center;">${checkboxHtml}</td>
                         <td>
@@ -11629,6 +11630,7 @@ HTML_TEMPLATE = '''
                 document.getElementById('ved-container-date').value = doc.container_date || '';
                 document.getElementById('ved-container-supplier').value = doc.supplier || '';
                 document.getElementById('ved-container-comment').value = doc.comment || '';
+                document.getElementById('ved-container-important').value = doc.important || '';
                 if (doc.cny_percent) {
                     document.getElementById('ved-cny-percent').value = doc.cny_percent;
                 }
@@ -11709,7 +11711,14 @@ HTML_TEMPLATE = '''
          * @param {boolean} isCompleted - новый статус
          * @param {boolean} hasZeros - есть ли нулевые значения в логистике
          */
-        async function toggleVedContainerCompleted(docId, isCompleted, hasZeros) {
+        async function toggleVedContainerCompleted(docId, isCompleted, hasZeros, hasImportant) {
+            // Если пытаемся завершить, но заполнено поле "Важно" — запрещаем
+            if (isCompleted && hasImportant) {
+                alert('Нельзя завершить контейнер: очистите поле "Важно" перед завершением');
+                loadVedContainersHistory();  // Сбросить чекбокс
+                return;
+            }
+
             // Если пытаемся завершить, но есть нули — запрещаем
             if (isCompleted && hasZeros) {
                 alert('Нельзя завершить контейнер: заполните все поля логистики (красные ячейки)');
@@ -11767,6 +11776,7 @@ HTML_TEMPLATE = '''
             editingVedContainerId = null;  // Сбрасываем режим редактирования
             document.getElementById('ved-container-supplier').value = '';
             document.getElementById('ved-container-comment').value = '';
+            document.getElementById('ved-container-important').value = '';
             document.getElementById('ved-container-items-tbody').innerHTML = '';
             vedContainerItemCounter = 0;
             addVedContainerItemRow();
@@ -13041,19 +13051,19 @@ HTML_TEMPLATE = '''
          */
         async function loadUsers() {
             const tbody = document.getElementById('users-tbody');
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>';
 
             try {
                 const resp = await authFetch('/api/users');
                 const data = await resp.json();
 
                 if (!data.success) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c33;">Ошибка: ' + (data.error || 'неизвестная') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#c33;">Ошибка: ' + (data.error || 'неизвестная') + '</td></tr>';
                     return;
                 }
 
                 if (!data.users || data.users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">Нет пользователей</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">Нет пользователей</td></tr>';
                     return;
                 }
 
@@ -13068,6 +13078,14 @@ HTML_TEMPLATE = '''
                     const tgDisplay = user.telegram_username
                         ? `<span style="color:#0088cc;">📱 ${escapeHtml(user.telegram_username)}</span>`
                         : '<span style="color:#999;">—</span>';
+
+                    // Отображаемое имя - показывается в столбцах "Изменено", "Создано"
+                    const displayName = user.display_name || '';
+                    const displayNameHtml = displayName
+                        ? `<strong>${escapeHtml(displayName)}</strong>`
+                        : '<span style="color:#999;">не задано</span>';
+                    const safeUsername = escapeHtml(user.username).replace(/'/g, "\\'");
+                    const safeDisplayName = escapeHtml(displayName).replace(/'/g, "\\'");
 
                     tr.innerHTML = `
                         <td>${user.id}</td>
@@ -13086,7 +13104,7 @@ HTML_TEMPLATE = '''
                 });
             } catch (err) {
                 console.error('Ошибка загрузки пользователей:', err);
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c33;">Ошибка загрузки</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#c33;">Ошибка загрузки</td></tr>';
             }
         }
 
@@ -15519,6 +15537,7 @@ def get_ved_containers():
                 d.container_date,
                 d.supplier,
                 d.comment,
+                COALESCE(d.important, '') as important,
                 d.cny_rate,
                 d.cny_percent,
                 d.created_by,
@@ -15562,8 +15581,8 @@ def get_ved_container(doc_id):
 
         # Получаем шапку документа
         cursor.execute('''
-            SELECT id, container_date, supplier, comment, cny_rate, cny_percent,
-                   created_by, updated_by, created_at, updated_at
+            SELECT id, container_date, supplier, comment, COALESCE(important, '') as important,
+                   cny_rate, cny_percent, created_by, updated_by, created_at, updated_at
             FROM ved_container_docs WHERE id = ?
         ''', (doc_id,))
         doc = cursor.fetchone()
@@ -15615,6 +15634,7 @@ def save_ved_container():
         container_date = data.get('container_date', '')
         supplier = data.get('supplier', '')
         comment = data.get('comment', '')
+        important = data.get('important', '')
         cny_rate = data.get('cny_rate', 0)
         cny_percent = data.get('cny_percent', 0)
         items = data.get('items', [])
@@ -15635,19 +15655,19 @@ def save_ved_container():
             # Редактирование существующего документа
             cursor.execute('''
                 UPDATE ved_container_docs
-                SET container_date = ?, supplier = ?, comment = ?, cny_rate = ?, cny_percent = ?,
+                SET container_date = ?, supplier = ?, comment = ?, important = ?, cny_rate = ?, cny_percent = ?,
                     updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (container_date, supplier, comment, cny_rate, cny_percent, username, doc_id))
+            ''', (container_date, supplier, comment, important, cny_rate, cny_percent, username, doc_id))
 
             # Удаляем старые позиции
             cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
         else:
             # Создаём новый документ (шапку)
             cursor.execute('''
-                INSERT INTO ved_container_docs (container_date, supplier, comment, cny_rate, cny_percent, created_by, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (container_date, supplier, comment, cny_rate, cny_percent, username, username))
+                INSERT INTO ved_container_docs (container_date, supplier, comment, important, cny_rate, cny_percent, created_by, updated_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (container_date, supplier, comment, important, cny_rate, cny_percent, username, username))
             doc_id = cursor.lastrowid
 
         # Добавляем позиции и считаем суммы логистики
