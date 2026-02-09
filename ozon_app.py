@@ -16769,6 +16769,10 @@ def save_receipt_doc():
             ''', (receipt_date, receiver_name, comment, username, username))
             doc_id = cursor.lastrowid
 
+        # Список товаров, для которых не хватило данных о поставках
+        # (количество приходуемого товара > количества с заполненной логистикой/ценой)
+        items_without_supply_data = []
+
         # Обрабатываем каждую позицию прихода
         for item in items:
             sku = item.get('sku', 0)
@@ -16825,6 +16829,21 @@ def save_receipt_doc():
 
                 remaining_qty -= to_distribute
 
+            # Проверяем, осталось ли нераспределённое количество (нет данных о поставках)
+            if remaining_qty > 0:
+                # Получаем название товара для уведомления
+                cursor.execute('SELECT name FROM products WHERE sku = ?', (sku,))
+                product_row = cursor.fetchone()
+                product_name = product_row['name'] if product_row else f'SKU {sku}'
+
+                items_without_supply_data.append({
+                    'sku': sku,
+                    'name': product_name,
+                    'receipt_qty': receipt_qty,
+                    'distributed_qty': receipt_qty - remaining_qty,
+                    'missing_qty': remaining_qty
+                })
+
             # Рассчитываем средневзвешенную себестоимость
             total_qty = sum(d['quantity'] for d in distributions)
             if total_qty > 0:
@@ -16857,6 +16876,42 @@ def save_receipt_doc():
 
         conn.commit()
         conn.close()
+
+        # Отправляем уведомление админу, если есть товары без данных о поставках
+        if items_without_supply_data:
+            # Формируем текст уведомления
+            notification_lines = [
+                "⚠️ <b>ВНИМАНИЕ: Нехватка данных о поставках</b>",
+                "",
+                f"📦 Документ прихода #{doc_id}",
+                f"📅 Дата: {receipt_date}",
+                f"👤 Приёмщик: {receiver_name or 'Не указан'}",
+                "",
+                "❌ <b>Товары без себестоимости:</b>",
+                ""
+            ]
+
+            for item in items_without_supply_data[:10]:  # Максимум 10 товаров в уведомлении
+                notification_lines.append(
+                    f"• <b>{item['name']}</b> (SKU: {item['sku']})\n"
+                    f"   Приход: {item['receipt_qty']} шт, с данными: {item['distributed_qty']} шт, "
+                    f"<b>без данных: {item['missing_qty']} шт</b>"
+                )
+
+            if len(items_without_supply_data) > 10:
+                notification_lines.append(f"\n... и ещё {len(items_without_supply_data) - 10} товаров")
+
+            notification_lines.extend([
+                "",
+                "💡 <b>Что делать:</b>",
+                "1. Откройте раздел ВЭД → Контейнеры",
+                "2. Заполните логистику и цену для незавершённых контейнеров",
+                "3. Отметьте контейнеры как завершённые",
+                "4. Пересохраните документ прихода"
+            ])
+
+            notification_text = "\n".join(notification_lines)
+            send_admin_notification(notification_text)
 
         return jsonify({'success': True, 'doc_id': doc_id})
     except Exception as e:
@@ -17878,6 +17933,53 @@ def get_document_messages(doc_type, doc_id):
         return jsonify({'success': True, 'messages': messages})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'messages': []})
+
+
+def send_admin_notification(text: str) -> dict:
+    """
+    Отправить уведомление администратору в Telegram.
+
+    Используется для критических ошибок, требующих внимания:
+    - Нехватка данных о поставках при оприходовании
+    - Другие системные проблемы
+
+    Аргументы:
+        text: Текст уведомления (поддерживает HTML)
+
+    Возвращает:
+        {'success': True/False, 'message_id': int или 'error': str}
+    """
+    import requests
+
+    admin_chat_id = os.environ.get('TELEGRAM_ADMIN_CHAT_ID', '')
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+
+    if not admin_chat_id:
+        print("⚠️ TELEGRAM_ADMIN_CHAT_ID не настроен - уведомление не отправлено")
+        return {'success': False, 'error': 'TELEGRAM_ADMIN_CHAT_ID не настроен'}
+
+    if not bot_token:
+        return {'success': False, 'error': 'TELEGRAM_BOT_TOKEN не настроен'}
+
+    try:
+        url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        payload = {
+            'chat_id': admin_chat_id,
+            'text': text,
+            'parse_mode': 'HTML'
+        }
+
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+
+        if data.get('ok'):
+            return {'success': True, 'message_id': data['result']['message_id']}
+        else:
+            print(f"❌ Ошибка отправки уведомления админу: {data.get('description')}")
+            return {'success': False, 'error': data.get('description', 'Неизвестная ошибка')}
+    except Exception as e:
+        print(f"❌ Исключение при отправке уведомления админу: {e}")
+        return {'success': False, 'error': str(e)}
 
 
 @app.route('/api/document-messages/send', methods=['POST'])
