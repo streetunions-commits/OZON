@@ -13773,8 +13773,9 @@ HTML_TEMPLATE = '''
 
         /**
          * Обновить итоги в tfoot.
-         * Числовые столбцы (кол-во) — сумма.
-         * Валютные столбцы (логистика, цена ¥, себестоимость) — среднее.
+         * Кол-во — сумма.
+         * Логистика и цена — средневзвешенные по кол-ву выхода: Σ(qty × value) / Σ(qty)
+         * Себестоимость — рассчитывается из итоговой логистики и цены: (лог + цена) × 1.06
          */
         function updateSupplyTotals() {
             const tfoot = document.getElementById('supplies-tfoot-row');
@@ -13784,24 +13785,22 @@ HTML_TEMPLATE = '''
             const rows = Array.from(document.querySelectorAll('#supplies-tbody tr'))
                 .filter(r => r.style.display !== 'none');
 
-            // Индексы столбцов (0-based):
-            // 0:товар, 1:дата выхода, 2:кол выхода, 3:кол прихода,
-            // 4:учтено ВЭД, 5:логистика₽, 6:цена₽, 7:себестоимость
-
-            // Собираем данные
+            // Собираем данные для средневзвешенных расчётов
             let sumExitFactory = 0, sumArrival = 0;
-            let avgLogistics = 0, countLogistics = 0;
-            let avgPrice = 0, countPrice = 0;
-            let avgCost = 0, countCost = 0;
+            let sumLogisticsWeighted = 0;  // Σ(qty × logistics)
+            let sumPriceWeighted = 0;      // Σ(qty × price)
+            let sumQtyForLogistics = 0;    // Σ(qty) для строк с логистикой
+            let sumQtyForPrice = 0;        // Σ(qty) для строк с ценой
 
             rows.forEach(row => {
                 const cells = row.querySelectorAll('td');
 
                 // Кол-во выхода с фабрики (нередактируемый span в ячейке 2)
+                let exitQty = 0;
                 const exitFactorySpan = cells[2] ? cells[2].querySelector('.supply-readonly-value') : null;
                 if (exitFactorySpan && exitFactorySpan.textContent !== '—') {
-                    const val = parseNumberFromSpaces(exitFactorySpan.textContent);
-                    if (val) sumExitFactory += val;
+                    exitQty = parseNumberFromSpaces(exitFactorySpan.textContent) || 0;
+                    sumExitFactory += exitQty;
                 }
 
                 // Кол-во прихода на склад (редактируемый input)
@@ -13811,27 +13810,32 @@ HTML_TEMPLATE = '''
                     if (val) sumArrival += val;
                 }
 
-                // Логистика из span (из ВЭД)
+                // Логистика — средневзвешенная: qty × logistics
                 const logisticsSpan = row.querySelector('.supply-logistics-auto');
-                if (logisticsSpan && logisticsSpan.dataset.value) {
+                if (logisticsSpan && logisticsSpan.dataset.value && exitQty > 0) {
                     const logVal = parseFloat(logisticsSpan.dataset.value) || 0;
-                    if (logVal > 0) { avgLogistics += logVal; countLogistics++; }
+                    if (logVal > 0) {
+                        sumLogisticsWeighted += exitQty * logVal;
+                        sumQtyForLogistics += exitQty;
+                    }
                 }
 
-                // Цена ₽ из span (из ВЭД)
+                // Цена ₽ — средневзвешенная: qty × price
                 const priceSpan = row.querySelector('.supply-price-auto');
-                if (priceSpan && priceSpan.dataset.value) {
+                if (priceSpan && priceSpan.dataset.value && exitQty > 0) {
                     const priceVal = parseFloat(priceSpan.dataset.value) || 0;
-                    if (priceVal > 0) { avgPrice += priceVal; countPrice++; }
-                }
-
-                // Себестоимость из span
-                const costSpan = row.querySelector('.supply-cost-auto');
-                if (costSpan && costSpan.textContent !== '—') {
-                    const costVal = parseNumberFromSpaces(costSpan.textContent);
-                    if (costVal) { avgCost += costVal; countCost++; }
+                    if (priceVal > 0) {
+                        sumPriceWeighted += exitQty * priceVal;
+                        sumQtyForPrice += exitQty;
+                    }
                 }
             });
+
+            // Рассчитываем средневзвешенные значения
+            const avgLogistics = sumQtyForLogistics > 0 ? sumLogisticsWeighted / sumQtyForLogistics : 0;
+            const avgPrice = sumQtyForPrice > 0 ? sumPriceWeighted / sumQtyForPrice : 0;
+            // Себестоимость = (итоговая логистика + итоговая цена) × 1.06
+            const avgCost = (avgLogistics > 0 || avgPrice > 0) ? (avgLogistics + avgPrice) * 1.06 : 0;
 
             // Строим строку итогов
             let html = '<td style="font-weight:600; text-align:right;">Итого:</td>'; // товар
@@ -13846,14 +13850,14 @@ HTML_TEMPLATE = '''
             // Учтено ВЭД (пусто в итогах)
             html += '<td></td>';
 
-            // Логистика (среднее из ВЭД)
-            html += '<td>' + (countLogistics ? formatNumberWithSpaces(Math.round(avgLogistics / countLogistics)) : '') + '</td>';
+            // Логистика (средневзвешенная)
+            html += '<td>' + (avgLogistics > 0 ? formatNumberWithSpaces(Math.round(avgLogistics)) : '') + '</td>';
 
-            // Цена ₽ (среднее из ВЭД)
-            html += '<td>' + (countPrice ? formatNumberWithSpaces(Math.round(avgPrice / countPrice)) : '') + '</td>';
+            // Цена ₽ (средневзвешенная)
+            html += '<td>' + (avgPrice > 0 ? formatNumberWithSpaces(Math.round(avgPrice)) : '') + '</td>';
 
-            // Себестоимость (среднее)
-            html += '<td>' + (countCost ? formatNumberWithSpaces(Math.round(avgCost / countCost)) : '') + '</td>';
+            // Себестоимость (из итоговой логистики и цены)
+            html += '<td>' + (avgCost > 0 ? formatNumberWithSpaces(Math.round(avgCost)) : '') + '</td>';
 
             tfoot.innerHTML = html;
 
