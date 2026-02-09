@@ -15034,7 +15034,8 @@ def api_users_with_telegram():
             chat_id = user['telegram_chat_id']
             cursor.execute('SELECT sender_name FROM document_messages WHERE sender_type="telegram" AND telegram_chat_id=? LIMIT 1', (chat_id,))
             tg_row = cursor.fetchone()
-            user['telegram_username'] = tg_row['sender_name'] if tg_row else f'ID:{chat_id}'
+            # Показываем только username, если он есть (не показываем ID)
+            user['telegram_username'] = tg_row['sender_name'] if tg_row else ''
             users.append(user)
 
         conn.close()
