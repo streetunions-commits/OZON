@@ -6465,8 +6465,15 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
-                    <!-- Форма нового контейнера -->
-                    <div class="receipt-form" id="ved-container-form">
+                    <!-- Кнопка создания нового контейнера -->
+                    <div id="ved-container-create-btn-wrapper" style="margin-bottom: 20px;">
+                        <button class="wh-save-receipt-btn" onclick="showVedContainerForm()" style="display: flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
+                            <span style="font-size: 18px;">+</span> Создать новый контейнер
+                        </button>
+                    </div>
+
+                    <!-- Форма нового контейнера (скрыта по умолчанию) -->
+                    <div class="receipt-form" id="ved-container-form" style="display: none;">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
@@ -11520,6 +11527,7 @@ HTML_TEMPLATE = '''
                     // Очищаем список файлов сессии (файлы успешно сохранены, не удаляем их)
                     vedContainerUploadedFilesSession = [];
                     clearVedContainerForm();
+                    hideVedContainerForm();
                     loadVedContainersHistory();
                 } else {
                     alert('Ошибка сохранения: ' + (result.error || 'Неизвестная ошибка'));
@@ -11877,8 +11885,8 @@ HTML_TEMPLATE = '''
                 // Загружаем файлы контейнера
                 loadVedContainerFiles(docId);
 
-                // Прокручиваем к форме
-                document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
+                // Показываем форму и прокручиваем к ней
+                showVedContainerForm();
             } catch (error) {
                 console.error('Ошибка загрузки контейнера для редактирования:', error);
                 alert('Ошибка загрузки контейнера');
@@ -11978,6 +11986,23 @@ HTML_TEMPLATE = '''
         }
 
         /**
+         * Показать форму создания/редактирования контейнера
+         */
+        function showVedContainerForm() {
+            document.getElementById('ved-container-form').style.display = 'block';
+            document.getElementById('ved-container-create-btn-wrapper').style.display = 'none';
+            document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        /**
+         * Скрыть форму создания/редактирования контейнера
+         */
+        function hideVedContainerForm() {
+            document.getElementById('ved-container-form').style.display = 'none';
+            document.getElementById('ved-container-create-btn-wrapper').style.display = 'block';
+        }
+
+        /**
          * Отменить редактирование контейнера ВЭД (сбросить все изменения)
          */
         function cancelVedContainer() {
@@ -11985,6 +12010,7 @@ HTML_TEMPLATE = '''
                 return;
             }
             clearVedContainerForm();
+            hideVedContainerForm();
         }
 
         /**
