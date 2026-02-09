@@ -6484,6 +6484,14 @@ HTML_TEMPLATE = '''
                     <div class="wh-table-wrapper" id="ved-receipts-wrapper" style="display: none; overflow-x: auto;">
                         <table class="wh-table" id="ved-receipts-table">
                             <thead>
+                                <tr id="ved-receipts-summary" style="background-color: #e8f4fd; font-weight: 600;">
+                                    <th></th>
+                                    <th style="text-align: right;">Итого:</th>
+                                    <th id="ved-receipts-total-qty">-</th>
+                                    <th id="ved-receipts-avg-price">-</th>
+                                    <th id="ved-receipts-avg-cost">-</th>
+                                    <th id="ved-receipts-avg-log">-</th>
+                                </tr>
                                 <tr>
                                     <th>Дата выхода</th>
                                     <th>Артикул</th>
@@ -11301,6 +11309,7 @@ HTML_TEMPLATE = '''
                         container_date: containerDate,
                         supplier: supplier,
                         comment: comment,
+                        important: important,
                         cny_rate: cnyRate,
                         cny_percent: cnyPercent,
                         items: items
@@ -11446,23 +11455,49 @@ HTML_TEMPLATE = '''
                 if (wrapper) wrapper.style.display = 'block';
                 if (empty) empty.style.display = 'none';
 
+                // Переменные для расчёта итогов и средневзвешенных значений
+                let totalQty = 0;
+                let sumQtyPrice = 0;    // сумма (кол-во × цена)
+                let sumQtyCost = 0;     // сумма (кол-во × себест./шт.)
+                let sumQtyLog = 0;      // сумма (кол-во × лог./шт.)
+
                 tbody.innerHTML = '';
                 result.items.forEach(item => {
                     const row = document.createElement('tr');
                     const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
 
-                    const logisticsPerUnit = item.quantity > 0 ? Math.ceil(item.all_logistics / item.quantity) : 0;
-                    const costPerUnit = item.quantity > 0 ? Math.ceil(item.cost_rub / item.quantity) : 0;
+                    const qty = item.quantity || 0;
+                    const priceCny = item.price_cny || 0;
+                    const logisticsPerUnit = qty > 0 ? Math.ceil(item.all_logistics / qty) : 0;
+                    const costPerUnit = qty > 0 ? Math.ceil(item.cost_rub / qty) : 0;
+
+                    // Накапливаем для средневзвешенного
+                    totalQty += qty;
+                    sumQtyPrice += qty * priceCny;
+                    sumQtyCost += qty * costPerUnit;
+                    sumQtyLog += qty * logisticsPerUnit;
+
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
                         <td>${item.article || '-'}</td>
-                        <td>${formatVedNumber(item.quantity)}</td>
-                        <td>${formatVedNumber(item.price_cny, '¥')}</td>
+                        <td>${formatVedNumber(qty)}</td>
+                        <td>${formatVedNumber(priceCny, '¥')}</td>
                         <td>${costPerUnit.toLocaleString('ru-RU')} ₽</td>
                         <td>${logisticsPerUnit.toLocaleString('ru-RU')} ₽</td>
                     `;
                     tbody.appendChild(row);
                 });
+
+                // Рассчитываем средневзвешенные значения
+                const avgPrice = totalQty > 0 ? sumQtyPrice / totalQty : 0;
+                const avgCost = totalQty > 0 ? Math.ceil(sumQtyCost / totalQty) : 0;
+                const avgLog = totalQty > 0 ? Math.ceil(sumQtyLog / totalQty) : 0;
+
+                // Заполняем строку итогов
+                document.getElementById('ved-receipts-total-qty').textContent = totalQty.toLocaleString('ru-RU');
+                document.getElementById('ved-receipts-avg-price').textContent = avgPrice.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ¥';
+                document.getElementById('ved-receipts-avg-cost').textContent = avgCost.toLocaleString('ru-RU') + ' ₽';
+                document.getElementById('ved-receipts-avg-log').textContent = avgLog.toLocaleString('ru-RU') + ' ₽';
             } catch (error) {
                 console.error('Ошибка загрузки поступлений:', error);
             }
