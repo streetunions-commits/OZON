@@ -6690,7 +6690,6 @@ HTML_TEMPLATE = '''
                                 <input type="checkbox" id="messages-filter-unread" onchange="loadAllMessages()">
                                 <span>Только непрочитанные</span>
                             </label>
-                            <button class="wh-clear-btn" onclick="markAllMessagesRead()">Отметить все прочитанными</button>
                         </div>
                     </div>
                     <div class="messages-list" id="messages-list">
@@ -17332,16 +17331,20 @@ def get_ved_receipts():
 @require_auth(['admin', 'viewer'])
 def get_ved_product_logistics():
     """
-    Получить среднюю логистику и себестоимость за единицу товара из завершённых контейнеров ВЭД.
+    Получить данные о логистике и себестоимости из завершённых контейнеров ВЭД.
 
-    Возвращает для каждого SKU:
-    - avg_logistics_per_unit: средняя логистика за штуку (взвешенная по количеству)
-    - avg_cost_per_unit_rub: средняя себестоимость за штуку в рублях (цена_юань * курс)
-    - total_quantity: общее количество товара в поступлениях ВЭД
+    Возвращает для каждого SKU список отдельных позиций (items) для точного
+    распределения по строкам поставок.
 
-    Расчёт:
-    - avg_logistics = SUM(all_logistics) / SUM(quantity)
-    - avg_cost_rub = SUM(price_cny * quantity * adjusted_rate) / SUM(quantity)
+    Каждая позиция содержит:
+    - quantity: количество товара
+    - logistics_per_unit: логистика за единицу
+    - cost_per_unit_rub: себестоимость за единицу в рублях
+
+    Также возвращает агрегированные данные (для обратной совместимости):
+    - total_quantity: общее количество
+    - avg_logistics_per_unit: средняя логистика
+    - avg_cost_per_unit_rub: средняя себестоимость
     """
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -17361,9 +17364,10 @@ def get_ved_product_logistics():
             FROM ved_container_items i
             INNER JOIN ved_container_docs d ON d.id = i.doc_id
             WHERE d.is_completed = 1 AND i.quantity > 0
+            ORDER BY i.sku, d.created_at
         ''')
 
-        # Агрегируем по SKU
+        # Группируем по SKU, сохраняя отдельные позиции
         sku_data = {}
         for row in cursor.fetchall():
             sku = str(row['sku'])
@@ -17375,15 +17379,30 @@ def get_ved_product_logistics():
 
             # Скорректированный курс с учётом процента
             adjusted_rate = cny_rate * (1 + cny_percent / 100)
-            # Себестоимость в рублях за эту партию
-            cost_rub = price_cny * adjusted_rate * qty
+            # Логистика за единицу
+            logistics_per_unit = all_logistics / qty if qty > 0 else 0
+            # Себестоимость в рублях за единицу
+            cost_per_unit_rub = price_cny * adjusted_rate
 
             if sku not in sku_data:
-                sku_data[sku] = {'total_qty': 0, 'total_logistics': 0, 'total_cost_rub': 0}
+                sku_data[sku] = {
+                    'items': [],
+                    'total_qty': 0,
+                    'total_logistics': 0,
+                    'total_cost_rub': 0
+                }
 
+            # Добавляем отдельную позицию
+            sku_data[sku]['items'].append({
+                'quantity': qty,
+                'logistics_per_unit': round(logistics_per_unit, 2),
+                'cost_per_unit_rub': round(cost_per_unit_rub, 2)
+            })
+
+            # Агрегируем для обратной совместимости
             sku_data[sku]['total_qty'] += qty
             sku_data[sku]['total_logistics'] += all_logistics
-            sku_data[sku]['total_cost_rub'] += cost_rub
+            sku_data[sku]['total_cost_rub'] += cost_per_unit_rub * qty
 
         conn.close()
 
@@ -17393,9 +17412,12 @@ def get_ved_product_logistics():
             total_qty = data['total_qty']
             if total_qty > 0:
                 result[sku] = {
+                    # Список отдельных позиций для точного распределения
+                    'items': data['items'],
+                    # Агрегированные данные (для обратной совместимости)
+                    'total_quantity': total_qty,
                     'avg_logistics_per_unit': round(data['total_logistics'] / total_qty, 2),
-                    'avg_cost_per_unit_rub': round(data['total_cost_rub'] / total_qty, 2),
-                    'total_quantity': total_qty
+                    'avg_cost_per_unit_rub': round(data['total_cost_rub'] / total_qty, 2)
                 }
 
         return jsonify({'success': True, 'logistics': result})
@@ -17947,7 +17969,7 @@ def get_all_document_messages():
         '''
         container_params = []
 
-        # Для viewer фильтруем по получателям (recipient_ids содержит user_id)
+        # Фильтруем сообщения контейнеров
         if user_role != 'admin':
             if user_id:
                 if unread_only:
@@ -17963,8 +17985,13 @@ def get_all_document_messages():
             else:
                 container_query = None
         else:
+            # Для admin тоже исключаем свои сообщения при фильтре непрочитанных
             if unread_only:
-                container_query += ' AND cm.is_read = 0'
+                if user_id:
+                    container_query += ' AND cm.is_read = 0 AND cm.sender_id != ?'
+                    container_params.append(user_id)
+                else:
+                    container_query += ' AND cm.is_read = 0'
 
         if container_query:
             cursor.execute(container_query, container_params)
@@ -18141,7 +18168,7 @@ def get_unread_messages_count():
             count += cursor.fetchone()[0]
 
         # 2. Считаем непрочитанные сообщения контейнеров
-        # Для пользователя: только те, которые адресованы ему, но НЕ отправлены им самим
+        # Только те, которые адресованы пользователю, но НЕ отправлены им самим
         if user_role != 'admin':
             if user_id:
                 cursor.execute('''
@@ -18150,8 +18177,16 @@ def get_unread_messages_count():
                 ''', (f'%{user_id}%', user_id))
                 count += cursor.fetchone()[0]
         else:
-            cursor.execute('SELECT COUNT(*) FROM container_messages WHERE is_read = 0')
-            count += cursor.fetchone()[0]
+            # Для admin тоже исключаем свои отправленные сообщения
+            if user_id:
+                cursor.execute('''
+                    SELECT COUNT(*) FROM container_messages
+                    WHERE is_read = 0 AND sender_id != ?
+                ''', (user_id,))
+                count += cursor.fetchone()[0]
+            else:
+                cursor.execute('SELECT COUNT(*) FROM container_messages WHERE is_read = 0')
+                count += cursor.fetchone()[0]
 
         conn.close()
 
