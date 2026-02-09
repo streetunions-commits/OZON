@@ -12964,73 +12964,24 @@ HTML_TEMPLATE = '''
                 row.dataset.containerItemId = data.container_item_id;
             }
 
-            // 1. Товар (выпадающий список) с кнопкой редактирования
+            // 1. Товар (только для чтения - данные из контейнера ВЭД)
             const tdProduct = document.createElement('td');
-            tdProduct.style.position = 'relative';
-            const selectProduct = document.createElement('select');
-            selectProduct.className = 'supply-select';
-            // Если товар уже выбран — блокируем поле
-            const hasProduct = data && data.sku;
-            selectProduct.disabled = hasProduct;
-            selectProduct.innerHTML = '<option value="">— Выберите товар —</option>';
-            suppliesProducts.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.sku;
-                opt.textContent = p.offer_id || p.sku;
-                if (data && data.sku == p.sku) opt.selected = true;
-                selectProduct.appendChild(opt);
-            });
-            tdProduct.appendChild(selectProduct);
+            tdProduct.className = 'supply-readonly-cell';
+            const productSpan = document.createElement('span');
+            productSpan.className = 'supply-readonly-value';
 
-            // Кнопка редактирования для товара
-            if (hasProduct) {
-                let originalProductValue = selectProduct.value;
-                const productEditBtn = document.createElement('button');
-                productEditBtn.type = 'button';
-                productEditBtn.className = 'supply-field-edit-btn';
-                productEditBtn.textContent = 'Ред';
-                productEditBtn.title = 'Редактировать товар';
-                productEditBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
-                productEditBtn.onclick = function() {
-                    originalProductValue = selectProduct.value;
-                    selectProduct.disabled = false;
-                    productEditBtn.style.display = 'none';
-                    selectProduct.focus();
-                };
-                selectProduct.onchange = function() {
-                    if (selectProduct.value !== originalProductValue) {
-                        showFieldChangeConfirm(
-                            'Изменение товара',
-                            'Вы уверены, что хотите изменить товар?',
-                            function() {
-                                originalProductValue = selectProduct.value;
-                                selectProduct.disabled = true;
-                                productEditBtn.style.display = 'inline-block';
-                                onSupplyFieldChange(row);
-                            },
-                            function() {
-                                selectProduct.value = originalProductValue;
-                                selectProduct.disabled = true;
-                                productEditBtn.style.display = 'inline-block';
-                            }
-                        );
-                    }
-                };
-                selectProduct.onblur = function() {
-                    setTimeout(() => {
-                        if (selectProduct.value && !selectProduct.disabled) {
-                            selectProduct.disabled = true;
-                            productEditBtn.style.display = 'inline-block';
-                        }
-                    }, 200);
-                };
-                tdProduct.appendChild(productEditBtn);
+            // Находим название товара по SKU
+            if (data && data.sku) {
+                const product = suppliesProducts.find(p => p.sku == data.sku);
+                productSpan.textContent = product ? (product.offer_id || product.sku) : data.sku;
+                // Сохраняем SKU в data-атрибут для использования при сохранении
+                tdProduct.dataset.sku = data.sku;
+            } else {
+                productSpan.textContent = '—';
+                productSpan.style.color = '#999';
             }
-            // Если данные из контейнера — товар нельзя редактировать
-            if (data && data.container_doc_id) {
-                selectProduct.disabled = true;
-                selectProduct.title = 'Данные из контейнера ВЭД (автозаполнение)';
-            }
+
+            tdProduct.appendChild(productSpan);
             row.appendChild(tdProduct);
 
             // 2. Дата выхода с фабрики (из контейнера — нередактируемая)
@@ -13279,11 +13230,6 @@ HTML_TEMPLATE = '''
                 span.style.color = '#999';
             }
 
-            if (isFromContainer) {
-                span.title = 'Данные из контейнера ВЭД (автозаполнение)';
-                td.style.backgroundColor = '#f0f9ff';
-            }
-
             td.appendChild(span);
             return td;
         }
@@ -13302,11 +13248,6 @@ HTML_TEMPLATE = '''
             } else {
                 span.textContent = '—';
                 span.style.color = '#999';
-            }
-
-            if (isFromContainer) {
-                span.title = 'Данные из контейнера ВЭД (автозаполнение)';
-                td.style.backgroundColor = '#f0f9ff';
             }
 
             td.appendChild(span);
@@ -13334,8 +13275,8 @@ HTML_TEMPLATE = '''
             // Ищем строки с тем же SKU и более ранней датой выхода с фабрики
             const prevRows = allRows.filter(r => {
                 if (r === row) return false;
-                const sel = r.querySelector('select');
-                const sku = sel ? (parseInt(sel.value) || 0) : 0;
+                const cells = r.querySelectorAll('td');
+                const sku = cells[0] ? (parseInt(cells[0].dataset.sku) || 0) : 0;
                 if (sku !== data.sku) return false;
 
                 // Получаем дату выхода с фабрики из span
@@ -13475,7 +13416,11 @@ HTML_TEMPLATE = '''
          */
         function getRowData(row) {
             const cells = row.querySelectorAll('td');
-            const select = cells[0].querySelector('select');
+
+            // Товар - нередактируемый span с data-sku
+            const productSku = cells[0] ? (cells[0].dataset.sku || 0) : 0;
+            const productNameSpan = cells[0] ? cells[0].querySelector('.supply-readonly-value') : null;
+            const productName = productNameSpan ? productNameSpan.textContent : '';
 
             // Дата и кол-во выхода с фабрики - нередактируемые span
             const exitFactoryDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
@@ -13523,8 +13468,8 @@ HTML_TEMPLATE = '''
                 id: row.dataset.supplyId,
                 container_doc_id: row.dataset.containerDocId || null,
                 container_item_id: row.dataset.containerItemId || null,
-                sku: select ? parseInt(select.value) || 0 : 0,
-                product_name: select ? select.options[select.selectedIndex]?.text || '' : '',
+                sku: parseInt(productSku) || 0,
+                product_name: productName,
                 exit_factory_date: parseDateFromSpan(exitFactoryDateSpan),
                 exit_factory_qty: parseNumberFromSpan(exitFactoryQtySpan),
                 arrival_warehouse_date: dateInputs[0] ? dateInputs[0].value : '',
