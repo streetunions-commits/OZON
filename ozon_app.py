@@ -6185,9 +6185,9 @@ HTML_TEMPLATE = '''
                                 <span style="color: #999;">—</span>
                                 <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
                                 <span style="color: #ddd; margin: 0 4px;">|</span>
-                                <label style="font-size: 13px; color: #666;">Товар:</label>
-                                <select id="receipt-filter-product" class="wh-input" style="width: 250px; cursor: pointer;" onchange="filterReceiptHistory()">
-                                    <option value="">Все товары</option>
+                                <label style="font-size: 13px; color: #666;">Артикул:</label>
+                                <select id="receipt-filter-product" class="wh-input" style="width: 200px; cursor: pointer;" onchange="filterReceiptHistory()">
+                                    <option value="">Все артикулы</option>
                                 </select>
                                 <button class="wh-clear-btn" onclick="resetReceiptDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
                             </div>
@@ -8786,17 +8786,17 @@ HTML_TEMPLATE = '''
                 }
             });
 
-            // Очищаем select и добавляем опцию "Все товары"
-            select.innerHTML = '<option value="">Все товары</option>';
+            // Очищаем select и добавляем опцию "Все артикулы"
+            select.innerHTML = '<option value="">Все артикулы</option>';
 
             // Добавляем товары из warehouseProducts, которые есть в приходах
-            const productsInReceipts = warehouseProducts.filter(p => skuSet.has(p.sku));
-            productsInReceipts.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+            const productsInReceipts = warehouseProducts.filter(p => skuSet.has(p.sku) && p.offer_id);
+            productsInReceipts.sort((a, b) => (a.offer_id || '').localeCompare(b.offer_id || '', 'en'));
 
             productsInReceipts.forEach(p => {
                 const option = document.createElement('option');
                 option.value = p.sku;
-                option.textContent = p.name;
+                option.textContent = p.offer_id;  // Артикул на английском
                 select.appendChild(option);
             });
 
