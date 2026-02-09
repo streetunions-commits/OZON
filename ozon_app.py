@@ -13593,7 +13593,7 @@ HTML_TEMPLATE = '''
 
             // Индексы столбцов (0-based):
             // 0:товар, 1:дата план, 2:заказ план, 3:дата выхода, 4:кол выхода,
-            // 5:дата прихода, 6:кол прихода, 7:учтено ВЭД, 8:логистика₽, 9:цена¥, 10:себестоимость,
+            // 5:дата прихода, 6:кол прихода, 7:учтено ВЭД, 8:логистика₽, 9:цена₽, 10:себестоимость,
             // 11:долги, 12:FBO, 13:замок, 14:удалить
 
             // Собираем данные
@@ -13604,7 +13604,7 @@ HTML_TEMPLATE = '''
 
             rows.forEach(row => {
                 const textInputs = row.querySelectorAll('input[type="text"]');
-                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty, 3=price_cny
+                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty
                 const vals = [];
                 textInputs.forEach(inp => vals.push(parseNumberFromSpaces(inp.value)));
 
@@ -13620,8 +13620,12 @@ HTML_TEMPLATE = '''
                     if (logVal > 0) { avgLogistics += logVal; countLogistics++; }
                 }
 
-                // Цена ¥ (idx 3)
-                if (vals[3]) { avgPrice += vals[3]; countPrice++; }
+                // Цена ₽ из span (из ВЭД)
+                const priceSpan = row.querySelector('.supply-price-auto');
+                if (priceSpan && priceSpan.dataset.value) {
+                    const priceVal = parseFloat(priceSpan.dataset.value) || 0;
+                    if (priceVal > 0) { avgPrice += priceVal; countPrice++; }
+                }
 
                 // Себестоимость из span
                 const costSpan = row.querySelector('.supply-cost-auto');
@@ -13652,7 +13656,7 @@ HTML_TEMPLATE = '''
             // Логистика (среднее из ВЭД)
             html += '<td>' + (countLogistics ? formatNumberWithSpaces(Math.round(avgLogistics / countLogistics)) : '') + '</td>';
 
-            // Цена ¥ (среднее)
+            // Цена ₽ (среднее из ВЭД)
             html += '<td>' + (countPrice ? formatNumberWithSpaces(Math.round(avgPrice / countPrice)) : '') + '</td>';
 
             // Себестоимость (среднее)
