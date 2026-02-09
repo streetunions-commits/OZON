@@ -528,6 +528,13 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем связь с контейнером ВЭД
+    for column in ['container_doc_id INTEGER', 'container_item_id INTEGER']:
+        try:
+            cursor.execute(f'ALTER TABLE supplies ADD COLUMN {column}')
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+
     # ============================================================================
     # ТАБЛИЦА КУРСОВ ВАЛЮТ — кэш курсов ЦБ РФ
     # ============================================================================
@@ -7987,6 +7994,8 @@ HTML_TEMPLATE = '''
                         // Инициализируем формы после загрузки товаров
                         initReceiptForm();
                         initShipmentForm();
+                        // Обновляем фильтр артикулов (если приходы уже загружены)
+                        populateReceiptProductFilter();
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки товаров:', err));
@@ -8784,12 +8793,6 @@ HTML_TEMPLATE = '''
                 if (doc.item_skus && Array.isArray(doc.item_skus)) {
                     doc.item_skus.forEach(sku => skuSet.add(sku));
                 }
-            });
-
-            console.log('populateReceiptProductFilter:', {
-                allReceiptDocs: allReceiptDocs.length,
-                skuSet: [...skuSet],
-                warehouseProducts: warehouseProducts.length
             });
 
             // Очищаем select и добавляем опцию "Все артикулы"
