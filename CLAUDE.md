@@ -77,6 +77,33 @@ After every `git push`, you MUST deploy changes to the production server:
 
 **CRITICAL: Push without deploy = incomplete task. The server MUST always run the latest code.**
 
+**6. Preserve tab/subtab state on page refresh**
+
+When creating or modifying tabs and subtabs in the UI:
+- **ALWAYS save** the active tab/subtab to `location.hash` when switching
+- **ALWAYS restore** the tab/subtab from hash on page load
+- **Add new subtabs** to the `validXxxSubtabs` arrays in `initApp()` function
+- Format: `location.hash = 'tab'` or `location.hash = 'tab:subtab'`
+- User must stay on the same page after refresh, not be redirected to the initial tab
+
+**Example implementation:**
+```javascript
+// Saving tab state
+function switchTab(e, tab) {
+    // ... tab switching logic ...
+    location.hash = tab;
+}
+
+// Saving subtab state
+function switchVedSubtab(e, subtab) {
+    // ... subtab switching logic ...
+    location.hash = 'ved:' + subtab;
+}
+
+// Restoring in initApp() - add subtab to valid array:
+const validVedSubtabs = ['ved-containers', 'ved-receipts'];
+```
+
 ## Self-annealing loop
 
 Errors are learning opportunities. When something breaks:
