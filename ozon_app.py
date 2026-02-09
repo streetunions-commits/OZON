@@ -12698,8 +12698,9 @@ HTML_TEMPLATE = '''
          *
          * Параметры:
          *   data — объект с данными поставки (из базы) или null для новой строки
+         *   vedCoverage — рассчитанное покрытие ВЭД {covered, shortage} или null
          */
-        function createSupplyRowElement(data) {
+        function createSupplyRowElement(data, vedCoverage) {
             const row = document.createElement('tr');
             // По умолчанию все существующие строки заблокированы
             // Проверяем: если строка была разблокирована менее 30 минут назад — оставляем открытой
@@ -12750,27 +12751,37 @@ HTML_TEMPLATE = '''
             // 7. Кол-во прихода на склад (число)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', isLocked, row, 'arrival_warehouse_qty'));
 
-            // 8. Учтено ВЭД (разница между приходом и данными ВЭД)
+            // 8. Учтено ВЭД (распределённое покрытие данными ВЭД)
             const tdVedQty = document.createElement('td');
             tdVedQty.className = 'ved-qty-cell';
             const vedQtySpan = document.createElement('span');
             vedQtySpan.className = 'supply-ved-qty';
-            // Получаем SKU и данные из ВЭД
             const sku = data ? data.sku : null;
             const arrivalQty = data ? (data.arrival_warehouse_qty || 0) : 0;
             const vedData = sku ? (vedProductLogistics[String(sku)] || null) : null;
-            const vedTotalQty = vedData ? vedData.total_quantity : 0;
-            // Разница: положительная = достаточно данных, отрицательная = не хватает
-            const qtyDiff = vedTotalQty - arrivalQty;
-            if (vedData && arrivalQty > 0) {
-                vedQtySpan.textContent = formatNumberWithSpaces(qtyDiff);
-                if (qtyDiff < 0) {
-                    vedQtySpan.style.color = '#dc2626'; // красный - не хватает данных
-                    vedQtySpan.title = 'Не хватает данных ВЭД для ' + Math.abs(qtyDiff) + ' ед.';
+
+            // Используем рассчитанное покрытие ВЭД
+            if (vedCoverage && arrivalQty > 0) {
+                if (vedCoverage.shortage === 0) {
+                    // Полностью покрыто - показываем 0
+                    vedQtySpan.textContent = '0';
+                    vedQtySpan.style.color = '#16a34a'; // зелёный
+                    vedQtySpan.title = 'Полностью учтено в ВЭД: ' + vedCoverage.covered + ' ед.';
+                } else if (vedCoverage.covered > 0) {
+                    // Частично покрыто - показываем отрицательный дефицит
+                    vedQtySpan.textContent = formatNumberWithSpaces(-vedCoverage.shortage);
+                    vedQtySpan.style.color = '#f59e0b'; // оранжевый
+                    vedQtySpan.title = 'Частично учтено: ' + vedCoverage.covered + ' из ' + arrivalQty + ' ед. Не хватает: ' + vedCoverage.shortage;
                 } else {
-                    vedQtySpan.style.color = '#16a34a'; // зелёный - данных достаточно
-                    vedQtySpan.title = 'Учтено в ВЭД: ' + vedTotalQty + ' ед.';
+                    // Не покрыто - показываем полный дефицит
+                    vedQtySpan.textContent = formatNumberWithSpaces(-vedCoverage.shortage);
+                    vedQtySpan.style.color = '#dc2626'; // красный
+                    vedQtySpan.title = 'Не учтено в ВЭД. Нужно данных для ' + vedCoverage.shortage + ' ед.';
                 }
+            } else if (arrivalQty > 0 && vedData) {
+                // Есть данные ВЭД но нет рассчитанного покрытия - фоллбэк
+                vedQtySpan.textContent = '—';
+                vedQtySpan.style.color = '#999';
             } else if (arrivalQty > 0) {
                 vedQtySpan.textContent = '—';
                 vedQtySpan.style.color = '#999';
@@ -13139,7 +13150,7 @@ HTML_TEMPLATE = '''
             overlay.querySelector('.supply-confirm-yes').onclick = () => {
                 overlay.remove();
                 const tbody = document.getElementById('supplies-tbody');
-                const row = createSupplyRowElement(null);
+                const row = createSupplyRowElement(null, null);
                 tbody.appendChild(row);
                 highlightEmptyCells(row);
                 updateSupplyTotals();
