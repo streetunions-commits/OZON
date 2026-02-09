@@ -6454,7 +6454,6 @@ HTML_TEMPLATE = '''
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
                                     <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
-                                    <th style="width: 40px;"></th>
                                 </tr>
                                 <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
                             </thead>
@@ -13140,18 +13139,7 @@ HTML_TEMPLATE = '''
             tdCost.appendChild(costSpan);
             row.appendChild(tdCost);
 
-            // 11. Кнопка удаления строки
-            const tdDel = document.createElement('td');
-            const delBtn = document.createElement('button');
-            delBtn.className = 'supply-delete-btn';
-            delBtn.textContent = '✕';
-            delBtn.title = 'Удалить строку';
-            delBtn.onclick = function(e) {
-                e.stopPropagation();
-                deleteSupplyRow(row);
-            };
-            tdDel.appendChild(delBtn);
-            row.appendChild(tdDel);
+            // Кнопка удаления убрана - строки управляются через контейнеры ВЭД
 
             return row;
         }
@@ -13912,8 +13900,6 @@ HTML_TEMPLATE = '''
 
             // Себестоимость (среднее)
             html += '<td>' + (countCost ? formatNumberWithSpaces(Math.round(avgCost / countCost)) : '') + '</td>';
-
-            html += '<td></td>'; // кнопка удалить
 
             tfoot.innerHTML = html;
 
@@ -16548,6 +16534,82 @@ def delete_supply():
         conn.close()
 
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/supplies/migrate-from-containers', methods=['POST'])
+@require_auth(['admin'])
+def migrate_supplies_from_containers():
+    """
+    Создать записи в supplies для всех существующих контейнеров ВЭД,
+    у которых ещё нет записей в supplies.
+
+    Вызывается один раз для миграции данных после изменения логики.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем все контейнеры с их позициями
+        cursor.execute('''
+            SELECT
+                d.id as doc_id,
+                d.container_date,
+                i.id as item_id,
+                i.sku,
+                i.quantity,
+                i.price_cny,
+                i.logistics_rf,
+                i.logistics_cn,
+                i.terminal,
+                i.customs
+            FROM ved_container_docs d
+            JOIN ved_container_items i ON i.doc_id = d.id
+        ''')
+
+        items = cursor.fetchall()
+        created_count = 0
+
+        for item in items:
+            # Проверяем, нет ли уже записи для этой позиции
+            cursor.execute(
+                'SELECT id FROM supplies WHERE container_doc_id = ? AND container_item_id = ?',
+                (item['doc_id'], item['item_id'])
+            )
+            existing = cursor.fetchone()
+
+            if not existing:
+                # Рассчитываем логистику за единицу
+                total_logistics = (item['logistics_rf'] or 0) + (item['logistics_cn'] or 0) + \
+                                  (item['terminal'] or 0) + (item['customs'] or 0)
+                logistics_per_unit = total_logistics / item['quantity'] if item['quantity'] > 0 else 0
+
+                # Создаём запись в supplies
+                cursor.execute('''
+                    INSERT INTO supplies (sku, exit_factory_date, exit_factory_qty, logistics_cost_per_unit,
+                                          price_cny, container_doc_id, container_item_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', (
+                    item['sku'],
+                    item['container_date'],
+                    item['quantity'],
+                    logistics_per_unit,
+                    item['price_cny'],
+                    item['doc_id'],
+                    item['item_id']
+                ))
+                created_count += 1
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': f'Создано {created_count} записей в Поставках',
+            'created_count': created_count
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
