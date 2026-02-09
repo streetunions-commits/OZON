@@ -6478,7 +6478,7 @@ HTML_TEMPLATE = '''
                                     <input type="text" id="ved-container-comment" class="wh-input" placeholder="Примечания к контейнеру">
                                 </div>
                             </div>
-                            <div class="receipt-form-row">
+                            <div class="receipt-form-row" style="margin-top: 15px;">
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Важно <span style="color: #dc3545; font-size: 11px;">(блокирует завершение)</span></label>
                                     <input type="text" id="ved-container-important" class="wh-input" placeholder="Важные заметки, блокирующие завершение" style="border-color: #ffc107;">
@@ -11208,6 +11208,9 @@ HTML_TEMPLATE = '''
             // Загружаем данные для подвкладки
             if (subtab === 'ved-receipts') {
                 loadVedReceipts();
+            } else if (subtab === 'ved-containers') {
+                // Загружаем получателей для сообщений
+                loadContainerMessageRecipients();
             }
 
             // Сохраняем подвкладку в URL hash (формат: ved:subtab)
@@ -11235,6 +11238,9 @@ HTML_TEMPLATE = '''
             // Загружаем данные для подвкладки
             if (subtab === 'ved-receipts') {
                 loadVedReceipts();
+            } else if (subtab === 'ved-containers') {
+                // Загружаем получателей для сообщений
+                loadContainerMessageRecipients();
             }
         }
 
@@ -11932,10 +11938,15 @@ HTML_TEMPLATE = '''
             addVedContainerItemRow();
             updateVedContainerTotals();
 
-            // Скрываем блок сообщений
-            document.getElementById('ved-container-messages-section').style.display = 'none';
-            document.getElementById('ved-container-messages-list').innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>';
+            // Показываем блок сообщений (доступен и при создании нового контейнера)
+            document.getElementById('ved-container-messages-section').style.display = 'block';
+            document.getElementById('ved-container-messages-list').style.display = 'none';
+            document.getElementById('ved-container-messages-list').innerHTML = '';
             document.getElementById('ved-container-msg-text').value = '';
+            // Снимаем выделение с чекбоксов получателей
+            document.querySelectorAll('.container-msg-recipient').forEach(cb => cb.checked = false);
+            // Загружаем получателей
+            loadContainerMessageRecipients();
         }
 
         // ============================================================================
