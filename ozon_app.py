@@ -602,6 +602,12 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
 
+    # Миграция: добавляем колонку important (важно) для контейнеров ВЭД
+    try:
+        cursor.execute('ALTER TABLE ved_container_docs ADD COLUMN important TEXT DEFAULT ""')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
     # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
     # ============================================================================
@@ -6391,6 +6397,12 @@ HTML_TEMPLATE = '''
                                     <input type="text" id="ved-container-comment" class="wh-input" placeholder="Примечания к контейнеру">
                                 </div>
                             </div>
+                            <div class="receipt-form-row">
+                                <div class="receipt-form-field" style="flex: 1;">
+                                    <label>Важно <span style="color: #dc3545; font-size: 11px;">(блокирует завершение)</span></label>
+                                    <input type="text" id="ved-container-important" class="wh-input" placeholder="Важные заметки, блокирующие завершение" style="border-color: #ffc107;">
+                                </div>
+                            </div>
                         </div>
 
                         <div class="receipt-items-header">
@@ -6464,6 +6476,7 @@ HTML_TEMPLATE = '''
                                         <th>Пошлина</th>
                                         <th>Вся лог.</th>
                                         <th style="min-width: 300px; text-align: left;">Комментарий</th>
+                                        <th style="min-width: 250px; text-align: left;">Важно</th>
                                         <th>Изменено</th>
                                         <th style="width: 70px;">Завершено</th>
                                         <th style="width: 80px;"></th>
@@ -6481,24 +6494,33 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Поступления -->
                 <div id="ved-receipts" class="ved-subtab-content">
+                    <!-- Фильтр по артикулу -->
+                    <div class="ved-receipts-filter" style="margin-bottom: 15px; display: flex; gap: 15px; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label style="font-weight: 500;">Артикул:</label>
+                            <select id="ved-receipts-article-filter" class="wh-input" style="width: 200px;" onchange="filterVedReceipts()">
+                                <option value="">Все артикулы</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="wh-table-wrapper" id="ved-receipts-wrapper" style="display: none; overflow-x: auto;">
                         <table class="wh-table" id="ved-receipts-table">
                             <thead>
                                 <tr id="ved-receipts-summary" style="background-color: #e8f4fd; font-weight: 600;">
-                                    <th></th>
-                                    <th style="text-align: right;">Итого:</th>
-                                    <th id="ved-receipts-total-qty">-</th>
-                                    <th id="ved-receipts-avg-price">-</th>
-                                    <th id="ved-receipts-avg-cost">-</th>
-                                    <th id="ved-receipts-avg-log">-</th>
+                                    <th style="text-align: center;">—</th>
+                                    <th style="text-align: center;">Итого:</th>
+                                    <th id="ved-receipts-total-qty" style="text-align: center;">-</th>
+                                    <th id="ved-receipts-avg-price" style="text-align: center;">-</th>
+                                    <th id="ved-receipts-avg-cost" style="text-align: center;">-</th>
+                                    <th id="ved-receipts-avg-log" style="text-align: center;">-</th>
                                 </tr>
                                 <tr>
-                                    <th>Дата выхода</th>
-                                    <th>Артикул</th>
-                                    <th>Кол-во</th>
-                                    <th>Цена/шт., ¥</th>
-                                    <th>Себест./шт., ₽</th>
-                                    <th>Лог./шт., ₽</th>
+                                    <th style="cursor: pointer; text-align: center;" onclick="sortVedReceiptsByDate()">Дата выхода <span id="ved-receipts-sort-icon">↑</span></th>
+                                    <th style="text-align: center;">Артикул</th>
+                                    <th style="text-align: center;">Кол-во</th>
+                                    <th style="text-align: center;">Цена/шт., ¥</th>
+                                    <th style="text-align: center;">Себест./шт., ₽</th>
+                                    <th style="text-align: center;">Лог./шт., ₽</th>
                                 </tr>
                             </thead>
                             <tbody id="ved-receipts-tbody">
@@ -6558,6 +6580,7 @@ HTML_TEMPLATE = '''
                             <tr>
                                 <th>ID</th>
                                 <th>Логин</th>
+                                <th>Отображаемое имя</th>
                                 <th>Роль</th>
                                 <th>Telegram</th>
                                 <th>Создан</th>
@@ -6565,7 +6588,7 @@ HTML_TEMPLATE = '''
                             </tr>
                         </thead>
                         <tbody id="users-tbody">
-                            <tr><td colspan="5" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>
+                            <tr><td colspan="7" style="text-align:center;color:#999;padding:40px;">Загрузка...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -11232,6 +11255,7 @@ HTML_TEMPLATE = '''
             const containerDate = document.getElementById('ved-container-date').value;
             const supplier = document.getElementById('ved-container-supplier').value.trim();
             const comment = document.getElementById('ved-container-comment').value.trim();
+            const important = (document.getElementById('ved-container-important') || {}).value?.trim() || '';
             const cnyRate = vedCnyRate || 0;
             const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
 
@@ -11391,6 +11415,9 @@ HTML_TEMPLATE = '''
                     const hasZeros = doc.total_logistics_rf === 0 || doc.total_logistics_cn === 0 ||
                                      doc.total_terminal === 0 || doc.total_customs === 0;
 
+                    // Проверяем, заполнено ли поле "Важно" (блокирует завершение)
+                    const hasImportant = doc.important && doc.important.trim() \!== '';
+
                     // Функция для форматирования с красным ФОНОМ для нулей
                     const formatWithZeroBg = (val, suffix) => {
                         const formatted = formatVedNumber(val, suffix);
@@ -11434,6 +11461,10 @@ HTML_TEMPLATE = '''
             }
         }
 
+        // Глобальные переменные для поступлений
+        let vedReceiptsData = [];           // Все данные поступлений
+        let vedReceiptsSortAsc = true;      // Сортировка по дате: true = от старых к новым
+
         /**
          * Загрузить список поступлений (товары из завершённых контейнеров)
          */
@@ -11442,65 +11473,137 @@ HTML_TEMPLATE = '''
                 const response = await authFetch('/api/ved/receipts');
                 const result = await response.json();
 
-                const tbody = document.getElementById('ved-receipts-tbody');
                 const wrapper = document.getElementById('ved-receipts-wrapper');
                 const empty = document.getElementById('ved-receipts-empty');
 
                 if (!result.success || !result.items || result.items.length === 0) {
                     if (wrapper) wrapper.style.display = 'none';
                     if (empty) empty.style.display = 'block';
+                    vedReceiptsData = [];
                     return;
                 }
 
                 if (wrapper) wrapper.style.display = 'block';
                 if (empty) empty.style.display = 'none';
 
-                // Переменные для расчёта итогов и средневзвешенных значений
-                let totalQty = 0;
-                let sumQtyPrice = 0;    // сумма (кол-во × цена)
-                let sumQtyCost = 0;     // сумма (кол-во × себест./шт.)
-                let sumQtyLog = 0;      // сумма (кол-во × лог./шт.)
+                // Сохраняем данные глобально
+                vedReceiptsData = result.items;
 
-                tbody.innerHTML = '';
-                result.items.forEach(item => {
-                    const row = document.createElement('tr');
-                    const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
+                // Заполняем фильтр артикулов
+                populateArticleFilter();
 
-                    const qty = item.quantity || 0;
-                    const priceCny = item.price_cny || 0;
-                    const logisticsPerUnit = qty > 0 ? Math.ceil(item.all_logistics / qty) : 0;
-                    const costPerUnit = qty > 0 ? Math.ceil(item.cost_rub / qty) : 0;
-
-                    // Накапливаем для средневзвешенного
-                    totalQty += qty;
-                    sumQtyPrice += qty * priceCny;
-                    sumQtyCost += qty * costPerUnit;
-                    sumQtyLog += qty * logisticsPerUnit;
-
-                    row.innerHTML = `
-                        <td>${dateFormatted}</td>
-                        <td>${item.article || '-'}</td>
-                        <td>${formatVedNumber(qty)}</td>
-                        <td>${formatVedNumber(priceCny, '¥')}</td>
-                        <td>${costPerUnit.toLocaleString('ru-RU')} ₽</td>
-                        <td>${logisticsPerUnit.toLocaleString('ru-RU')} ₽</td>
-                    `;
-                    tbody.appendChild(row);
-                });
-
-                // Рассчитываем средневзвешенные значения
-                const avgPrice = totalQty > 0 ? sumQtyPrice / totalQty : 0;
-                const avgCost = totalQty > 0 ? Math.ceil(sumQtyCost / totalQty) : 0;
-                const avgLog = totalQty > 0 ? Math.ceil(sumQtyLog / totalQty) : 0;
-
-                // Заполняем строку итогов
-                document.getElementById('ved-receipts-total-qty').textContent = totalQty.toLocaleString('ru-RU');
-                document.getElementById('ved-receipts-avg-price').textContent = avgPrice.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ¥';
-                document.getElementById('ved-receipts-avg-cost').textContent = avgCost.toLocaleString('ru-RU') + ' ₽';
-                document.getElementById('ved-receipts-avg-log').textContent = avgLog.toLocaleString('ru-RU') + ' ₽';
+                // Отображаем данные
+                renderVedReceipts();
             } catch (error) {
                 console.error('Ошибка загрузки поступлений:', error);
             }
+        }
+
+        /**
+         * Заполнить выпадающий список артикулов
+         */
+        function populateArticleFilter() {
+            const select = document.getElementById('ved-receipts-article-filter');
+            if (!select) return;
+
+            // Сохраняем текущее значение
+            const currentValue = select.value;
+
+            // Собираем уникальные артикулы
+            const articles = [...new Set(vedReceiptsData.map(item => item.article).filter(a => a))].sort();
+
+            // Очищаем и заполняем
+            select.innerHTML = '<option value="">Все артикулы</option>';
+            articles.forEach(article => {
+                const option = document.createElement('option');
+                option.value = article;
+                option.textContent = article;
+                select.appendChild(option);
+            });
+
+            // Восстанавливаем выбранное значение
+            select.value = currentValue;
+        }
+
+        /**
+         * Фильтровать поступления по артикулу
+         */
+        function filterVedReceipts() {
+            renderVedReceipts();
+        }
+
+        /**
+         * Сортировать поступления по дате
+         */
+        function sortVedReceiptsByDate() {
+            vedReceiptsSortAsc = !vedReceiptsSortAsc;
+            document.getElementById('ved-receipts-sort-icon').textContent = vedReceiptsSortAsc ? '↑' : '↓';
+            renderVedReceipts();
+        }
+
+        /**
+         * Отрисовать таблицу поступлений с учётом фильтра и сортировки
+         */
+        function renderVedReceipts() {
+            const tbody = document.getElementById('ved-receipts-tbody');
+            const articleFilter = document.getElementById('ved-receipts-article-filter')?.value || '';
+
+            // Фильтруем данные
+            let filteredData = vedReceiptsData;
+            if (articleFilter) {
+                filteredData = vedReceiptsData.filter(item => item.article === articleFilter);
+            }
+
+            // Сортируем по дате
+            filteredData = [...filteredData].sort((a, b) => {
+                const dateA = a.container_date || '';
+                const dateB = b.container_date || '';
+                return vedReceiptsSortAsc ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+            });
+
+            // Переменные для расчёта итогов и средневзвешенных значений
+            let totalQty = 0;
+            let sumQtyPrice = 0;
+            let sumQtyCost = 0;
+            let sumQtyLog = 0;
+
+            tbody.innerHTML = '';
+            filteredData.forEach(item => {
+                const row = document.createElement('tr');
+                const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
+
+                const qty = item.quantity || 0;
+                const priceCny = item.price_cny || 0;
+                const logisticsPerUnit = qty > 0 ? Math.ceil(item.all_logistics / qty) : 0;
+                const costPerUnit = qty > 0 ? Math.ceil(item.cost_rub / qty) : 0;
+
+                // Накапливаем для средневзвешенного
+                totalQty += qty;
+                sumQtyPrice += qty * priceCny;
+                sumQtyCost += qty * costPerUnit;
+                sumQtyLog += qty * logisticsPerUnit;
+
+                row.innerHTML = `
+                    <td style="text-align: center;">${dateFormatted}</td>
+                    <td style="text-align: center;">${item.article || '-'}</td>
+                    <td style="text-align: center;">${formatVedNumber(qty)}</td>
+                    <td style="text-align: center;">${formatVedNumber(priceCny, '¥')}</td>
+                    <td style="text-align: center;">${costPerUnit.toLocaleString('ru-RU')} ₽</td>
+                    <td style="text-align: center;">${logisticsPerUnit.toLocaleString('ru-RU')} ₽</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Рассчитываем средневзвешенные значения
+            const avgPrice = totalQty > 0 ? sumQtyPrice / totalQty : 0;
+            const avgCost = totalQty > 0 ? Math.ceil(sumQtyCost / totalQty) : 0;
+            const avgLog = totalQty > 0 ? Math.ceil(sumQtyLog / totalQty) : 0;
+
+            // Заполняем строку итогов
+            document.getElementById('ved-receipts-total-qty').textContent = totalQty.toLocaleString('ru-RU');
+            document.getElementById('ved-receipts-avg-price').textContent = avgPrice.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ¥';
+            document.getElementById('ved-receipts-avg-cost').textContent = avgCost.toLocaleString('ru-RU') + ' ₽';
+            document.getElementById('ved-receipts-avg-log').textContent = avgLog.toLocaleString('ru-RU') + ' ₽';
         }
 
         /**
