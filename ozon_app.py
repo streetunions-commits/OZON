@@ -737,7 +737,7 @@ def init_database():
     except sqlite3.OperationalError:
         pass
 
-    # is_processed: разобран ли документ (1 = да, 0 = нет, требует проверки)
+    # is_processed: устаревшее поле, оставлено для совместимости старых БД
     try:
         cursor.execute('ALTER TABLE warehouse_receipt_docs ADD COLUMN is_processed INTEGER DEFAULT 1')
     except sqlite3.OperationalError:
@@ -6036,7 +6036,7 @@ HTML_TEMPLATE = '''
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
                 <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
-                <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД <span id="warehouse-badge" class="tab-badge" style="display:none;"></span></button>
+                <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД</button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
                 <button class="tab-button" onclick="switchTab(event, 'messages')" id="messages-tab-btn">Сообщения <span id="messages-badge" class="tab-badge" style="display:none;"></span></button>
@@ -6239,7 +6239,6 @@ HTML_TEMPLATE = '''
                                         <th>Комментарий</th>
                                         <th>Изменено</th>
                                         <th>Источник</th>
-                                        <th>Статус</th>
                                         <th style="width: 100px;"></th>
                                     </tr>
                                 </thead>
@@ -7085,9 +7084,6 @@ HTML_TEMPLATE = '''
                     restoreActiveSubTab();
                 }, 50);
             }
-
-            // Обновляем badge с количеством неразобранных документов
-            updateUnprocessedBadge();
 
             // Обновляем badge сообщений
             updateMessagesBadge();
@@ -8374,24 +8370,6 @@ HTML_TEMPLATE = '''
             dateInput.max = today;
         }
 
-        // Обновить badge с количеством неразобранных документов
-        function updateUnprocessedBadge() {
-            authFetch('/api/warehouse/unprocessed-count')
-                .then(r => r.json())
-                .then(data => {
-                    const badge = document.getElementById('warehouse-badge');
-                    if (data.success && data.count > 0) {
-                        badge.textContent = data.count;
-                        badge.style.display = 'inline-block';
-                    } else {
-                        badge.style.display = 'none';
-                    }
-                })
-                .catch(err => {
-                    console.error('Ошибка получения badge:', err);
-                });
-        }
-
         // ============================================================================
         // ФУНКЦИИ ДЛЯ ЧАТА В КАРТОЧКЕ ДОКУМЕНТА
         // ============================================================================
@@ -8989,32 +8967,9 @@ HTML_TEMPLATE = '''
                 }
                 row.appendChild(tdSource);
 
-                // Статус (разобрано / не разобрано)
-                const tdStatus = document.createElement('td');
-                tdStatus.style.textAlign = 'center';
-                if (doc.is_processed === 0) {
-                    tdStatus.innerHTML = '<span style="background:#ffebee;color:#c62828;padding:2px 8px;border-radius:12px;font-size:12px;font-weight:600;">🔴 Новый</span>';
-                    row.style.backgroundColor = '#fff8e1';  // Подсветка строки
-                } else {
-                    tdStatus.innerHTML = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:12px;font-size:12px;">✅</span>';
-                }
-                row.appendChild(tdStatus);
-
-                // Действия (разобрано + редактировать + удалить)
+                // Действия (редактировать + удалить)
                 const tdActions = document.createElement('td');
                 tdActions.style.whiteSpace = 'nowrap';
-
-                // Кнопка "Разобрано" (только для неразобранных документов)
-                if (doc.is_processed === 0) {
-                    const processBtn = document.createElement('button');
-                    processBtn.className = 'wh-edit-btn';
-                    processBtn.style.background = '#4caf50';
-                    processBtn.style.marginRight = '4px';
-                    processBtn.textContent = '✓';
-                    processBtn.title = 'Отметить как разобранный';
-                    processBtn.onclick = () => markReceiptDocProcessed(doc.id);
-                    tdActions.appendChild(processBtn);
-                }
 
                 // Кнопка редактирования
                 const editBtn = document.createElement('button');
@@ -9209,25 +9164,6 @@ HTML_TEMPLATE = '''
                 }
             })
             .catch(err => console.error('Ошибка удаления:', err));
-        }
-
-        // Отметить документ прихода как разобранный
-        function markReceiptDocProcessed(docId) {
-            authFetch('/api/warehouse/receipt-docs/mark-processed', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: docId })
-            })
-            .then(r => r.json())
-            .then(result => {
-                if (result.success) {
-                    loadReceiptHistory();
-                    updateUnprocessedBadge();
-                } else {
-                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
-                }
-            })
-            .catch(err => console.error('Ошибка:', err));
         }
 
         // ============================================================
@@ -16642,7 +16578,6 @@ def get_receipt_docs():
                 d.created_at,
                 d.updated_at,
                 COALESCE(d.source, 'web') as source,
-                COALESCE(d.is_processed, 1) as is_processed,
                 d.telegram_chat_id,
                 COUNT(r.id) as items_count,
                 COALESCE(SUM(r.quantity), 0) as total_qty,
@@ -16652,7 +16587,7 @@ def get_receipt_docs():
             FROM warehouse_receipt_docs d
             LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
             GROUP BY d.id
-            ORDER BY d.is_processed ASC, d.receipt_datetime DESC, d.created_at DESC
+            ORDER BY d.receipt_datetime DESC, d.created_at DESC
         ''')
 
         docs = []
@@ -16688,7 +16623,6 @@ def get_receipt_doc(doc_id):
             SELECT id, DATE(receipt_datetime) as receipt_date, receiver_name, comment,
                    created_by, updated_by, created_at, updated_at,
                    COALESCE(source, 'web') as source,
-                   COALESCE(is_processed, 1) as is_processed,
                    telegram_chat_id
             FROM warehouse_receipt_docs WHERE id = ?
         ''', (doc_id,))
@@ -16985,61 +16919,6 @@ def delete_receipt_doc():
 # ============================================================================
 # API ДЛЯ TELEGRAM ИНТЕГРАЦИИ
 # ============================================================================
-
-@app.route('/api/warehouse/receipt-docs/mark-processed', methods=['POST'])
-@require_auth(['admin'])
-def mark_receipt_doc_processed():
-    """
-    Отметить документ прихода как разобранный.
-    Используется для документов, созданных через Telegram.
-    """
-    try:
-        data = request.json
-        doc_id = data.get('id')
-
-        if not doc_id:
-            return jsonify({'success': False, 'error': 'Не указан ID документа'})
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Помечаем документ как разобранный
-        cursor.execute('''
-            UPDATE warehouse_receipt_docs
-            SET is_processed = 1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (doc_id,))
-
-        conn.commit()
-        conn.close()
-
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-
-@app.route('/api/warehouse/unprocessed-count')
-@require_auth(['admin', 'viewer'])
-def get_unprocessed_count():
-    """
-    Получить количество неразобранных документов прихода (для badge).
-    """
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            SELECT COUNT(*) as count
-            FROM warehouse_receipt_docs
-            WHERE COALESCE(is_processed, 1) = 0
-        ''')
-
-        count = cursor.fetchone()[0]
-        conn.close()
-
-        return jsonify({'success': True, 'count': count})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e), 'count': 0})
 
 
 # ============================================================================
@@ -17803,8 +17682,8 @@ def create_receipt_from_telegram():
         # Создаём документ (шапку)
         cursor.execute('''
             INSERT INTO warehouse_receipt_docs
-            (receipt_datetime, receiver_name, comment, source, is_processed, telegram_chat_id, created_by, updated_by, updated_at)
-            VALUES (?, ?, ?, 'telegram', 0, ?, ?, ?, CURRENT_TIMESTAMP)
+            (receipt_datetime, receiver_name, comment, source, telegram_chat_id, created_by, updated_by, updated_at)
+            VALUES (?, ?, ?, 'telegram', ?, ?, ?, CURRENT_TIMESTAMP)
         ''', (receipt_date, receiver_name, comment, telegram_chat_id, telegram_username, telegram_username))
 
         doc_id = cursor.lastrowid
