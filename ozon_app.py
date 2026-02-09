@@ -11262,7 +11262,9 @@ HTML_TEMPLATE = '''
 
         let vedDataLoaded = false;
         let vedContainerItemCounter = 0;
-        let vedCnyRate = 0;
+        let vedCnyRate = 0;              // Текущий онлайн курс юаня с ЦБ
+        let vedEditingCnyRate = null;    // Курс юаня для редактируемого контейнера (null = использовать онлайн)
+        let vedEditingIsCompleted = false; // Флаг: редактируемый контейнер завершён
         let vedProducts = [];  // Товары для выпадающего списка
         let vedSuppliers = []; // Поставщики для выпадающего списка
 
@@ -11478,7 +11480,9 @@ HTML_TEMPLATE = '''
 
                 // Процент к переводу (надбавка к курсу ЦБ)
                 const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
-                const adjustedCnyRate = vedCnyRate * (1 + cnyPercent / 100);
+                // Для завершённых контейнеров используем зафиксированный курс, для новых — онлайн
+                const baseCnyRate = vedEditingCnyRate !== null ? vedEditingCnyRate : vedCnyRate;
+                const adjustedCnyRate = baseCnyRate * (1 + cnyPercent / 100);
 
                 // Себестоимость руб = цена шт. * скорректированный курс юаня * кол-во
                 const cost = price * adjustedCnyRate * qty;
@@ -11523,7 +11527,8 @@ HTML_TEMPLATE = '''
             const supplier = document.getElementById('ved-container-supplier').value.trim();
             const comment = document.getElementById('ved-container-comment').value.trim();
             const important = (document.getElementById('ved-container-important') || {}).value?.trim() || '';
-            const cnyRate = vedCnyRate || 0;
+            // Для завершённых контейнеров используем сохранённый курс, для новых/незавершённых — онлайн
+            const cnyRate = vedEditingCnyRate !== null ? vedEditingCnyRate : (vedCnyRate || 0);
             const cnyPercent = parseFloat(document.getElementById('ved-cny-percent')?.value) || 0;
 
             // Валидация обязательных полей шапки
@@ -11929,6 +11934,22 @@ HTML_TEMPLATE = '''
                     document.getElementById('ved-cny-percent').value = doc.cny_percent;
                 }
 
+                // Определяем режим курса: завершённый контейнер = зафиксированный курс
+                vedEditingIsCompleted = doc.is_completed === 1;
+                const rateElement = document.getElementById('ved-rate-cny');
+
+                if (vedEditingIsCompleted && doc.cny_rate > 0) {
+                    // Завершённый контейнер — показываем сохранённый курс с индикатором 🔒
+                    vedEditingCnyRate = doc.cny_rate;
+                    rateElement.textContent = formatCurrencyRate(doc.cny_rate) + ' 🔒';
+                    rateElement.title = 'Курс зафиксирован на момент завершения контейнера';
+                } else {
+                    // Незавершённый контейнер — используем онлайн курс
+                    vedEditingCnyRate = null;
+                    rateElement.textContent = formatCurrencyRate(vedCnyRate);
+                    rateElement.title = 'Актуальный курс ЦБ РФ';
+                }
+
                 // Очищаем и заполняем позиции
                 document.getElementById('ved-container-items-tbody').innerHTML = '';
                 vedContainerItemCounter = 0;
@@ -12110,6 +12131,14 @@ HTML_TEMPLATE = '''
             deleteSessionUploadedFiles();
 
             editingVedContainerId = null;  // Сбрасываем режим редактирования
+            vedEditingCnyRate = null;      // Сбрасываем зафиксированный курс — будет использоваться онлайн
+            vedEditingIsCompleted = false; // Сбрасываем флаг завершённости
+
+            // Восстанавливаем отображение онлайн курса
+            const rateElement = document.getElementById('ved-rate-cny');
+            rateElement.textContent = formatCurrencyRate(vedCnyRate);
+            rateElement.title = 'Актуальный курс ЦБ РФ';
+
             document.getElementById('ved-container-supplier').value = '';
             document.getElementById('ved-container-comment').value = '';
             document.getElementById('ved-container-important').value = '';
@@ -16834,10 +16863,11 @@ def get_ved_container(doc_id):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем шапку документа
+        # Получаем шапку документа (включая is_completed для определения режима курса)
         cursor.execute('''
             SELECT id, container_date, supplier, comment, COALESCE(important, '') as important,
-                   cny_rate, cny_percent, created_by, updated_by, created_at, updated_at
+                   cny_rate, cny_percent, created_by, updated_by, created_at, updated_at,
+                   COALESCE(is_completed, 0) as is_completed
             FROM ved_container_docs WHERE id = ?
         ''', (doc_id,))
         doc = cursor.fetchone()
