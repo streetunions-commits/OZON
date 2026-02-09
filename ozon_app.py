@@ -601,6 +601,32 @@ def init_database():
         pass  # Колонка уже существует
 
     # ============================================================================
+    # ТАБЛИЦА РАСПРЕДЕЛЕНИЯ ПРИХОДОВ ПО ПОСТАВКАМ
+    # ============================================================================
+    # Связывает позиции оприходования с строками поставок
+    # Для отслеживания: какое оприходование заполнило какую строку поставки
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS supply_receipt_distributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supply_id INTEGER NOT NULL,
+            receipt_item_id INTEGER NOT NULL,
+            receipt_doc_id INTEGER,
+            quantity INTEGER NOT NULL,
+            cost_plus_6 REAL DEFAULT 0,
+            receipt_date TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (supply_id) REFERENCES supplies(id),
+            FOREIGN KEY (receipt_item_id) REFERENCES warehouse_receipts(id)
+        )
+    ''')
+
+    # Миграция: добавляем колонку calculated_cost в warehouse_receipts для рассчитанной себестоимости
+    try:
+        cursor.execute('ALTER TABLE warehouse_receipts ADD COLUMN calculated_cost REAL DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
+    # ============================================================================
     # ТАБЛИЦЫ ДЛЯ ВЭД (КОНТЕЙНЕРЫ)
     # ============================================================================
 
@@ -6449,7 +6475,6 @@ HTML_TEMPLATE = '''
                                     <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
                                     <th>Кол-во прихода<br>на склад</th>
-                                    <th title="Количество единиц товара, учтённых в ВЭД (Поступления). Отрицательное значение = не хватает данных.">Учтено<br>ВЭД</th>
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
                                     <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
@@ -12992,47 +13017,6 @@ HTML_TEMPLATE = '''
             // 4. Кол-во прихода на склад (редактируемое)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', false, row, 'arrival_warehouse_qty'));
 
-            // 8. Учтено ВЭД (распределённое покрытие данными ВЭД)
-            const tdVedQty = document.createElement('td');
-            tdVedQty.className = 'ved-qty-cell';
-            const vedQtySpan = document.createElement('span');
-            vedQtySpan.className = 'supply-ved-qty';
-            const sku = data ? data.sku : null;
-            const arrivalQty = data ? (data.arrival_warehouse_qty || 0) : 0;
-            const vedData = sku ? (vedProductLogistics[String(sku)] || null) : null;
-
-            // Используем рассчитанное покрытие ВЭД
-            if (vedCoverage && arrivalQty > 0) {
-                if (vedCoverage.shortage === 0) {
-                    // Полностью покрыто - показываем 0
-                    vedQtySpan.textContent = '0';
-                    vedQtySpan.style.color = '#16a34a'; // зелёный
-                    vedQtySpan.title = 'Полностью учтено в ВЭД: ' + vedCoverage.covered + ' ед.';
-                } else if (vedCoverage.covered > 0) {
-                    // Частично покрыто - показываем отрицательный дефицит
-                    vedQtySpan.textContent = formatNumberWithSpaces(-vedCoverage.shortage);
-                    vedQtySpan.style.color = '#f59e0b'; // оранжевый
-                    vedQtySpan.title = 'Частично учтено: ' + vedCoverage.covered + ' из ' + arrivalQty + ' ед. Не хватает: ' + vedCoverage.shortage;
-                } else {
-                    // Не покрыто - показываем полный дефицит
-                    vedQtySpan.textContent = formatNumberWithSpaces(-vedCoverage.shortage);
-                    vedQtySpan.style.color = '#dc2626'; // красный
-                    vedQtySpan.title = 'Не учтено в ВЭД. Нужно данных для ' + vedCoverage.shortage + ' ед.';
-                }
-            } else if (arrivalQty > 0 && vedData) {
-                // Есть данные ВЭД но нет рассчитанного покрытия - фоллбэк
-                vedQtySpan.textContent = '—';
-                vedQtySpan.style.color = '#999';
-            } else if (arrivalQty > 0) {
-                vedQtySpan.textContent = '—';
-                vedQtySpan.style.color = '#999';
-                vedQtySpan.title = 'Нет данных в ВЭД по этому товару';
-            } else {
-                vedQtySpan.textContent = '';
-            }
-            tdVedQty.appendChild(vedQtySpan);
-            row.appendChild(tdVedQty);
-
             // Проверяем, завершён ли контейнер (данные показываем только для завершённых)
             const isContainerCompleted = data && (data.container_is_completed === 1 || data.container_is_completed === true);
 
@@ -16500,6 +16484,36 @@ def delete_supply():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/supplies/<int:supply_id>/distributions')
+@require_auth(['admin', 'viewer'])
+def get_supply_distributions(supply_id):
+    """
+    Получить распределения приходов для строки поставки.
+    Показывает из каких оприходований были записаны данные в arrival_warehouse_qty.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT d.receipt_date, d.quantity, d.cost_plus_6, d.receipt_doc_id
+            FROM supply_receipt_distributions d
+            WHERE d.supply_id = ?
+            ORDER BY d.receipt_date ASC
+        ''', (supply_id,))
+
+        distributions = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'distributions': distributions
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'distributions': []})
+
+
 @app.route('/api/supplies/migrate-from-containers', methods=['POST'])
 @require_auth(['admin'])
 def migrate_supplies_from_containers():
@@ -16779,23 +16793,18 @@ def get_receipt_doc(doc_id):
 def save_receipt_doc():
     """
     Сохранить или обновить документ прихода с позициями.
-    Дата прихода передаётся из формы (выбранная пользователем).
+    Автоматически распределяет кол-во прихода по поставкам и рассчитывает себестоимость.
 
-    Ожидает JSON:
-    {
-        "doc_id": null,  // null для нового, число для редактирования
-        "receipt_date": "2025-01-29",
-        "receiver_name": "Иванов Иван",
-        "comment": "Поставка от поставщика X",
-        "items": [
-            {"sku": 123, "quantity": 10, "purchase_price": 500},
-            {"sku": 456, "quantity": 5, "purchase_price": 1000}
-        ]
-    }
+    Логика распределения:
+    1. Для каждого товара находим строки поставок (завершённые контейнеры)
+    2. Сортируем по дате выхода с фабрики (сначала ранние)
+    3. Распределяем кол-во, не превышая exit_factory_qty - arrival_warehouse_qty
+    4. Рассчитываем средневзвешенную себестоимость +6%
+    5. Записываем распределение в supply_receipt_distributions
     """
     try:
         data = request.json
-        doc_id = data.get('doc_id')  # None для нового, число для редактирования
+        doc_id = data.get('doc_id')
         receipt_date = data.get('receipt_date', '')
         receiver_name = data.get('receiver_name', '')
         comment = data.get('comment', '')
@@ -16807,15 +16816,31 @@ def save_receipt_doc():
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
 
-        # Получаем отображаемое имя пользователя (display_name или username)
         user_id = request.current_user.get('user_id') if hasattr(request, 'current_user') else None
         username = get_user_display_name(user_id)
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
         if doc_id:
-            # Редактирование существующего документа
+            # Редактирование: откатываем предыдущее распределение
+            # Получаем старые распределения для отката arrival_warehouse_qty
+            cursor.execute('''
+                SELECT supply_id, quantity FROM supply_receipt_distributions
+                WHERE receipt_doc_id = ?
+            ''', (doc_id,))
+            old_distributions = cursor.fetchall()
+            for dist in old_distributions:
+                cursor.execute('''
+                    UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) - ?
+                    WHERE id = ?
+                ''', (dist['quantity'], dist['supply_id']))
+
+            # Удаляем старые распределения
+            cursor.execute('DELETE FROM supply_receipt_distributions WHERE receipt_doc_id = ?', (doc_id,))
+
+            # Обновляем документ
             cursor.execute('''
                 UPDATE warehouse_receipt_docs
                 SET receipt_datetime = ?, receiver_name = ?, comment = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
@@ -16825,31 +16850,101 @@ def save_receipt_doc():
             # Удаляем старые позиции
             cursor.execute('DELETE FROM warehouse_receipts WHERE doc_id = ?', (doc_id,))
         else:
-            # Создаём новый документ (шапку)
+            # Создаём новый документ
             cursor.execute('''
                 INSERT INTO warehouse_receipt_docs (receipt_datetime, receiver_name, comment, created_by, updated_by, updated_at)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (receipt_date, receiver_name, comment, username, username))
             doc_id = cursor.lastrowid
 
-        # Добавляем позиции
+        # Обрабатываем каждую позицию прихода
         for item in items:
+            sku = item.get('sku', 0)
+            receipt_qty = item.get('quantity', 0)
+            manual_price = item.get('purchase_price', 0)
+
+            if not sku or receipt_qty <= 0:
+                continue
+
+            # Находим строки поставок для этого SKU (только завершённые контейнеры)
+            # Сортируем по дате выхода с фабрики
             cursor.execute('''
-                INSERT INTO warehouse_receipts (doc_id, sku, receipt_date, quantity, purchase_price, updated_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (
-                doc_id,
-                item.get('sku', 0),
-                receipt_date,
-                item.get('quantity', 0),
-                item.get('purchase_price', 0)
-            ))
+                SELECT s.id, s.exit_factory_qty, COALESCE(s.arrival_warehouse_qty, 0) as arrival_qty,
+                       s.logistics_cost_per_unit, s.price_cny, COALESCE(d.cny_rate, 0) as cny_rate
+                FROM supplies s
+                LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
+                WHERE s.sku = ? AND COALESCE(d.is_completed, 0) = 1
+                ORDER BY s.exit_factory_date ASC, s.id ASC
+            ''', (sku,))
+            supply_rows = cursor.fetchall()
+
+            # Распределяем приход по строкам поставок
+            remaining_qty = receipt_qty
+            distributions = []  # (supply_id, qty, cost_plus_6)
+
+            for supply in supply_rows:
+                if remaining_qty <= 0:
+                    break
+
+                available = supply['exit_factory_qty'] - supply['arrival_qty']
+                if available <= 0:
+                    continue
+
+                # Сколько записываем в эту строку
+                to_distribute = min(remaining_qty, available)
+
+                # Рассчитываем себестоимость +6% для этой строки
+                logistics = supply['logistics_cost_per_unit'] or 0
+                price_cny = supply['price_cny'] or 0
+                cny_rate = supply['cny_rate'] or 0
+                price_rub = price_cny * cny_rate
+                cost_plus_6 = (logistics + price_rub) * 1.06
+
+                distributions.append({
+                    'supply_id': supply['id'],
+                    'quantity': to_distribute,
+                    'cost_plus_6': cost_plus_6
+                })
+
+                remaining_qty -= to_distribute
+
+            # Рассчитываем средневзвешенную себестоимость
+            total_qty = sum(d['quantity'] for d in distributions)
+            if total_qty > 0:
+                weighted_cost = sum(d['quantity'] * d['cost_plus_6'] for d in distributions) / total_qty
+            else:
+                weighted_cost = manual_price  # Если нет поставок, используем ручную цену
+
+            # Сохраняем позицию прихода с рассчитанной себестоимостью
+            cursor.execute('''
+                INSERT INTO warehouse_receipts (doc_id, sku, receipt_date, quantity, purchase_price, calculated_cost, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (doc_id, sku, receipt_date, receipt_qty, manual_price, weighted_cost))
+            receipt_item_id = cursor.lastrowid
+
+            # Сохраняем распределения и обновляем поставки
+            for dist in distributions:
+                # Записываем распределение
+                cursor.execute('''
+                    INSERT INTO supply_receipt_distributions
+                    (supply_id, receipt_item_id, receipt_doc_id, quantity, cost_plus_6, receipt_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (dist['supply_id'], receipt_item_id, doc_id, dist['quantity'], dist['cost_plus_6'], receipt_date))
+
+                # Обновляем arrival_warehouse_qty в поставке
+                cursor.execute('''
+                    UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) + ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (dist['quantity'], dist['supply_id']))
 
         conn.commit()
         conn.close()
 
         return jsonify({'success': True, 'doc_id': doc_id})
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -16858,6 +16953,7 @@ def save_receipt_doc():
 def delete_receipt_doc():
     """
     Удалить документ прихода вместе со всеми позициями.
+    Откатывает распределения по поставкам.
     """
     try:
         data = request.json
@@ -16867,7 +16963,23 @@ def delete_receipt_doc():
             return jsonify({'success': False, 'error': 'Не указан ID документа'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Откатываем распределения: уменьшаем arrival_warehouse_qty в поставках
+        cursor.execute('''
+            SELECT supply_id, quantity FROM supply_receipt_distributions
+            WHERE receipt_doc_id = ?
+        ''', (doc_id,))
+        distributions = cursor.fetchall()
+        for dist in distributions:
+            cursor.execute('''
+                UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) - ?
+                WHERE id = ?
+            ''', (dist['quantity'], dist['supply_id']))
+
+        # Удаляем распределения
+        cursor.execute('DELETE FROM supply_receipt_distributions WHERE receipt_doc_id = ?', (doc_id,))
 
         # Удаляем позиции
         cursor.execute('DELETE FROM warehouse_receipts WHERE doc_id = ?', (doc_id,))
