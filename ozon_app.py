@@ -8786,17 +8786,29 @@ HTML_TEMPLATE = '''
                 }
             });
 
+            console.log('populateReceiptProductFilter:', {
+                allReceiptDocs: allReceiptDocs.length,
+                skuSet: [...skuSet],
+                warehouseProducts: warehouseProducts.length
+            });
+
             // Очищаем select и добавляем опцию "Все артикулы"
             select.innerHTML = '<option value="">Все артикулы</option>';
 
             // Добавляем товары из warehouseProducts, которые есть в приходах
-            const productsInReceipts = warehouseProducts.filter(p => skuSet.has(p.sku) && p.offer_id);
-            productsInReceipts.sort((a, b) => (a.offer_id || '').localeCompare(b.offer_id || '', 'en'));
+            const productsInReceipts = warehouseProducts.filter(p => skuSet.has(p.sku));
+            // Сортируем по артикулу (если есть), иначе по названию
+            productsInReceipts.sort((a, b) => {
+                const aVal = a.offer_id || a.name || '';
+                const bVal = b.offer_id || b.name || '';
+                return aVal.localeCompare(bVal, 'en');
+            });
 
             productsInReceipts.forEach(p => {
                 const option = document.createElement('option');
                 option.value = p.sku;
-                option.textContent = p.offer_id;  // Артикул на английском
+                // Показываем артикул, если нет - название товара
+                option.textContent = p.offer_id || p.name || 'SKU: ' + p.sku;
                 select.appendChild(option);
             });
 
