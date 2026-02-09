@@ -6198,13 +6198,15 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Отгрузки -->
                 <div id="wh-shipments" class="warehouse-subtab-content">
-                    <div class="wh-section-header">
-                        <h3>Отгрузки товаров</h3>
-                        <p>Создание документа отгрузки со склада</p>
+                    <!-- Кнопка создания новой отгрузки -->
+                    <div id="shipment-create-btn-wrapper" style="margin-bottom: 20px;">
+                        <button class="wh-save-receipt-btn" onclick="showShipmentForm()" style="display: flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
+                            <span style="font-size: 18px;">+</span> Создать новую отгрузку
+                        </button>
                     </div>
 
-                    <!-- Форма новой отгрузки -->
-                    <div class="receipt-form" id="shipment-form">
+                    <!-- Форма новой отгрузки (скрыта по умолчанию) -->
+                    <div class="receipt-form" id="shipment-form" style="display: none;">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field">
@@ -6258,7 +6260,7 @@ HTML_TEMPLATE = '''
 
                         <div class="receipt-form-actions">
                             <button class="wh-save-receipt-btn wh-save-shipment-btn" onclick="saveShipment()">Сохранить отгрузку</button>
-                            <button class="wh-clear-btn" onclick="clearShipmentForm()">Очистить форму</button>
+                            <button class="wh-clear-btn" onclick="cancelShipment()">Отмена</button>
                         </div>
                     </div>
 
@@ -9354,6 +9356,7 @@ HTML_TEMPLATE = '''
                 if (result.success) {
                     alert(isEdit ? 'Отгрузка обновлена!' : 'Отгрузка сохранена!');
                     clearShipmentForm();
+                    hideShipmentForm();
                     loadShipmentHistory();
                     loadWarehouseStock();
                 } else {
@@ -9373,6 +9376,34 @@ HTML_TEMPLATE = '''
             addShipmentItemRow();
             updateShipmentTotals();
             document.querySelector('.wh-save-shipment-btn').textContent = 'Сохранить отгрузку';
+        }
+
+        /**
+         * Показать форму создания/редактирования отгрузки
+         */
+        function showShipmentForm() {
+            document.getElementById('shipment-form').style.display = 'block';
+            document.getElementById('shipment-create-btn-wrapper').style.display = 'none';
+            document.getElementById('shipment-form').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        /**
+         * Скрыть форму создания/редактирования отгрузки
+         */
+        function hideShipmentForm() {
+            document.getElementById('shipment-form').style.display = 'none';
+            document.getElementById('shipment-create-btn-wrapper').style.display = 'block';
+        }
+
+        /**
+         * Отменить редактирование отгрузки (сбросить все изменения)
+         */
+        function cancelShipment() {
+            if (!confirm('Вы уверены, что хотите отменить? Все несохранённые изменения будут потеряны.')) {
+                return;
+            }
+            clearShipmentForm();
+            hideShipmentForm();
         }
 
         // Хранилище всех отгрузок для фильтрации
@@ -9553,7 +9584,7 @@ HTML_TEMPLATE = '''
                         data.items.forEach(item => addShipmentItemRowWithData(item));
                         updateShipmentTotals();
                         document.querySelector('.wh-save-shipment-btn').textContent = 'Сохранить изменения';
-                        document.getElementById('shipment-form').scrollIntoView({ behavior: 'smooth' });
+                        showShipmentForm();
                     } else {
                         alert('Ошибка загрузки: ' + (data.error || 'Неизвестная ошибка'));
                     }
