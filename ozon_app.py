@@ -14709,6 +14709,260 @@ def api_users_link_telegram():
         return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
 
 
+# ============================================================================
+# API СООБЩЕНИЙ КОНТЕЙНЕРОВ ВЭД
+# ============================================================================
+
+@app.route('/api/users-with-telegram')
+@require_auth(['admin', 'viewer'])
+def api_users_with_telegram():
+    """
+    Получить список пользователей с привязанным Telegram (для выбора получателей).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, username, telegram_chat_id FROM users WHERE telegram_chat_id IS NOT NULL')
+        users = []
+        for row in cursor.fetchall():
+            user = dict(row)
+            # Получаем telegram_username
+            chat_id = user['telegram_chat_id']
+            cursor.execute('SELECT sender_name FROM document_messages WHERE sender_type="telegram" AND telegram_chat_id=? LIMIT 1', (chat_id,))
+            tg_row = cursor.fetchone()
+            user['telegram_username'] = tg_row['sender_name'] if tg_row else f'ID:{chat_id}'
+            users.append(user)
+
+        conn.close()
+        return jsonify({'success': True, 'users': users})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_users_with_telegram: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/container-messages/<int:container_id>')
+@require_auth(['admin', 'viewer'])
+def api_container_messages_get(container_id):
+    """
+    Получить сообщения контейнера.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT cm.*, u.username as sender_username
+            FROM container_messages cm
+            LEFT JOIN users u ON cm.sender_id = u.id
+            WHERE cm.container_id = ?
+            ORDER BY cm.created_at ASC
+        ''', (container_id,))
+
+        messages = []
+        for row in cursor.fetchall():
+            msg = dict(row)
+            # Получаем имена получателей
+            if msg['recipient_ids']:
+                recipient_ids = [int(x) for x in msg['recipient_ids'].split(',') if x]
+                if recipient_ids:
+                    placeholders = ','.join('?' * len(recipient_ids))
+                    cursor.execute(f'SELECT username FROM users WHERE id IN ({placeholders})', recipient_ids)
+                    names = [r['username'] for r in cursor.fetchall()]
+                    msg['recipient_names'] = ', '.join(names)
+                else:
+                    msg['recipient_names'] = ''
+            else:
+                msg['recipient_names'] = ''
+            messages.append(msg)
+
+        conn.close()
+        return jsonify({'success': True, 'messages': messages})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_get: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/container-messages/send', methods=['POST'])
+@require_auth(['admin', 'viewer'])
+def api_container_messages_send():
+    """
+    Отправить сообщение по контейнеру.
+    Отправляет уведомления в Telegram всем получателям.
+    """
+    try:
+        data = request.json or {}
+        container_id = data.get('container_id')
+        recipient_ids = data.get('recipient_ids', [])
+        message = data.get('message', '').strip()
+
+        if not container_id:
+            return jsonify({'success': False, 'error': 'Укажите container_id'}), 400
+        if not recipient_ids:
+            return jsonify({'success': False, 'error': 'Укажите получателей'}), 400
+        if not message:
+            return jsonify({'success': False, 'error': 'Введите сообщение'}), 400
+
+        # Получаем информацию об отправителе
+        user_info = getattr(request, 'current_user', {})
+        sender_id = user_info.get('user_id')
+        sender_username = user_info.get('username', 'Unknown')
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем информацию о контейнере
+        cursor.execute('SELECT supplier, container_date FROM ved_container_docs WHERE id = ?', (container_id,))
+        container = cursor.fetchone()
+        if not container:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Контейнер не найден'}), 404
+
+        # Сохраняем сообщение
+        cursor.execute('''
+            INSERT INTO container_messages (container_id, message, sender_id, sender_name, recipient_ids, sender_type)
+            VALUES (?, ?, ?, ?, ?, 'web')
+        ''', (container_id, message, sender_id, sender_username, ','.join(map(str, recipient_ids))))
+        message_id = cursor.lastrowid
+        conn.commit()
+
+        # Отправляем уведомления в Telegram
+        telegram_message_ids = []
+        site_url = os.environ.get('SITE_URL', 'https://ozon.sstrelyaev.ru')
+
+        for recipient_id in recipient_ids:
+            cursor.execute('SELECT telegram_chat_id, username FROM users WHERE id = ?', (recipient_id,))
+            recipient = cursor.fetchone()
+            if recipient and recipient['telegram_chat_id']:
+                chat_id = recipient['telegram_chat_id']
+
+                # Формируем текст сообщения
+                tg_text = f"📦 *Контейнер #{container_id}*\n"
+                tg_text += f"📅 {container['container_date']} | {container['supplier']}\n\n"
+                tg_text += f"💬 *Сообщение от {sender_username}:*\n{message}\n\n"
+                tg_text += f"🔗 [Открыть контейнер]({site_url}/#ved:ved-containers)"
+
+                # Отправляем через Telegram бота
+                try:
+                    tg_msg_id = send_telegram_container_message(chat_id, tg_text, container_id, message_id)
+                    if tg_msg_id:
+                        telegram_message_ids.append(str(tg_msg_id))
+                except Exception as tg_err:
+                    print(f"⚠️ Ошибка отправки в Telegram (chat_id={chat_id}): {tg_err}")
+
+        # Сохраняем ID сообщений Telegram
+        if telegram_message_ids:
+            cursor.execute('UPDATE container_messages SET telegram_message_ids = ? WHERE id = ?',
+                          (','.join(telegram_message_ids), message_id))
+            conn.commit()
+
+        conn.close()
+        return jsonify({'success': True, 'message_id': message_id})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_send: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/container-messages/receive', methods=['POST'])
+def api_container_messages_receive():
+    """
+    Получить ответ из Telegram бота.
+    Вызывается из telegram_bot.py.
+    """
+    try:
+        data = request.json or {}
+
+        # Проверяем токен
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        container_id = data.get('container_id')
+        message = data.get('message', '').strip()
+        chat_id = data.get('chat_id')
+        sender_name = data.get('sender_name', 'Telegram')
+
+        if not container_id or not message or not chat_id:
+            return jsonify({'success': False, 'error': 'Недостаточно данных'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Находим пользователя по chat_id
+        cursor.execute('SELECT id, username FROM users WHERE telegram_chat_id = ?', (chat_id,))
+        user = cursor.fetchone()
+        sender_id = user['id'] if user else 0
+        sender_display = user['username'] if user else sender_name
+
+        # Сохраняем сообщение
+        cursor.execute('''
+            INSERT INTO container_messages (container_id, message, sender_id, sender_name, sender_type)
+            VALUES (?, ?, ?, ?, 'telegram')
+        ''', (container_id, message, sender_id, sender_display))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_receive: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def send_telegram_container_message(chat_id, text, container_id, message_id):
+    """
+    Отправить сообщение в Telegram с кнопкой "Ответить".
+    Возвращает ID отправленного сообщения или None.
+    """
+    import requests
+
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        print("⚠️ TELEGRAM_BOT_TOKEN не настроен")
+        return None
+
+    try:
+        # Кнопка для ответа
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": "💬 Ответить", "callback_data": f"reply_container:{container_id}:{message_id}"}
+            ]]
+        }
+
+        response = requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "reply_markup": reply_markup
+            },
+            timeout=10
+        )
+
+        result = response.json()
+        if result.get('ok'):
+            return result['result']['message_id']
+        else:
+            print(f"⚠️ Telegram API error: {result}")
+            return None
+
+    except Exception as e:
+        print(f"⚠️ Ошибка отправки в Telegram: {e}")
+        return None
+
+
 @app.route('/api/users/create', methods=['POST'])
 @require_auth(['admin'])
 def api_users_create():
