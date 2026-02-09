@@ -687,6 +687,13 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем display_name для файлов контейнеров
+    # display_name - описательное название файла, которое показывается пользователю
+    try:
+        cursor.execute('ALTER TABLE ved_container_files ADD COLUMN display_name TEXT DEFAULT ""')
+    except sqlite3.OperationalError:
+        pass
+
     # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
     # ============================================================================
@@ -6357,8 +6364,16 @@ HTML_TEMPLATE = '''
 
             <!-- ТАБ: Поставки -->
             <div id="supplies" class="tab-content">
-                <!-- Статистика поставок -->
-                <div class="currency-rates-panel">
+                <!-- Кнопка показа/скрытия сводных данных -->
+                <div style="margin-bottom: 10px;">
+                    <button type="button" id="toggle-supplies-stats" onclick="toggleSuppliesStats()"
+                            style="background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; color: #374151; display: flex; align-items: center; gap: 6px;">
+                        <span id="supplies-stats-arrow" style="transition: transform 0.2s;">▼</span>
+                        <span id="supplies-stats-label">Скрыть сводные данные</span>
+                    </button>
+                </div>
+                <!-- Статистика поставок (сворачиваемая) -->
+                <div class="currency-rates-panel" id="supplies-stats-panel">
                     <!-- Стоимость товара в пути -->
                     <div class="currency-rates-row" style="flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
@@ -11238,6 +11253,8 @@ HTML_TEMPLATE = '''
                 if (suppliesData.success) {
                     renderSuppliesTable(suppliesData.supplies);
                 }
+                // Восстанавливаем состояние сводных данных
+                restoreSuppliesStatsState();
             });
 
             suppliesLoaded = true;
@@ -13786,13 +13803,58 @@ HTML_TEMPLATE = '''
             // Себестоимость (среднее)
             html += '<td>' + (countCost ? formatNumberWithSpaces(Math.round(avgCost / countCost)) : '') + '</td>';
 
-            html += '<td></td><td></td>'; // чекбоксы (долги, FBO)
-            html += '<td></td><td></td>'; // замок, удалить
+            html += '<td></td>'; // кнопка удалить
 
             tfoot.innerHTML = html;
 
             // Пересчитываем стоимость товара в пути
             updateGoodsInTransit();
+        }
+
+        // ============================================================
+        // СВОРАЧИВАНИЕ СВОДНЫХ ДАННЫХ ПОСТАВОК
+        // ============================================================
+
+        /**
+         * Переключить видимость сводных данных поставок.
+         * Состояние сохраняется в localStorage.
+         */
+        function toggleSuppliesStats() {
+            const panel = document.getElementById('supplies-stats-panel');
+            const arrow = document.getElementById('supplies-stats-arrow');
+            const label = document.getElementById('supplies-stats-label');
+            if (!panel) return;
+
+            const isHidden = panel.style.display === 'none';
+            if (isHidden) {
+                panel.style.display = 'block';
+                arrow.style.transform = 'rotate(0deg)';
+                label.textContent = 'Скрыть сводные данные';
+                localStorage.setItem('suppliesStatsVisible', 'true');
+            } else {
+                panel.style.display = 'none';
+                arrow.style.transform = 'rotate(-90deg)';
+                label.textContent = 'Показать сводные данные';
+                localStorage.setItem('suppliesStatsVisible', 'false');
+            }
+        }
+
+        /**
+         * Восстановить состояние сводных данных при загрузке.
+         */
+        function restoreSuppliesStatsState() {
+            const saved = localStorage.getItem('suppliesStatsVisible');
+            // По умолчанию показываем
+            if (saved === 'false') {
+                const panel = document.getElementById('supplies-stats-panel');
+                const arrow = document.getElementById('supplies-stats-arrow');
+                const label = document.getElementById('supplies-stats-label');
+                if (panel) {
+                    panel.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                    if (label) label.textContent = 'Показать сводные данные';
+                }
+            }
         }
 
         // ============================================================
