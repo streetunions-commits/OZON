@@ -13275,13 +13275,12 @@ HTML_TEMPLATE = '''
             // Ищем строки с тем же SKU и более ранней датой выхода с фабрики
             const prevRows = allRows.filter(r => {
                 if (r === row) return false;
-                const cells = r.querySelectorAll('td');
-                const sku = cells[0] ? (parseInt(cells[0].dataset.sku) || 0) : 0;
+                const rCells = r.querySelectorAll('td');
+                const sku = rCells[0] ? (parseInt(rCells[0].dataset.sku) || 0) : 0;
                 if (sku !== data.sku) return false;
 
                 // Получаем дату выхода с фабрики из span
-                const cells = r.querySelectorAll('td');
-                const exitDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
+                const exitDateSpan = rCells[1] ? rCells[1].querySelector('.supply-readonly-value') : null;
                 const rDate = exitDateSpan ? exitDateSpan.textContent.trim() : '';
                 if (rDate === '—') return false;
 
