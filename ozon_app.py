@@ -12815,27 +12815,49 @@ HTML_TEMPLATE = '''
                 if (data && data.sku == p.sku) opt.selected = true;
                 selectProduct.appendChild(opt);
             });
-            selectProduct.onchange = () => onSupplyFieldChange(row);
             tdProduct.appendChild(selectProduct);
 
             // Кнопка редактирования для товара
             if (hasProduct) {
+                let originalProductValue = selectProduct.value;
                 const productEditBtn = document.createElement('button');
                 productEditBtn.type = 'button';
                 productEditBtn.className = 'supply-field-edit-btn';
-                productEditBtn.textContent = 'Ред.';
+                productEditBtn.textContent = 'Ред';
                 productEditBtn.title = 'Редактировать товар';
                 productEditBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
                 productEditBtn.onclick = function() {
+                    originalProductValue = selectProduct.value;
                     selectProduct.disabled = false;
                     productEditBtn.style.display = 'none';
                     selectProduct.focus();
                 };
-                selectProduct.onblur = function() {
-                    if (selectProduct.value) {
-                        selectProduct.disabled = true;
-                        productEditBtn.style.display = 'inline-block';
+                selectProduct.onchange = function() {
+                    if (selectProduct.value !== originalProductValue) {
+                        showFieldChangeConfirm(
+                            'Изменение товара',
+                            'Вы уверены, что хотите изменить товар?',
+                            function() {
+                                originalProductValue = selectProduct.value;
+                                selectProduct.disabled = true;
+                                productEditBtn.style.display = 'inline-block';
+                                onSupplyFieldChange(row);
+                            },
+                            function() {
+                                selectProduct.value = originalProductValue;
+                                selectProduct.disabled = true;
+                                productEditBtn.style.display = 'inline-block';
+                            }
+                        );
                     }
+                };
+                selectProduct.onblur = function() {
+                    setTimeout(() => {
+                        if (selectProduct.value && !selectProduct.disabled) {
+                            selectProduct.disabled = true;
+                            productEditBtn.style.display = 'inline-block';
+                        }
+                    }, 200);
                 };
                 tdProduct.appendChild(productEditBtn);
             }
@@ -12999,17 +13021,22 @@ HTML_TEMPLATE = '''
             }
 
             let dateEditBtn = null;
+            let originalDateValue = value || '';
+            let isEditMode = false;
+
             if (withEditButton) {
                 dateEditBtn = document.createElement('button');
                 dateEditBtn.type = 'button';
                 dateEditBtn.className = 'supply-field-edit-btn';
-                dateEditBtn.textContent = 'Ред.';
+                dateEditBtn.textContent = 'Ред';
                 dateEditBtn.title = 'Редактировать дату плана';
                 dateEditBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;display:none;';
                 if (hasValue) {
                     dateEditBtn.style.display = 'inline-block';
                 }
                 dateEditBtn.onclick = function() {
+                    originalDateValue = input.value;
+                    isEditMode = true;
                     input.disabled = false;
                     dateEditBtn.style.display = 'none';
                     input.focus();
@@ -13035,6 +13062,30 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
+                // Если в режиме редактирования и значение изменилось — спрашиваем подтверждение
+                if (withEditButton && isEditMode && input.value !== originalDateValue) {
+                    showFieldChangeConfirm(
+                        'Изменение даты',
+                        'Вы уверены, что хотите изменить дату?',
+                        function() {
+                            originalDateValue = input.value;
+                            isEditMode = false;
+                            input.disabled = true;
+                            if (dateEditBtn) dateEditBtn.style.display = 'inline-block';
+                            onSupplyFieldChange(row);
+                            highlightEmptyCells(row);
+                            updateSupplyTotals();
+                        },
+                        function() {
+                            input.value = originalDateValue;
+                            isEditMode = false;
+                            input.disabled = true;
+                            if (dateEditBtn) dateEditBtn.style.display = 'inline-block';
+                        }
+                    );
+                    return;
+                }
+
                 onSupplyFieldChange(row);
                 highlightEmptyCells(row);
                 updateSupplyTotals();
@@ -13043,10 +13094,13 @@ HTML_TEMPLATE = '''
             // При потере фокуса — блокируем поле и показываем кнопку (если нужно)
             if (withEditButton) {
                 input.onblur = function() {
-                    if (input.value.trim() !== '' && dateEditBtn) {
-                        input.disabled = true;
-                        dateEditBtn.style.display = 'inline-block';
-                    }
+                    setTimeout(() => {
+                        if (input.value.trim() !== '' && dateEditBtn && !input.disabled) {
+                            input.disabled = true;
+                            dateEditBtn.style.display = 'inline-block';
+                            isEditMode = false;
+                        }
+                    }, 200);
                 };
             }
 
@@ -13129,7 +13183,11 @@ HTML_TEMPLATE = '''
 
             // Кнопка-карандаш для редактирования плана (только для order_qty_plan)
             let pencilBtn = null;
+            let originalPlanValue = '';
+            let isPlanEditMode = false;
+
             if (fieldName === 'order_qty_plan') {
+                originalPlanValue = input.value;
                 // Если есть значение — блокируем поле
                 if (input.value.trim() !== '') {
                     input.disabled = true;
@@ -13138,7 +13196,7 @@ HTML_TEMPLATE = '''
                 pencilBtn = document.createElement('button');
                 pencilBtn.type = 'button';
                 pencilBtn.className = 'supply-plan-edit-btn supply-field-edit-btn';
-                pencilBtn.textContent = 'Ред.';
+                pencilBtn.textContent = 'Ред';
                 pencilBtn.title = 'Редактировать план';
                 pencilBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;display:none;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
                 // Ячейка должна быть position:relative для позиционирования кнопки
@@ -13152,6 +13210,8 @@ HTML_TEMPLATE = '''
 
                 // Клик по карандашу — разрешает редактирование поля план
                 pencilBtn.onclick = function() {
+                    originalPlanValue = input.value;
+                    isPlanEditMode = true;
                     input.disabled = false;
                     pencilBtn.style.display = 'none';
                     input.focus();
@@ -13195,10 +13255,34 @@ HTML_TEMPLATE = '''
             };
 
             input.onblur = () => {
-                // После ввода плана — блокируем поле и показываем карандаш
+                // После ввода плана — проверяем изменения и показываем подтверждение
                 if (fieldName === 'order_qty_plan' && input.value.trim() !== '' && pencilBtn) {
+                    if (isPlanEditMode && input.value !== originalPlanValue) {
+                        // Задержка чтобы не конфликтовать с другими обработчиками
+                        setTimeout(() => {
+                            showFieldChangeConfirm(
+                                'Изменение количества',
+                                'Вы уверены, что хотите изменить количество?',
+                                function() {
+                                    originalPlanValue = input.value;
+                                    isPlanEditMode = false;
+                                    input.disabled = true;
+                                    pencilBtn.style.display = 'inline-block';
+                                    onSupplyFieldChange(row);
+                                },
+                                function() {
+                                    input.value = originalPlanValue;
+                                    isPlanEditMode = false;
+                                    input.disabled = true;
+                                    pencilBtn.style.display = 'inline-block';
+                                }
+                            );
+                        }, 100);
+                        return;
+                    }
                     input.disabled = true;
                     pencilBtn.style.display = 'inline-block';
+                    isPlanEditMode = false;
                 }
 
                 // Валидации для прихода на склад
@@ -13445,6 +13529,41 @@ HTML_TEMPLATE = '''
         }
 
         // findNextSameSkuRow, modifyPlanQty, createRedistributionRow — удалены вместе с перераспределением.
+
+        // ============================================================
+        // ПОДТВЕРЖДЕНИЕ ИЗМЕНЕНИЯ ПОЛЯ (для полей с кнопкой "Ред")
+        // ============================================================
+
+        /**
+         * Показать диалог подтверждения изменения поля.
+         * @param {string} title - заголовок диалога
+         * @param {string} message - текст сообщения
+         * @param {function} onConfirm - функция при подтверждении
+         * @param {function} onCancel - функция при отмене
+         */
+        function showFieldChangeConfirm(title, message, onConfirm, onCancel) {
+            const overlay = document.createElement('div');
+            overlay.className = 'supply-edit-confirm';
+            overlay.innerHTML = `
+                <div class="supply-edit-confirm-box">
+                    <h3>${title}</h3>
+                    <p>${message}</p>
+                    <button class="supply-confirm-yes">Да</button>
+                    <button class="supply-confirm-no">Нет</button>
+                </div>
+            `;
+
+            overlay.querySelector('.supply-confirm-yes').onclick = () => {
+                overlay.remove();
+                if (onConfirm) onConfirm();
+            };
+            overlay.querySelector('.supply-confirm-no').onclick = () => {
+                overlay.remove();
+                if (onCancel) onCancel();
+            };
+
+            document.body.appendChild(overlay);
+        }
 
         // ============================================================
         // УДАЛЕНИЕ СТРОКИ С ПОДТВЕРЖДЕНИЕМ
