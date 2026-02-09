@@ -12028,9 +12028,9 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            const select = document.getElementById('ved-container-msg-recipients');
-            const selectedOptions = Array.from(select.selectedOptions);
-            const recipientIds = selectedOptions.map(opt => parseInt(opt.value));
+            // Получаем выбранных получателей из чекбоксов
+            const checkboxes = document.querySelectorAll('.container-msg-recipient:checked');
+            const recipientIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
             if (recipientIds.length === 0) {
                 alert('Выберите хотя бы одного получателя');
@@ -12057,8 +12057,8 @@ HTML_TEMPLATE = '''
 
                 if (data.success) {
                     document.getElementById('ved-container-msg-text').value = '';
-                    // Снимаем выделение с получателей
-                    select.querySelectorAll('option').forEach(opt => opt.selected = false);
+                    // Снимаем выделение с чекбоксов
+                    document.querySelectorAll('.container-msg-recipient').forEach(cb => cb.checked = false);
                     // Перезагружаем сообщения
                     loadContainerMessages(editingVedContainerId);
                 } else {
@@ -15208,6 +15208,54 @@ def api_users_rename():
 
     except Exception as e:
         print(f"❌ Ошибка при переименовании: {e}")
+        return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
+
+
+@app.route('/api/users/set-display-name', methods=['POST'])
+@require_auth(['admin'])
+def api_users_set_display_name():
+    """
+    Установить отображаемое имя пользователя.
+
+    Это имя будет показываться в столбцах "Изменено", "Создано" вместо логина.
+
+    Принимает JSON: {"user_id": 1, "display_name": "Иван Иванов"}
+    Возвращает: {"success": true, "message": "..."}
+    """
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        display_name = data.get('display_name', '').strip()
+
+        if not user_id:
+            return jsonify({'success': False, 'error': 'Не указан ID пользователя'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
+
+        username = user[0]
+
+        cursor.execute('UPDATE users SET display_name = ? WHERE id = ?', (display_name, user_id))
+        conn.commit()
+        conn.close()
+
+        if display_name:
+            print(f"✏️ Установлено отображаемое имя для {username}: {display_name}")
+            return jsonify({'success': True, 'message': f'Отображаемое имя установлено: "{display_name}"'})
+        else:
+            print(f"✏️ Очищено отображаемое имя для {username}")
+            return jsonify({'success': True, 'message': 'Отображаемое имя очищено'})
+
+    except Exception as e:
+        print(f"❌ Ошибка при установке отображаемого имени: {e}")
         return jsonify({'success': False, 'error': 'Ошибка сервера'}), 500
 
 
