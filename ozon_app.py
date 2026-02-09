@@ -11521,7 +11521,7 @@ HTML_TEMPLATE = '''
                                      doc.total_terminal === 0 || doc.total_customs === 0;
 
                     // Проверяем, заполнено ли поле "Важно" (блокирует завершение)
-                    const hasImportant = doc.important && doc.important.trim() \!== '';
+                    const hasImportant = doc.important && doc.important.trim() !== '';
 
                     // Функция для форматирования с красным ФОНОМ для нулей
                     const formatWithZeroBg = (val, suffix) => {
