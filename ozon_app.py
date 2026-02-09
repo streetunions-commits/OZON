@@ -5844,8 +5844,7 @@ HTML_TEMPLATE = '''
          ============================================================================ -->
     <div id="login-overlay" class="login-overlay hidden" style="display:none;">
         <div class="login-box">
-            <h2>Ozon Tracker</h2>
-            <p class="subtitle">Войдите для продолжения</p>
+            <h2>Moscow Seller</h2>
             <div id="login-error" class="login-error"></div>
             <input type="text" id="login-username" placeholder="Логин" autocomplete="username">
             <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
