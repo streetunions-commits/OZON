@@ -6184,6 +6184,11 @@ HTML_TEMPLATE = '''
                                 <input type="date" id="receipt-date-from" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
                                 <span style="color: #999;">—</span>
                                 <input type="date" id="receipt-date-to" class="wh-input" style="width: 140px; cursor: pointer;" onclick="this.showPicker()" onchange="filterReceiptHistory()">
+                                <span style="color: #ddd; margin: 0 4px;">|</span>
+                                <label style="font-size: 13px; color: #666;">Товар:</label>
+                                <select id="receipt-filter-product" class="wh-input" style="width: 250px; cursor: pointer;" onchange="filterReceiptHistory()">
+                                    <option value="">Все товары</option>
+                                </select>
                                 <button class="wh-clear-btn" onclick="resetReceiptDateFilter()" style="padding: 6px 12px; font-size: 12px;">Сбросить</button>
                             </div>
                         </div>
@@ -7969,6 +7974,7 @@ HTML_TEMPLATE = '''
 
         let warehouseDataLoaded = false;
         let warehouseProducts = [];
+        let suppliesCostBySku = {};  // Себестоимость +6% по SKU из вкладки Поставки
 
         function loadWarehouse() {
             if (warehouseDataLoaded) return;
@@ -7988,7 +7994,39 @@ HTML_TEMPLATE = '''
             loadReceiptHistory();
             loadShipmentHistory();
             loadWarehouseStock();
+            loadSuppliesCostData();  // Загружаем себестоимость +6% из поставок
             warehouseDataLoaded = true;
+        }
+
+        /**
+         * Загрузка себестоимости +6% из вкладки Поставки.
+         * Используется для автозаполнения цены закупки в форме прихода.
+         * Для каждого SKU берётся последняя (по дате) себестоимость из поставок.
+         */
+        function loadSuppliesCostData() {
+            authFetch('/api/supplies')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.supplies) {
+                        suppliesCostBySku = {};
+                        // Для каждого SKU берём последнюю (самую свежую) запись с cost_plus_6
+                        // Сортируем поставки по дате создания (DESC)
+                        const sortedSupplies = data.supplies.sort((a, b) => {
+                            const dateA = new Date(a.created_at || 0);
+                            const dateB = new Date(b.created_at || 0);
+                            return dateB - dateA;  // DESC
+                        });
+                        sortedSupplies.forEach(supply => {
+                            const sku = supply.sku;
+                            // Если для этого SKU ещё нет записи, берём первую встреченную (она самая свежая)
+                            if (sku && !suppliesCostBySku[sku] && supply.cost_plus_6 && supply.cost_plus_6 > 0) {
+                                suppliesCostBySku[sku] = Math.round(supply.cost_plus_6);
+                            }
+                        });
+                        console.log('Загружены себестоимости из поставок:', Object.keys(suppliesCostBySku).length, 'SKU');
+                    }
+                })
+                .catch(err => console.error('Ошибка загрузки себестоимости из поставок:', err));
         }
 
         function switchWarehouseSubtab(e, subtab) {
@@ -8078,21 +8116,29 @@ HTML_TEMPLATE = '''
             tdQty.appendChild(inputQty);
             row.appendChild(tdQty);
 
-            // Цена закупки
+            // Цена закупки (автозаполняется из Поставок - поле "Себестоимость +6%")
             const tdPrice = document.createElement('td');
             const inputPrice = document.createElement('input');
             inputPrice.type = 'text';
             inputPrice.className = 'wh-input';
-            inputPrice.style.cssText = 'width:100%;text-align:right;';
-            inputPrice.placeholder = '0';
-            inputPrice.oninput = function() {
-                const raw = this.value.replace(/[^0-9]/g, '');
-                this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : '';
+            inputPrice.style.cssText = 'width:100%;text-align:right;background:#f5f5f5;color:#666;';
+            inputPrice.placeholder = 'Авто';
+            inputPrice.disabled = true;  // Поле недоступно для редактирования
+            inputPrice.title = 'Цена берётся автоматически из Поставок (Себестоимость +6%)';
+            tdPrice.appendChild(inputPrice);
+            row.appendChild(tdPrice);
+
+            // Обработчик выбора товара - автозаполнение цены из поставок
+            selectProduct.onchange = function() {
+                const selectedSku = this.value;
+                if (selectedSku && suppliesCostBySku[selectedSku]) {
+                    inputPrice.value = formatNumberWithSpaces(suppliesCostBySku[selectedSku]);
+                } else {
+                    inputPrice.value = '';
+                }
                 updateReceiptItemSum(row);
                 updateReceiptTotals();
             };
-            tdPrice.appendChild(inputPrice);
-            row.appendChild(tdPrice);
 
             // Сумма (расчётное поле)
             const tdSum = document.createElement('td');
@@ -8708,6 +8754,8 @@ HTML_TEMPLATE = '''
                         renderReceiptHistory(data.docs);
                         document.getElementById('receipt-history-wrapper').style.display = 'block';
                         document.getElementById('wh-receipt-history-empty').style.display = 'none';
+                        // Заполняем выпадающий список товаров для фильтрации
+                        populateReceiptProductFilter();
                     } else {
                         allReceiptDocs = [];
                         document.getElementById('receipt-history-wrapper').style.display = 'none';
@@ -8722,11 +8770,48 @@ HTML_TEMPLATE = '''
                 });
         }
 
-        // Фильтрация истории приходов по номеру документа и датам
+        // Заполнить выпадающий список товаров для фильтрации приходов
+        function populateReceiptProductFilter() {
+            const select = document.getElementById('receipt-filter-product');
+            if (!select) return;
+
+            // Сохраняем текущее значение
+            const currentValue = select.value;
+
+            // Собираем уникальные SKU из всех приходов
+            const skuSet = new Set();
+            allReceiptDocs.forEach(doc => {
+                if (doc.item_skus && Array.isArray(doc.item_skus)) {
+                    doc.item_skus.forEach(sku => skuSet.add(sku));
+                }
+            });
+
+            // Очищаем select и добавляем опцию "Все товары"
+            select.innerHTML = '<option value="">Все товары</option>';
+
+            // Добавляем товары из warehouseProducts, которые есть в приходах
+            const productsInReceipts = warehouseProducts.filter(p => skuSet.has(p.sku));
+            productsInReceipts.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+            productsInReceipts.forEach(p => {
+                const option = document.createElement('option');
+                option.value = p.sku;
+                option.textContent = p.name;
+                select.appendChild(option);
+            });
+
+            // Восстанавливаем выбранное значение, если оно всё ещё валидно
+            if (currentValue && skuSet.has(parseInt(currentValue))) {
+                select.value = currentValue;
+            }
+        }
+
+        // Фильтрация истории приходов по номеру документа, датам и товару
         function filterReceiptHistory() {
             const docNumFilter = document.getElementById('receipt-filter-docnum').value.trim();
             const dateFrom = document.getElementById('receipt-date-from').value;
             const dateTo = document.getElementById('receipt-date-to').value;
+            const productFilter = document.getElementById('receipt-filter-product').value;
 
             if (!allReceiptDocs || allReceiptDocs.length === 0) return;
 
@@ -8739,6 +8824,13 @@ HTML_TEMPLATE = '''
 
                 if (dateFrom && docDate < dateFrom) return false;
                 if (dateTo && docDate > dateTo) return false;
+
+                // Фильтр по товару (проверяем, есть ли выбранный SKU в списке товаров документа)
+                if (productFilter) {
+                    const productSku = parseInt(productFilter);
+                    if (!doc.item_skus || !doc.item_skus.includes(productSku)) return false;
+                }
+
                 return true;
             });
 
@@ -8759,6 +8851,7 @@ HTML_TEMPLATE = '''
             document.getElementById('receipt-filter-docnum').value = '';
             document.getElementById('receipt-date-from').value = '';
             document.getElementById('receipt-date-to').value = '';
+            document.getElementById('receipt-filter-product').value = '';
 
             if (allReceiptDocs && allReceiptDocs.length > 0) {
                 renderReceiptHistory(allReceiptDocs);
@@ -9007,21 +9100,29 @@ HTML_TEMPLATE = '''
             tdQty.appendChild(inputQty);
             row.appendChild(tdQty);
 
-            // Цена закупки
+            // Цена закупки (автозаполняется из Поставок - поле "Себестоимость +6%")
             const tdPrice = document.createElement('td');
             const inputPrice = document.createElement('input');
             inputPrice.type = 'text';
             inputPrice.className = 'wh-input';
-            inputPrice.style.cssText = 'width:100%;text-align:right;';
+            inputPrice.style.cssText = 'width:100%;text-align:right;background:#f5f5f5;color:#666;';
             inputPrice.value = item && item.purchase_price ? formatNumberWithSpaces(Math.round(item.purchase_price)) : '';
-            inputPrice.oninput = function() {
-                const raw = this.value.replace(/[^0-9]/g, '');
-                this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : '';
+            inputPrice.disabled = true;  // Поле недоступно для редактирования
+            inputPrice.title = 'Цена берётся автоматически из Поставок (Себестоимость +6%)';
+            tdPrice.appendChild(inputPrice);
+            row.appendChild(tdPrice);
+
+            // Обработчик смены товара - обновление цены из поставок
+            selectProduct.onchange = function() {
+                const selectedSku = this.value;
+                if (selectedSku && suppliesCostBySku[selectedSku]) {
+                    inputPrice.value = formatNumberWithSpaces(suppliesCostBySku[selectedSku]);
+                } else {
+                    inputPrice.value = '';
+                }
                 updateReceiptItemSum(row);
                 updateReceiptTotals();
             };
-            tdPrice.appendChild(inputPrice);
-            row.appendChild(tdPrice);
 
             // Сумма (расчётное поле)
             const tdSum = document.createElement('td');
@@ -15567,13 +15668,16 @@ def api_container_messages_send():
         # Помечаем как прочитанные только сообщения ОТ тех пользователей, которым мы отвечаем
         # Например: отвечаем Малышеву → сообщения ОТ Малышева становятся прочитанными
         # Сообщения от Новикова остаются непрочитанными (ему мы не отвечали)
+        # Важно: сообщения из Telegram не имеют recipient_ids, поэтому проверяем также NULL/пустые
         if recipient_ids:
             placeholders = ','.join('?' * len(recipient_ids))
             cursor.execute(f'''
                 UPDATE container_messages
                 SET is_read = 1
-                WHERE container_id = ? AND recipient_ids LIKE ? AND sender_id IN ({placeholders})
-            ''', (container_id, f'%{sender_id}%', *recipient_ids))
+                WHERE container_id = ?
+                AND sender_id IN ({placeholders})
+                AND (recipient_ids LIKE ? OR recipient_ids IS NULL OR recipient_ids = '')
+            ''', (container_id, *recipient_ids, f'%{sender_id}%'))
         conn.commit()
 
         # Отправляем уведомления в Telegram
@@ -16624,14 +16728,23 @@ def get_receipt_docs():
                 d.telegram_chat_id,
                 COUNT(r.id) as items_count,
                 COALESCE(SUM(r.quantity), 0) as total_qty,
-                COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum
+                COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum,
+                GROUP_CONCAT(DISTINCT r.sku) as item_skus
             FROM warehouse_receipt_docs d
             LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
             GROUP BY d.id
             ORDER BY d.is_processed ASC, d.receipt_datetime DESC, d.created_at DESC
         ''')
 
-        docs = [dict(row) for row in cursor.fetchall()]
+        docs = []
+        for row in cursor.fetchall():
+            doc = dict(row)
+            # Преобразуем строку SKU в список чисел
+            if doc.get('item_skus'):
+                doc['item_skus'] = [int(sku) for sku in doc['item_skus'].split(',')]
+            else:
+                doc['item_skus'] = []
+            docs.append(doc)
         conn.close()
 
         return jsonify({'success': True, 'docs': docs})
