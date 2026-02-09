@@ -15501,12 +15501,16 @@ def api_container_messages_send():
         ''', (container_id, message, sender_id, sender_username, ','.join(map(str, recipient_ids))))
         message_id = cursor.lastrowid
 
-        # Помечаем все сообщения этого контейнера (адресованные текущему пользователю) как прочитанные
-        cursor.execute('''
-            UPDATE container_messages
-            SET is_read = 1
-            WHERE container_id = ? AND recipient_ids LIKE ? AND sender_id != ?
-        ''', (container_id, f'%{sender_id}%', sender_id))
+        # Помечаем как прочитанные только сообщения ОТ тех пользователей, которым мы отвечаем
+        # Например: отвечаем Малышеву → сообщения ОТ Малышева становятся прочитанными
+        # Сообщения от Новикова остаются непрочитанными (ему мы не отвечали)
+        if recipient_ids:
+            placeholders = ','.join('?' * len(recipient_ids))
+            cursor.execute(f'''
+                UPDATE container_messages
+                SET is_read = 1
+                WHERE container_id = ? AND recipient_ids LIKE ? AND sender_id IN ({placeholders})
+            ''', (container_id, f'%{sender_id}%', *recipient_ids))
         conn.commit()
 
         # Отправляем уведомления в Telegram
