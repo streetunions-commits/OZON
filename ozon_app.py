@@ -6463,7 +6463,7 @@ HTML_TEMPLATE = '''
                                         <th>Терминал</th>
                                         <th>Пошлина</th>
                                         <th>Вся лог.</th>
-                                        <th style="min-width: 200px;">Комментарий</th>
+                                        <th style="min-width: 300px; text-align: left;">Комментарий</th>
                                         <th>Изменено</th>
                                         <th style="width: 70px;">Завершено</th>
                                         <th style="width: 80px;"></th>
@@ -11410,7 +11410,7 @@ HTML_TEMPLATE = '''
                         <td>${formatWithZeroBg(doc.total_terminal, '₽')}</td>
                         <td>${formatWithZeroBg(doc.total_customs, '₽')}</td>
                         <td>${formatWithZeroBg(doc.total_all_logistics, '₽')}</td>
-                        <td style="white-space: pre-wrap; word-break: break-word; max-width: 300px;">${doc.comment || '-'}</td>
+                        <td style="white-space: pre-wrap; word-break: break-word; max-width: 450px; text-align: left;">${doc.comment || '-'}</td>
                         <td style="white-space: nowrap;">${updatedInfo}</td>
                         <td style="text-align: center;">${checkboxHtml}</td>
                         <td>
