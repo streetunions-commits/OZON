@@ -13768,8 +13768,8 @@ HTML_TEMPLATE = '''
                 .filter(r => r.style.display !== 'none');
 
             // Индексы столбцов (0-based):
-            // 0:товар, 1:дата выхода, 2:кол выхода, 3:дата прихода, 4:кол прихода,
-            // 5:учтено ВЭД, 6:логистика₽, 7:цена₽, 8:себестоимость, 9:удалить
+            // 0:товар, 1:дата выхода, 2:кол выхода, 3:кол прихода,
+            // 4:учтено ВЭД, 5:логистика₽, 6:цена₽, 7:себестоимость
 
             // Собираем данные
             let sumExitFactory = 0, sumArrival = 0;
@@ -13822,7 +13822,6 @@ HTML_TEMPLATE = '''
 
             // Кол-во выхода (сумма)
             html += '<td>' + (sumExitFactory ? formatNumberWithSpaces(sumExitFactory) : '') + '</td>';
-            html += '<td></td>'; // дата прихода
 
             // Кол-во прихода (сумма)
             html += '<td>' + (sumArrival ? formatNumberWithSpaces(sumArrival) : '') + '</td>';
