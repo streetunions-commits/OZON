@@ -6070,13 +6070,15 @@ HTML_TEMPLATE = '''
 
                 <!-- Подвкладка: Оприходование -->
                 <div id="wh-receipt" class="warehouse-subtab-content active">
-                    <div class="wh-section-header">
-                        <h3>Оприходование товаров</h3>
-                        <p>Создание документа прихода на склад</p>
+                    <!-- Кнопка создания нового прихода -->
+                    <div id="receipt-create-btn-wrapper" style="margin-bottom: 20px;">
+                        <button class="wh-save-receipt-btn" onclick="showReceiptForm()" style="display: flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
+                            <span style="font-size: 18px;">+</span> Создать новый приход
+                        </button>
                     </div>
 
-                    <!-- Форма нового прихода -->
-                    <div class="receipt-form" id="receipt-form">
+                    <!-- Форма нового прихода (скрыта по умолчанию) -->
+                    <div class="receipt-form" id="receipt-form" style="display: none;">
                         <div class="receipt-form-header">
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
@@ -6127,7 +6129,7 @@ HTML_TEMPLATE = '''
 
                         <div class="receipt-form-actions">
                             <button class="wh-save-receipt-btn" onclick="saveReceipt()">Сохранить приход</button>
-                            <button class="wh-clear-btn" onclick="clearReceiptForm()">Очистить форму</button>
+                            <button class="wh-clear-btn" onclick="cancelReceipt()">Отмена</button>
                         </div>
 
                         <!-- Секция чата (показывается при редактировании документа из Telegram) -->
@@ -8197,6 +8199,7 @@ HTML_TEMPLATE = '''
                 if (result.success) {
                     alert(isEdit ? 'Приход успешно обновлён!' : 'Приход успешно сохранён!');
                     clearReceiptForm();
+                    hideReceiptForm();
                     loadReceiptHistory();
                     loadWarehouseStock();
                 } else {
@@ -8235,7 +8238,35 @@ HTML_TEMPLATE = '''
             showChatSection(false);
 
             // Вернуть текст кнопки
-            document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить приход';
+            document.querySelector('#receipt-form .wh-save-receipt-btn').textContent = 'Сохранить приход';
+        }
+
+        /**
+         * Показать форму создания/редактирования прихода
+         */
+        function showReceiptForm() {
+            document.getElementById('receipt-form').style.display = 'block';
+            document.getElementById('receipt-create-btn-wrapper').style.display = 'none';
+            document.getElementById('receipt-form').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        /**
+         * Скрыть форму создания/редактирования прихода
+         */
+        function hideReceiptForm() {
+            document.getElementById('receipt-form').style.display = 'none';
+            document.getElementById('receipt-create-btn-wrapper').style.display = 'block';
+        }
+
+        /**
+         * Отменить редактирование прихода (сбросить все изменения)
+         */
+        function cancelReceipt() {
+            if (!confirm('Вы уверены, что хотите отменить? Все несохранённые изменения будут потеряны.')) {
+                return;
+            }
+            clearReceiptForm();
+            hideReceiptForm();
         }
 
         // Установить текущую дату в поле прихода
@@ -8886,7 +8917,7 @@ HTML_TEMPLATE = '''
                         updateReceiptTotals();
 
                         // Меняем текст кнопки
-                        document.querySelector('.wh-save-receipt-btn').textContent = 'Сохранить изменения';
+                        document.querySelector('#receipt-form .wh-save-receipt-btn').textContent = 'Сохранить изменения';
 
                         // Показываем секцию чата если документ из Telegram
                         if (data.doc.source === 'telegram' && data.doc.telegram_chat_id) {
@@ -8895,8 +8926,8 @@ HTML_TEMPLATE = '''
                             showChatSection(false);
                         }
 
-                        // Скроллим к форме
-                        document.getElementById('receipt-form').scrollIntoView({ behavior: 'smooth' });
+                        // Показываем форму и скроллим к ней
+                        showReceiptForm();
                     } else {
                         alert('Ошибка загрузки: ' + (data.error || 'Неизвестная ошибка'));
                     }
@@ -12588,8 +12619,14 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('supplies-tbody');
             tbody.innerHTML = '';
 
+            // Рассчитываем распределение данных ВЭД по строкам
+            // Данные ВЭД "расходуются" в порядке даты выхода с фабрики (ПЛАН)
+            const vedCoverage = calculateVedCoverage(supplies);
+
             supplies.forEach(s => {
-                const row = createSupplyRowElement(s);
+                // Передаём рассчитанное покрытие ВЭД для этой строки
+                const coverage = s.id ? vedCoverage[s.id] : null;
+                const row = createSupplyRowElement(s, coverage);
                 tbody.appendChild(row);
             });
 
@@ -12597,6 +12634,63 @@ HTML_TEMPLATE = '''
             highlightAllEmptyCells();
             populateSuppliesFilter();
             updateSupplyTotals();
+        }
+
+        /**
+         * Расчёт распределения данных ВЭД по строкам поставок.
+         *
+         * Логика:
+         * 1. Группируем поставки по SKU
+         * 2. Сортируем каждую группу по exit_plan_date (по возрастанию)
+         * 3. "Расходуем" данные ВЭД начиная с самой ранней поставки
+         * 4. Для каждой строки возвращаем: сколько данных учтено и есть ли дефицит
+         *
+         * Возвращает объект: { supply_id: { covered: число, shortage: число } }
+         */
+        function calculateVedCoverage(supplies) {
+            const result = {};
+
+            // Группируем по SKU
+            const bysku = {};
+            supplies.forEach(s => {
+                if (!s.sku || !s.arrival_warehouse_qty) return;
+                if (!bysku[s.sku]) bysku[s.sku] = [];
+                bysku[s.sku].push(s);
+            });
+
+            // Для каждого SKU рассчитываем распределение
+            Object.keys(bysku).forEach(sku => {
+                const rows = bysku[sku];
+                const vedData = vedProductLogistics[String(sku)];
+                let vedRemaining = vedData ? vedData.total_quantity : 0;
+
+                // Сортируем по дате выхода с фабрики ПЛАН (по возрастанию)
+                rows.sort((a, b) => {
+                    const dateA = a.exit_plan_date || '9999-12-31';
+                    const dateB = b.exit_plan_date || '9999-12-31';
+                    return dateA.localeCompare(dateB);
+                });
+
+                // Распределяем данные ВЭД
+                rows.forEach(s => {
+                    const arrivalQty = s.arrival_warehouse_qty || 0;
+
+                    if (vedRemaining >= arrivalQty) {
+                        // Полностью покрыто данными ВЭД
+                        result[s.id] = { covered: arrivalQty, shortage: 0 };
+                        vedRemaining -= arrivalQty;
+                    } else if (vedRemaining > 0) {
+                        // Частично покрыто
+                        result[s.id] = { covered: vedRemaining, shortage: arrivalQty - vedRemaining };
+                        vedRemaining = 0;
+                    } else {
+                        // Не покрыто (данных ВЭД не осталось)
+                        result[s.id] = { covered: 0, shortage: arrivalQty };
+                    }
+                });
+            });
+
+            return result;
         }
 
         /**
