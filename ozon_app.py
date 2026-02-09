@@ -13414,43 +13414,41 @@ HTML_TEMPLATE = '''
 
             // Индексы столбцов (0-based):
             // 0:товар, 1:дата план, 2:заказ план, 3:дата выхода, 4:кол выхода,
-            // 5:дата прихода, 6:кол прихода, 7:логистика₽, 8:цена¥, 9:себестоимость,
-            // 10:долги, 11:FBO, 12:замок, 13:удалить
-
-            // Столбцы с суммами (числа, не валюты)
-            const sumCols = [2, 4, 6];
-            // Столбцы со средним (валюты)
-            const avgCols = [7, 8, 9];
+            // 5:дата прихода, 6:кол прихода, 7:учтено ВЭД, 8:логистика₽, 9:цена¥, 10:себестоимость,
+            // 11:долги, 12:FBO, 13:замок, 14:удалить
 
             // Собираем данные
-            const sums = {};
-            const avgs = {};
-            const counts = {};
-
-            sumCols.forEach(i => { sums[i] = 0; });
-            avgCols.forEach(i => { avgs[i] = 0; counts[i] = 0; });
+            let sumOrderPlan = 0, sumExitFactory = 0, sumArrival = 0;
+            let avgLogistics = 0, countLogistics = 0;
+            let avgPrice = 0, countPrice = 0;
+            let avgCost = 0, countCost = 0;
 
             rows.forEach(row => {
                 const textInputs = row.querySelectorAll('input[type="text"]');
-                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty,
-                //                     3=logistics_cost, 4=price_cny
+                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty, 3=price_cny
                 const vals = [];
                 textInputs.forEach(inp => vals.push(parseNumberFromSpaces(inp.value)));
 
-                // Сумма: заказ план (idx 0→col 2), выход (idx 1→col 4), приход (idx 2→col 6)
-                if (vals[0]) sums[2] += vals[0];
-                if (vals[1]) sums[4] += vals[1];
-                if (vals[2]) sums[6] += vals[2];
+                // Суммы
+                if (vals[0]) sumOrderPlan += vals[0];
+                if (vals[1]) sumExitFactory += vals[1];
+                if (vals[2]) sumArrival += vals[2];
 
-                // Среднее: логистика (idx 3→col 7), цена¥ (idx 4→col 8)
-                if (vals[3]) { avgs[7] += vals[3]; counts[7]++; }
-                if (vals[4]) { avgs[8] += vals[4]; counts[8]++; }
+                // Логистика из span (из ВЭД)
+                const logisticsSpan = row.querySelector('.supply-logistics-auto');
+                if (logisticsSpan && logisticsSpan.dataset.value) {
+                    const logVal = parseFloat(logisticsSpan.dataset.value) || 0;
+                    if (logVal > 0) { avgLogistics += logVal; countLogistics++; }
+                }
+
+                // Цена ¥ (idx 3)
+                if (vals[3]) { avgPrice += vals[3]; countPrice++; }
 
                 // Себестоимость из span
                 const costSpan = row.querySelector('.supply-cost-auto');
                 if (costSpan && costSpan.textContent !== '—') {
                     const costVal = parseNumberFromSpaces(costSpan.textContent);
-                    if (costVal) { avgs[9] += costVal; counts[9]++; }
+                    if (costVal) { avgCost += costVal; countCost++; }
                 }
             });
 
@@ -13459,24 +13457,27 @@ HTML_TEMPLATE = '''
             html += '<td></td>'; // дата план
 
             // Заказ план (сумма)
-            html += '<td>' + (sums[2] ? formatNumberWithSpaces(sums[2]) : '') + '</td>';
+            html += '<td>' + (sumOrderPlan ? formatNumberWithSpaces(sumOrderPlan) : '') + '</td>';
             html += '<td></td>'; // дата выхода
 
             // Кол-во выхода (сумма)
-            html += '<td>' + (sums[4] ? formatNumberWithSpaces(sums[4]) : '') + '</td>';
+            html += '<td>' + (sumExitFactory ? formatNumberWithSpaces(sumExitFactory) : '') + '</td>';
             html += '<td></td>'; // дата прихода
 
             // Кол-во прихода (сумма)
-            html += '<td>' + (sums[6] ? formatNumberWithSpaces(sums[6]) : '') + '</td>';
+            html += '<td>' + (sumArrival ? formatNumberWithSpaces(sumArrival) : '') + '</td>';
 
-            // Логистика (среднее)
-            html += '<td>' + (counts[7] ? formatNumberWithSpaces(Math.round(avgs[7] / counts[7])) : '') + '</td>';
+            // Учтено ВЭД (пусто в итогах)
+            html += '<td></td>';
+
+            // Логистика (среднее из ВЭД)
+            html += '<td>' + (countLogistics ? formatNumberWithSpaces(Math.round(avgLogistics / countLogistics)) : '') + '</td>';
 
             // Цена ¥ (среднее)
-            html += '<td>' + (counts[8] ? formatNumberWithSpaces(Math.round(avgs[8] / counts[8])) : '') + '</td>';
+            html += '<td>' + (countPrice ? formatNumberWithSpaces(Math.round(avgPrice / countPrice)) : '') + '</td>';
 
             // Себестоимость (среднее)
-            html += '<td>' + (counts[9] ? formatNumberWithSpaces(Math.round(avgs[9] / counts[9])) : '') + '</td>';
+            html += '<td>' + (countCost ? formatNumberWithSpaces(Math.round(avgCost / countCost)) : '') + '</td>';
 
             html += '<td></td><td></td>'; // чекбоксы (долги, FBO)
             html += '<td></td><td></td>'; // замок, удалить
