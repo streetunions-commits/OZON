@@ -12254,9 +12254,14 @@ HTML_TEMPLATE = '''
             const canPreview = file.file_type && (file.file_type.startsWith('image/') || file.file_type === 'application/pdf');
             const isAdmin = currentUser && currentUser.role === 'admin';
 
+            // Используем display_name если есть, иначе filename
+            const displayName = file.display_name || file.filename;
+            // Показываем в tooltip оригинальное имя файла если display_name задан
+            const tooltip = file.display_name ? file.display_name + ' (' + file.filename + ')' : file.filename;
+
             div.innerHTML = `
                 <span style="font-size: 18px;">${icon}</span>
-                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.filename}">${file.filename}</span>
+                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${tooltip}">${displayName}</span>
                 <span style="color: #888; font-size: 11px;">${sizeStr}</span>
                 ${canPreview ? '<button onclick="previewVedFile(' + file.id + ', \\'' + file.file_type + '\\')" style="padding: 4px 8px; border: none; background: #e3f2fd; color: #1976d2; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Просмотреть">👁️</button>' : ''}
                 <button onclick="downloadVedFile(${file.id})" style="padding: 4px 8px; border: none; background: #e8f5e9; color: #388e3c; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Скачать">⬇️</button>
@@ -12285,8 +12290,20 @@ HTML_TEMPLATE = '''
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
 
+                // Спрашиваем наименование файла (необязательно)
+                const displayName = prompt(
+                    'Укажите наименование файла (необязательно):\\n\\n' +
+                    'Оригинальное имя: ' + file.name + '\\n\\n' +
+                    'Оставьте пустым, чтобы использовать оригинальное имя файла:',
+                    ''
+                );
+
+                // Если пользователь нажал "Отмена" - пропускаем этот файл
+                if (displayName === null) continue;
+
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('display_name', displayName.trim());
 
                 try {
                     const response = await fetch('/api/ved/containers/' + editingVedContainerId + '/files', {
@@ -17165,7 +17182,7 @@ def get_ved_container_files(doc_id):
         cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT id, filename, file_type, file_size, uploaded_by, uploaded_at
+            SELECT id, filename, file_type, file_size, uploaded_by, uploaded_at, display_name
             FROM ved_container_files
             WHERE doc_id = ?
             ORDER BY uploaded_at DESC
@@ -17236,14 +17253,17 @@ def upload_ved_container_file(doc_id):
         # Получаем username
         username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
 
+        # Получаем display_name из формы (описательное название файла)
+        display_name = request.form.get('display_name', '')
+
         # Сохраняем в БД
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO ved_container_files (doc_id, filename, stored_filename, file_type, file_size, uploaded_by)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (doc_id, file.filename, stored_filename, file_type, file_size, username))
+            INSERT INTO ved_container_files (doc_id, filename, stored_filename, file_type, file_size, uploaded_by, display_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (doc_id, file.filename, stored_filename, file_type, file_size, username, display_name))
 
         file_id = cursor.lastrowid
         conn.commit()
@@ -17256,7 +17276,8 @@ def upload_ved_container_file(doc_id):
                 'filename': file.filename,
                 'file_type': file_type,
                 'file_size': file_size,
-                'uploaded_by': username
+                'uploaded_by': username,
+                'display_name': display_name
             }
         })
     except Exception as e:
