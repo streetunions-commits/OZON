@@ -7010,6 +7010,12 @@ HTML_TEMPLATE = '''
                     if (savedSubtab && validVedSubtabs.includes(savedSubtab)) {
                         setTimeout(() => {
                             activateVedSubtab(savedSubtab);
+                            // Если указан ID контейнера - открываем его для редактирования
+                            if (savedDocId && savedSubtab === 'ved-containers') {
+                                setTimeout(() => {
+                                    editVedContainer(parseInt(savedDocId));
+                                }, 300);
+                            }
                         }, 50);
                     }
                 } else if (savedTab === 'users') {
@@ -15141,7 +15147,7 @@ def api_container_messages_send():
                 tg_text = f"📦 *Контейнер #{container_id}*\n"
                 tg_text += f"📅 {container['container_date']} | {container['supplier']}\n\n"
                 tg_text += f"💬 *Сообщение от {sender_username}:*\n{message}\n\n"
-                tg_text += f"🔗 [Открыть контейнер]({site_url}/#ved:ved-containers)"
+                tg_text += f"🔗 [Открыть контейнер]({site_url}#ved:ved-containers:{container_id})"
 
                 # Отправляем через Telegram бота
                 try:
