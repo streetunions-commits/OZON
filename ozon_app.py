@@ -835,6 +835,24 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Поле уже существует
 
+    # Миграция: добавляем поле telegram_username для хранения @username Telegram
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN telegram_username TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # Поле уже существует
+
+    # Миграция: заполняем telegram_username из истории сообщений для существующих пользователей
+    cursor.execute('''
+        UPDATE users
+        SET telegram_username = (
+            SELECT sender_name FROM document_messages
+            WHERE sender_type = 'telegram' AND telegram_chat_id = users.telegram_chat_id
+            LIMIT 1
+        )
+        WHERE telegram_chat_id IS NOT NULL
+        AND (telegram_username IS NULL OR telegram_username = '')
+    ''')
+
     # Миграция: для существующих пользователей устанавливаем display_name = username
     # если display_name пустой (чтобы по умолчанию отображался логин)
     cursor.execute("UPDATE users SET display_name = username WHERE display_name IS NULL OR display_name = ''")
@@ -14228,7 +14246,10 @@ HTML_TEMPLATE = '''
          */
         async function linkTelegramAccount() {
             const userId = document.getElementById('link-tg-user-id').value;
-            const chatId = document.getElementById('link-tg-select').value;
+            const select = document.getElementById('link-tg-select');
+            const chatId = select.value;
+            // Получаем telegram_username из текста выбранной опции
+            const telegramUsername = chatId ? select.options[select.selectedIndex].textContent : '';
 
             try {
                 const resp = await authFetch('/api/users/link-telegram', {
@@ -14236,7 +14257,8 @@ HTML_TEMPLATE = '''
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         user_id: parseInt(userId),
-                        telegram_chat_id: chatId ? parseInt(chatId) : null
+                        telegram_chat_id: chatId ? parseInt(chatId) : null,
+                        telegram_username: telegramUsername
                     })
                 });
                 const data = await resp.json();
@@ -15263,13 +15285,14 @@ def api_users_link_telegram():
     """
     Привязать Telegram аккаунт к пользователю.
 
-    Принимает JSON: {"user_id": 1, "telegram_chat_id": 123456789}
+    Принимает JSON: {"user_id": 1, "telegram_chat_id": 123456789, "telegram_username": "@username"}
     Если telegram_chat_id = null, отвязывает аккаунт.
     """
     try:
         data = request.json or {}
         user_id = data.get('user_id')
         telegram_chat_id = data.get('telegram_chat_id')
+        telegram_username = data.get('telegram_username', '')
 
         if not user_id:
             return jsonify({'success': False, 'error': 'Укажите user_id'}), 400
@@ -15283,8 +15306,13 @@ def api_users_link_telegram():
             conn.close()
             return jsonify({'success': False, 'error': 'Пользователь не найден'}), 404
 
-        # Обновляем привязку
-        cursor.execute('UPDATE users SET telegram_chat_id = ? WHERE id = ?', (telegram_chat_id, user_id))
+        # Обновляем привязку (chat_id и username)
+        if telegram_chat_id:
+            cursor.execute('UPDATE users SET telegram_chat_id = ?, telegram_username = ? WHERE id = ?',
+                          (telegram_chat_id, telegram_username, user_id))
+        else:
+            # При отвязке очищаем оба поля
+            cursor.execute('UPDATE users SET telegram_chat_id = NULL, telegram_username = NULL WHERE id = ?', (user_id,))
         conn.commit()
         conn.close()
 
@@ -15311,17 +15339,9 @@ def api_users_with_telegram():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('SELECT id, username, telegram_chat_id FROM users WHERE telegram_chat_id IS NOT NULL')
-        users = []
-        for row in cursor.fetchall():
-            user = dict(row)
-            # Получаем telegram_username
-            chat_id = user['telegram_chat_id']
-            cursor.execute('SELECT sender_name FROM document_messages WHERE sender_type="telegram" AND telegram_chat_id=? LIMIT 1', (chat_id,))
-            tg_row = cursor.fetchone()
-            # Показываем только username, если он есть (не показываем ID)
-            user['telegram_username'] = tg_row['sender_name'] if tg_row else ''
-            users.append(user)
+        # Берём telegram_username напрямую из таблицы users
+        cursor.execute('SELECT id, username, telegram_chat_id, telegram_username FROM users WHERE telegram_chat_id IS NOT NULL')
+        users = [dict(row) for row in cursor.fetchall()]
 
         conn.close()
         return jsonify({'success': True, 'users': users})
