@@ -13703,10 +13703,10 @@ HTML_TEMPLATE = '''
                     sumExitFactory += exitQty;
                 }
 
-                // Кол-во прихода на склад (редактируемый input)
-                const textInputs = row.querySelectorAll('input[type="text"]');
-                if (textInputs[0]) {
-                    const val = parseNumberFromSpaces(textInputs[0].value);
+                // Кол-во прихода на склад (нередактируемый span)
+                const arrivalSpan = cells[3] ? cells[3].querySelector('.supply-arrival-value') : null;
+                if (arrivalSpan && arrivalSpan.textContent !== '0') {
+                    const val = parseNumberFromSpaces(arrivalSpan.textContent);
                     if (val) sumArrival += val;
                 }
 
