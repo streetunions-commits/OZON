@@ -11138,7 +11138,7 @@ HTML_TEMPLATE = '''
                 });
 
             // Загружаем товары, логистику ВЭД и поставки параллельно
-            const productsPromise = fetch('/api/products/list')
+            const productsPromise = authFetch('/api/products/list')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -11147,7 +11147,7 @@ HTML_TEMPLATE = '''
                 });
 
             // Загружаем данные логистики из ВЭД
-            const vedLogisticsPromise = fetch('/api/ved/product-logistics')
+            const vedLogisticsPromise = authFetch('/api/ved/product-logistics')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
@@ -11155,7 +11155,7 @@ HTML_TEMPLATE = '''
                     }
                 });
 
-            const suppliesPromise = fetch('/api/supplies')
+            const suppliesPromise = authFetch('/api/supplies')
                 .then(r => r.json());
 
             // Рендерим только когда ВСЕ данные готовы
