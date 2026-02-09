@@ -8434,29 +8434,49 @@ HTML_TEMPLATE = '''
                                 hour: '2-digit', minute: '2-digit'
                             });
                             const unreadClass = msg.is_read ? '' : 'unread';
-                            const docInfo = msg.doc_type === 'receipt'
-                                ? `Приход #${msg.doc_id}`
-                                : `Документ #${msg.doc_id}`;
+
+                            // Определяем тип сообщения
+                            const isContainer = msg.msg_source === 'container' || msg.doc_type === 'container';
+                            let docInfo, docIcon, openBtnText;
+
+                            if (isContainer) {
+                                docInfo = `Контейнер #${msg.doc_id}`;
+                                docIcon = '📦';
+                                openBtnText = '📦 Открыть контейнер';
+                            } else if (msg.doc_type === 'receipt') {
+                                docInfo = `Приход #${msg.doc_id}`;
+                                docIcon = '📄';
+                                openBtnText = '📂 Открыть документ';
+                            } else {
+                                docInfo = `Документ #${msg.doc_id}`;
+                                docIcon = '📄';
+                                openBtnText = '📂 Открыть документ';
+                            }
+
+                            // Для контейнеров показываем иконку источника (web/telegram)
+                            const senderIcon = msg.sender_type === 'telegram' ? '📱' : '🌐';
 
                             return `
-                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}">
+                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}">
                                     <div class="message-card-header">
                                         <div class="message-card-info">
-                                            <div class="message-card-doc">📄 ${docInfo}</div>
-                                            <div class="message-card-sender">📱 ${escapeHtml(msg.sender_name || 'Telegram')}</div>
+                                            <div class="message-card-doc">${docIcon} ${docInfo}</div>
+                                            <div class="message-card-sender">${senderIcon} ${escapeHtml(msg.sender_name || 'Telegram')}</div>
                                         </div>
                                         <div class="message-card-time">${timeStr}</div>
                                     </div>
                                     <div class="message-card-text">${escapeHtml(msg.message)}</div>
                                     <div class="message-card-actions">
-                                        <button class="message-btn message-btn-reply" onclick="openReplyModal(${msg.id}, '${escapeHtml(msg.message).replace(/'/g, "\\'")}', '${msg.doc_type}', ${msg.doc_id}, ${msg.telegram_chat_id || 0})">
-                                            💬 Ответить
-                                        </button>
+                                        ${!isContainer ? `
+                                            <button class="message-btn message-btn-reply" onclick="openReplyModal(${msg.id}, '${escapeHtml(msg.message).replace(/'/g, "\\'")}', '${msg.doc_type}', ${msg.doc_id}, ${msg.telegram_chat_id || 0})">
+                                                💬 Ответить
+                                            </button>
+                                        ` : ''}
                                         <button class="message-btn message-btn-open" onclick="openDocumentFromMessage('${msg.doc_type}', ${msg.doc_id})">
-                                            📂 Открыть документ
+                                            ${openBtnText}
                                         </button>
                                         ${!msg.is_read ? `
-                                            <button class="message-btn message-btn-read" onclick="markMessageRead(${msg.id})">
+                                            <button class="message-btn message-btn-read" onclick="markMessageRead(${msg.id}, false, '${msg.msg_source || 'document'}')">
                                                 ✓ Просмотрено
                                             </button>
                                         ` : ''}
@@ -8465,7 +8485,7 @@ HTML_TEMPLATE = '''
                             `;
                         }).join('');
                     } else {
-                        listDiv.innerHTML = '<div class="messages-empty">Нет сообщений из Telegram</div>';
+                        listDiv.innerHTML = '<div class="messages-empty">Нет сообщений</div>';
                     }
                 })
                 .catch(err => {
@@ -8492,10 +8512,15 @@ HTML_TEMPLATE = '''
 
         // Отметить сообщение как прочитанное
         // skipConfirm=true — не спрашивать подтверждение (используется при автоматической пометке после ответа)
-        function markMessageRead(messageId, skipConfirm = false) {
+        // msgSource='document' или 'container' — источник сообщения
+        function markMessageRead(messageId, skipConfirm = false, msgSource = 'document') {
             if (!skipConfirm && !confirm('Отметить сообщение как прочитанное?')) return;
 
-            authFetch('/api/document-messages/mark-read-single', {
+            const apiUrl = msgSource === 'container'
+                ? '/api/container-messages/mark-read'
+                : '/api/document-messages/mark-read-single';
+
+            authFetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message_id: messageId })
@@ -8504,7 +8529,7 @@ HTML_TEMPLATE = '''
             .then(result => {
                 if (result.success) {
                     // Убрать класс unread с карточки
-                    const card = document.querySelector(`.message-card[data-message-id="${messageId}"]`);
+                    const card = document.querySelector(`.message-card[data-message-id="${messageId}"][data-msg-source="${msgSource}"]`);
                     if (card) {
                         card.classList.remove('unread');
                         // Убрать кнопку "Просмотрено"
@@ -8546,6 +8571,15 @@ HTML_TEMPLATE = '''
                     setTimeout(() => {
                         editReceiptDoc(docId);
                     }, 200);
+                }, 200);
+            } else if (docType === 'container') {
+                // Переключиться на вкладку ВЭД → Контейнеры
+                document.querySelector('[onclick*="ved"]')?.click();
+                setTimeout(() => {
+                    activateVedSubtab('ved-containers');
+                    setTimeout(() => {
+                        editVedContainer(docId);
+                    }, 300);
                 }, 200);
             }
         }
@@ -12318,6 +12352,7 @@ HTML_TEMPLATE = '''
          */
         async function loadContainerMessages(containerId) {
             const listDiv = document.getElementById('ved-container-messages-list');
+            listDiv.style.display = 'block';
             listDiv.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Загрузка...</div>';
 
             try {
@@ -12325,10 +12360,12 @@ HTML_TEMPLATE = '''
                 const data = await resp.json();
 
                 if (!data.success || !data.messages || data.messages.length === 0) {
-                    listDiv.innerHTML = '<div style="color: #999; text-align: center; padding: 20px;">Нет сообщений</div>';
+                    listDiv.style.display = 'none';
+                    listDiv.innerHTML = '';
                     return;
                 }
 
+                listDiv.style.display = 'block';
                 listDiv.innerHTML = '';
                 data.messages.forEach(msg => {
                     const isFromTelegram = msg.sender_type === 'telegram';
@@ -15357,6 +15394,32 @@ def api_container_messages_receive():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/container-messages/mark-read', methods=['POST'])
+@require_auth(['admin', 'viewer'])
+def api_container_messages_mark_read():
+    """
+    Отметить сообщение контейнера как прочитанное.
+    """
+    try:
+        data = request.json or {}
+        message_id = data.get('message_id')
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'message_id не указан'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE container_messages SET is_read = 1 WHERE id = ?', (message_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_mark_read: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def send_telegram_container_message(chat_id, text, container_id, message_id):
     """
     Отправить сообщение в Telegram с кнопкой "Ответить".
@@ -17615,6 +17678,7 @@ def receive_telegram_message_direct():
 def get_all_document_messages():
     """
     Получить все сообщения из Telegram для вкладки "Сообщения".
+    Включает сообщения документов (приходов) и контейнеров ВЭД.
     Параметры: ?unread_only=true — только непрочитанные
 
     Фильтрация по привязанному Telegram аккаунту:
@@ -17640,38 +17704,76 @@ def get_all_document_messages():
             if row:
                 user_telegram_chat_id = row['telegram_chat_id']
 
-        # Формируем базовый запрос
-        base_query = '''
-            SELECT m.*, d.receiver_name, d.receipt_datetime
+        messages = []
+
+        # 1. Получаем сообщения документов (приходов)
+        doc_query = '''
+            SELECT m.id, m.doc_type, m.doc_id, m.sender_name, m.message, m.is_read,
+                   m.created_at, m.telegram_chat_id, d.receiver_name, d.receipt_datetime,
+                   'document' as msg_source
             FROM document_messages m
             LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
             WHERE m.sender_type = 'telegram'
         '''
+        doc_params = []
 
-        params = []
-
-        # Фильтр по привязанному Telegram для viewer
         if user_role != 'admin':
             if user_telegram_chat_id:
-                base_query += ' AND m.telegram_chat_id = ?'
-                params.append(user_telegram_chat_id)
+                doc_query += ' AND m.telegram_chat_id = ?'
+                doc_params.append(user_telegram_chat_id)
             else:
-                # Viewer без привязки — пустой список
-                conn.close()
-                return jsonify({'success': True, 'messages': []})
+                doc_query = None  # Не запрашиваем
 
-        # Фильтр только непрочитанные
-        if unread_only:
-            base_query += ' AND m.is_read = 0'
+        if doc_query:
+            if unread_only:
+                doc_query += ' AND m.is_read = 0'
+            cursor.execute(doc_query, doc_params)
+            for row in cursor.fetchall():
+                msg = dict(row)
+                msg['msg_source'] = 'document'
+                messages.append(msg)
 
-        base_query += ' ORDER BY m.created_at DESC LIMIT 100'
+        # 2. Получаем сообщения контейнеров ВЭД
+        container_query = '''
+            SELECT cm.id, cm.container_id as doc_id, cm.sender_name, cm.message, cm.is_read,
+                   cm.created_at, cm.sender_type, c.supplier, c.container_date,
+                   'container' as msg_source
+            FROM container_messages cm
+            LEFT JOIN ved_container_docs c ON cm.container_id = c.id
+            WHERE 1=1
+        '''
+        container_params = []
 
-        cursor.execute(base_query, params)
-        messages = [dict(row) for row in cursor.fetchall()]
+        # Для viewer фильтруем по получателям (recipient_ids содержит user_id)
+        if user_role != 'admin':
+            if user_id:
+                container_query += ' AND (cm.sender_id = ? OR cm.recipient_ids LIKE ?)'
+                container_params.append(user_id)
+                container_params.append(f'%{user_id}%')
+            else:
+                container_query = None
+
+        if container_query:
+            if unread_only:
+                container_query += ' AND cm.is_read = 0'
+            cursor.execute(container_query, container_params)
+            for row in cursor.fetchall():
+                msg = dict(row)
+                msg['msg_source'] = 'container'
+                msg['doc_type'] = 'container'
+                messages.append(msg)
+
         conn.close()
+
+        # Сортируем все сообщения по дате
+        messages.sort(key=lambda x: x['created_at'], reverse=True)
+        messages = messages[:100]  # Лимит 100
 
         return jsonify({'success': True, 'messages': messages})
     except Exception as e:
+        print(f"❌ Ошибка get_all_document_messages: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e), 'messages': []})
 
 
@@ -17784,7 +17886,7 @@ def mark_all_messages_read_api():
 @require_auth(['admin', 'viewer'])
 def get_unread_messages_count():
     """
-    Получить количество непрочитанных сообщений из Telegram.
+    Получить количество непрочитанных сообщений (документы + контейнеры).
 
     Фильтрация по привязанному Telegram аккаунту:
     - admin: считает все непрочитанные сообщения
@@ -17807,24 +17909,35 @@ def get_unread_messages_count():
             if row:
                 user_telegram_chat_id = row['telegram_chat_id']
 
-        # Формируем запрос с учётом привязки
+        count = 0
+
+        # 1. Считаем непрочитанные сообщения документов
         if user_role != 'admin':
             if user_telegram_chat_id:
                 cursor.execute('''
                     SELECT COUNT(*) FROM document_messages
                     WHERE sender_type = 'telegram' AND is_read = 0 AND telegram_chat_id = ?
                 ''', (user_telegram_chat_id,))
-            else:
-                # Viewer без привязки — 0 непрочитанных
-                conn.close()
-                return jsonify({'success': True, 'count': 0})
+                count += cursor.fetchone()[0]
         else:
             cursor.execute('''
                 SELECT COUNT(*) FROM document_messages
                 WHERE sender_type = 'telegram' AND is_read = 0
             ''')
+            count += cursor.fetchone()[0]
 
-        count = cursor.fetchone()[0]
+        # 2. Считаем непрочитанные сообщения контейнеров
+        if user_role != 'admin':
+            if user_id:
+                cursor.execute('''
+                    SELECT COUNT(*) FROM container_messages
+                    WHERE is_read = 0 AND (sender_id = ? OR recipient_ids LIKE ?)
+                ''', (user_id, f'%{user_id}%'))
+                count += cursor.fetchone()[0]
+        else:
+            cursor.execute('SELECT COUNT(*) FROM container_messages WHERE is_read = 0')
+            count += cursor.fetchone()[0]
+
         conn.close()
 
         return jsonify({'success': True, 'count': count})
