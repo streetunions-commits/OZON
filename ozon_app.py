@@ -9507,15 +9507,15 @@ HTML_TEMPLATE = '''
                 tdDest.textContent = destLabels[doc.destination] || doc.destination || '—';
                 row.appendChild(tdDest);
 
-                // Статус проведения (кликабельный бейдж)
+                // Статус проведения (только отображение, изменение через редактирование)
                 const tdCompleted = document.createElement('td');
                 tdCompleted.style.textAlign = 'center';
                 const isCompleted = doc.is_completed === 1 || doc.is_completed === true;
                 const statusBadge = document.createElement('span');
                 statusBadge.className = 'shipment-status-badge ' + (isCompleted ? 'completed' : 'pending');
                 statusBadge.innerHTML = isCompleted ? '✓ Проведено' : '◷ Ожидает';
-                statusBadge.title = 'Нажмите для изменения статуса';
-                statusBadge.onclick = () => toggleShipmentCompleted(doc.id, !isCompleted);
+                statusBadge.style.cursor = 'default';
+                statusBadge.title = 'Изменить статус можно в режиме редактирования';
                 tdCompleted.appendChild(statusBadge);
                 row.appendChild(tdCompleted);
 
@@ -9599,32 +9599,6 @@ HTML_TEMPLATE = '''
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: docId })
-            })
-            .then(r => r.json())
-            .then(result => {
-                if (result.success) {
-                    loadShipmentHistory();
-                    loadWarehouseStock();
-                } else {
-                    alert('Ошибка: ' + (result.error || 'Неизвестная ошибка'));
-                }
-            })
-            .catch(err => console.error('Ошибка:', err));
-        }
-
-        /**
-         * Переключить статус проведения отгрузки
-         * @param {number} docId - ID документа отгрузки
-         * @param {boolean} newStatus - Новый статус (true = проведено)
-         */
-        function toggleShipmentCompleted(docId, newStatus) {
-            const actionText = newStatus ? 'провести' : 'отменить проведение';
-            if (!confirm(`Вы уверены, что хотите ${actionText} эту отгрузку?`)) return;
-
-            authFetch('/api/warehouse/shipment-docs/toggle-completed', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: docId, is_completed: newStatus })
             })
             .then(r => r.json())
             .then(result => {
@@ -15503,11 +15477,15 @@ def api_container_messages_send():
         # Получаем информацию об отправителе
         user_info = getattr(request, 'current_user', {})
         sender_id = user_info.get('user_id')
-        sender_username = user_info.get('username', 'Unknown')
 
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Получаем display_name отправителя из базы данных
+        cursor.execute('SELECT display_name, username FROM users WHERE id = ?', (sender_id,))
+        sender_row = cursor.fetchone()
+        sender_username = (sender_row['display_name'] or sender_row['username']) if sender_row else 'Unknown'
 
         # Получаем информацию о контейнере
         cursor.execute('SELECT supplier, container_date FROM ved_container_docs WHERE id = ?', (container_id,))
