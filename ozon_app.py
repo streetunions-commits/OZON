@@ -15148,7 +15148,9 @@ def api_container_messages_send():
                 tg_text = f"📦 *Контейнер #{container_id}*\n"
                 tg_text += f"📅 {container['container_date']} | {container['supplier']}\n\n"
                 tg_text += f"💬 *Сообщение от {sender_username}:*\n{message}\n\n"
-                tg_text += f"🔗 [Открыть контейнер]({site_url}#ved:ved-containers:{container_id})"
+                # URL с / перед # для корректного парсинга в Telegram
+                container_url = f"{site_url}/#ved:ved-containers:{container_id}"
+                tg_text += f"🔗 [Открыть контейнер]({container_url})"
 
                 # Отправляем через Telegram бота
                 try:
