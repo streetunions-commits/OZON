@@ -13,10 +13,12 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify, request, send_file
 from bs4 import BeautifulSoup
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 import jwt
+import uuid
 
 # ✅ TIMEZONE FIX - Белград (Serbia/Balkans)
 try:
@@ -131,6 +133,14 @@ if not OZON_CLIENT_ID or not OZON_API_KEY:
 
 OZON_HOST = "https://api-seller.ozon.ru"
 DB_PATH = "ozon_data.db"
+
+# ✅ Директория для загрузки файлов контейнеров ВЭД
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
+ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'rar'}
+MAX_FILE_SIZE = 16 * 1024 * 1024  # 16 MB
+
+# Создаём директорию для загрузок если не существует
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ✅ Выбор поля для считывания остатков
 # Варианты: "free_to_sell_amount" | "available" | "present"
@@ -657,6 +667,21 @@ def init_database():
         cursor.execute('ALTER TABLE ved_container_docs ADD COLUMN important TEXT DEFAULT ""')
     except sqlite3.OperationalError:
         pass  # Колонка уже существует
+
+    # Таблица для хранения файлов контейнеров ВЭД
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS ved_container_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
+            file_type TEXT DEFAULT '',
+            file_size INTEGER DEFAULT 0,
+            uploaded_by TEXT DEFAULT '',
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (doc_id) REFERENCES ved_container_docs(id) ON DELETE CASCADE
+        )
+    ''')
 
     # ============================================================================
     # МИГРАЦИИ ДЛЯ TELEGRAM ИНТЕГРАЦИИ
@@ -4335,34 +4360,41 @@ HTML_TEMPLATE = '''
 
         .currency-rates-row {
             display: flex;
-            gap: 16px;
+            gap: 10px;
         }
 
         .currency-rate-card {
             background: #fff;
             border: 1px solid #e9ecef;
             border-radius: 8px;
-            padding: 12px 20px;
+            padding: 8px 12px;
             display: flex;
-            align-items: center;
-            gap: 8px;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+            min-width: 100px;
+            max-width: 140px;
         }
 
         .currency-label {
-            font-size: 13px;
+            font-size: 11px;
             color: #555;
             font-weight: 500;
+            line-height: 1.2;
         }
 
         .currency-value {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
             color: #333;
+            display: inline;
         }
 
         .currency-rub {
-            font-size: 14px;
+            font-size: 12px;
             color: #999;
+            display: inline;
+            margin-left: 2px;
         }
 
         /* ============================================================================
@@ -6318,22 +6350,22 @@ HTML_TEMPLATE = '''
                             <span class="currency-rub" style="color:#92400e;">шт.</span>
                         </div>
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Вся себестоимость в пути</span>
+                            <span class="currency-label">Себестоимость в пути</span>
                             <span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span>
                             <span class="currency-rub" style="color:#92400e;">₽</span>
-                            <span style="display:block;font-size:12px;color:#92400e;margin-top:6px;border-top:1px solid #f59e0b;padding-top:4px;" id="goods-in-transit-cost-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no6">без наценки +6%: —</span>
                         </div>
-                        <div class="currency-rate-card" style="background:#fefce8; border-color:#ca8a04;">
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
                             <span class="currency-label">Себестоимость в пути без логистики</span>
-                            <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#ca8a04;">—</span>
-                            <span class="currency-rub" style="color:#713f12;">₽</span>
-                            <span style="display:block;font-size:12px;color:#713f12;margin-top:6px;border-top:1px solid #ca8a04;padding-top:4px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</span>
+                            <span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#d97706;">—</span>
+                            <span class="currency-rub" style="color:#92400e;">₽</span>
+                            <span style="display:block;font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
-                        <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
                             <span class="currency-label">Логистика в пути</span>
-                            <span class="currency-value" id="logistics-in-transit" style="color:#dc2626;">—</span>
-                            <span class="currency-rub" style="color:#7f1d1d;">₽</span>
-                            <span style="display:block;font-size:12px;color:#7f1d1d;margin-top:6px;border-top:1px solid #ef4444;padding-top:4px;" id="logistics-in-transit-no6">без наценки +6%: —</span>
+                            <span class="currency-value" id="logistics-in-transit" style="color:#d97706;">—</span>
+                            <span class="currency-rub" style="color:#92400e;">₽</span>
+                            <span style="display:block;font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="logistics-in-transit-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                     <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
@@ -6343,22 +6375,22 @@ HTML_TEMPLATE = '''
                             <span class="currency-rub" style="color:#1e40af;">шт.</span>
                         </div>
                         <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">Вся себестоимость плана</span>
+                            <span class="currency-label">Себестоимость плана</span>
                             <span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span>
                             <span class="currency-rub" style="color:#1e40af;">₽</span>
-                            <span style="display:block;font-size:12px;color:#1e40af;margin-top:6px;border-top:1px solid #3b82f6;padding-top:4px;" id="plan-cost-no6">без наценки +6%: —</span>
+                            <span style="display:block;font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no6">без наценки +6%: —</span>
                         </div>
-                        <div class="currency-rate-card" style="background:#eef2ff; border-color:#6366f1;">
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
                             <span class="currency-label">Себестоимость плана без логистики</span>
-                            <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#4f46e5;">—</span>
-                            <span class="currency-rub" style="color:#312e81;">₽</span>
-                            <span style="display:block;font-size:12px;color:#312e81;margin-top:6px;border-top:1px solid #6366f1;padding-top:4px;" id="plan-cost-no-log-no6">без наценки +6%: —</span>
+                            <span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#2563eb;">—</span>
+                            <span class="currency-rub" style="color:#1e40af;">₽</span>
+                            <span style="display:block;font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no-log-no6">без наценки +6%: —</span>
                         </div>
-                        <div class="currency-rate-card" style="background:#fef2f2; border-color:#ef4444;">
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
                             <span class="currency-label">Логистика план</span>
-                            <span class="currency-value" id="logistics-plan" style="color:#dc2626;">—</span>
-                            <span class="currency-rub" style="color:#7f1d1d;">₽</span>
-                            <span style="display:block;font-size:12px;color:#7f1d1d;margin-top:6px;border-top:1px solid #ef4444;padding-top:4px;" id="logistics-plan-no6">без наценки +6%: —</span>
+                            <span class="currency-value" id="logistics-plan" style="color:#2563eb;">—</span>
+                            <span class="currency-rub" style="color:#1e40af;">₽</span>
+                            <span style="display:block;font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="logistics-plan-no6">без наценки +6%: —</span>
                         </div>
                     </div>
                 </div>
@@ -6509,6 +6541,22 @@ HTML_TEMPLATE = '''
                                     </tr>
                                 </tfoot>
                             </table>
+                        </div>
+
+                        <!-- ========================================
+                             БЛОК ПРИКРЕПЛЕННЫХ ФАЙЛОВ
+                             ======================================== -->
+                        <div id="ved-container-files-section" class="container-files-section" style="margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <h4 style="margin: 0; color: #333;">📎 Прикрепленные файлы</h4>
+                                <label class="wh-add-btn-small" style="cursor: pointer; margin: 0;">
+                                    + Добавить файл
+                                    <input type="file" id="ved-container-file-input" style="display: none;" onchange="uploadVedContainerFile()" multiple>
+                                </label>
+                            </div>
+                            <div id="ved-container-files-list" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                <p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>
+                            </div>
                         </div>
 
                         <!-- ========================================
@@ -16419,6 +16467,194 @@ def toggle_ved_container_completed():
             WHERE id = ?
         ''', (1 if is_completed else 0, doc_id))
 
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API: ФАЙЛЫ КОНТЕЙНЕРОВ ВЭД
+# ============================================================================
+
+def allowed_file(filename):
+    """Проверить, разрешено ли расширение файла."""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route('/api/ved/containers/<int:doc_id>/files', methods=['GET'])
+@require_auth(['admin', 'viewer'])
+def get_ved_container_files(doc_id):
+    """Получить список файлов контейнера."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT id, filename, file_type, file_size, uploaded_by, uploaded_at
+            FROM ved_container_files
+            WHERE doc_id = ?
+            ORDER BY uploaded_at DESC
+        """, (doc_id,))
+
+        files = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'files': files})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'files': []})
+
+
+@app.route('/api/ved/containers/<int:doc_id>/files', methods=['POST'])
+@require_auth(['admin'])
+def upload_ved_container_file(doc_id):
+    """Загрузить файл к контейнеру."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Файл не выбран'})
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Файл не выбран'})
+
+        if not allowed_file(file.filename):
+            return jsonify({'success': False, 'error': 'Недопустимый тип файла'})
+
+        # Проверяем размер файла
+        file.seek(0, 2)  # Переходим в конец файла
+        file_size = file.tell()
+        file.seek(0)  # Возвращаемся в начало
+
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'success': False, 'error': f'Файл слишком большой (максимум {MAX_FILE_SIZE // 1024 // 1024} МБ)'})
+
+        # Генерируем уникальное имя файла
+        original_filename = secure_filename(file.filename)
+        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
+        stored_filename = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
+
+        # Создаём поддиректорию для контейнера
+        container_folder = os.path.join(UPLOAD_FOLDER, str(doc_id))
+        os.makedirs(container_folder, exist_ok=True)
+
+        # Сохраняем файл
+        file_path = os.path.join(container_folder, stored_filename)
+        file.save(file_path)
+
+        # Определяем MIME тип
+        mime_types = {
+            'pdf': 'application/pdf',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'gif': 'image/gif',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'txt': 'text/plain',
+            'zip': 'application/zip',
+            'rar': 'application/x-rar-compressed'
+        }
+        file_type = mime_types.get(ext, 'application/octet-stream')
+
+        # Получаем username
+        username = request.current_user.get('username', '') if hasattr(request, 'current_user') else ''
+
+        # Сохраняем в БД
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO ved_container_files (doc_id, filename, stored_filename, file_type, file_size, uploaded_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (doc_id, file.filename, stored_filename, file_type, file_size, username))
+
+        file_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'file': {
+                'id': file_id,
+                'filename': file.filename,
+                'file_type': file_type,
+                'file_size': file_size,
+                'uploaded_by': username
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/containers/files/<int:file_id>')
+@require_auth(['admin', 'viewer'])
+def download_ved_container_file(file_id):
+    """Скачать или просмотреть файл."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT doc_id, filename, stored_filename, file_type
+            FROM ved_container_files WHERE id = ?
+        """, (file_id,))
+
+        file_info = cursor.fetchone()
+        conn.close()
+
+        if not file_info:
+            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
+
+        file_path = os.path.join(UPLOAD_FOLDER, str(file_info['doc_id']), file_info['stored_filename'])
+
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Файл не найден на диске'}), 404
+
+        # Определяем, показывать inline или скачивать
+        view_inline = request.args.get('view', '0') == '1'
+
+        if view_inline and file_info['file_type'].startswith(('image/', 'application/pdf')):
+            return send_file(file_path, mimetype=file_info['file_type'])
+        else:
+            return send_file(file_path, as_attachment=True, download_name=file_info['filename'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ved/containers/files/<int:file_id>', methods=['DELETE'])
+@require_auth(['admin'])
+def delete_ved_container_file(file_id):
+    """Удалить файл."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем информацию о файле
+        cursor.execute("""
+            SELECT doc_id, stored_filename FROM ved_container_files WHERE id = ?
+        """, (file_id,))
+
+        file_info = cursor.fetchone()
+
+        if not file_info:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Файл не найден'})
+
+        # Удаляем файл с диска
+        file_path = os.path.join(UPLOAD_FOLDER, str(file_info['doc_id']), file_info['stored_filename'])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # Удаляем запись из БД
+        cursor.execute('DELETE FROM ved_container_files WHERE id = ?', (file_id,))
         conn.commit()
         conn.close()
 
