@@ -13028,8 +13028,8 @@ HTML_TEMPLATE = '''
             }
             // Если данные из контейнера — товар нельзя редактировать
             if (data && data.container_doc_id) {
-                productSelect.disabled = true;
-                productSelect.title = 'Данные из контейнера ВЭД (автозаполнение)';
+                selectProduct.disabled = true;
+                selectProduct.title = 'Данные из контейнера ВЭД (автозаполнение)';
             }
             row.appendChild(tdProduct);
 
