@@ -12838,14 +12838,8 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('supplies-tbody');
             tbody.innerHTML = '';
 
-            // Рассчитываем распределение данных ВЭД по строкам
-            // Данные ВЭД "расходуются" в порядке даты выхода с фабрики (ПЛАН)
-            const vedCoverage = calculateVedCoverage(supplies);
-
             supplies.forEach(s => {
-                // Передаём рассчитанное покрытие ВЭД для этой строки
-                const coverage = s.id ? vedCoverage[s.id] : null;
-                const row = createSupplyRowElement(s, coverage);
+                const row = createSupplyRowElement(s);
                 tbody.appendChild(row);
             });
 
@@ -12856,124 +12850,12 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Расчёт распределения данных ВЭД по строкам поставок.
-         *
-         * Логика:
-         * 1. Группируем поставки по SKU (включая строки без прихода)
-         * 2. Для строк С приходом: распределяем позиции ВЭД и считаем средневзвешенные
-         * 3. Для строк БЕЗ прихода: показываем средние значения из ВЭД
-         *
-         * Возвращает объект: { supply_id: { covered, shortage, avg_logistics, avg_price_rub } }
-         */
-        function calculateVedCoverage(supplies) {
-            const result = {};
-
-            // Группируем по SKU (ВСЕ строки с SKU, не только с приходом)
-            const bysku = {};
-            supplies.forEach(s => {
-                if (!s.sku) return;
-                if (!bysku[s.sku]) bysku[s.sku] = [];
-                bysku[s.sku].push(s);
-            });
-
-            // Для каждого SKU рассчитываем распределение
-            Object.keys(bysku).forEach(sku => {
-                const rows = bysku[sku];
-                const vedData = vedProductLogistics[String(sku)];
-
-                // Нет данных ВЭД - все строки без покрытия
-                if (!vedData || !vedData.items || vedData.items.length === 0) {
-                    rows.forEach(s => {
-                        const arrivalQty = s.arrival_warehouse_qty || 0;
-                        result[s.id] = {
-                            covered: 0,
-                            shortage: arrivalQty,
-                            avg_logistics: 0,
-                            avg_price_rub: 0
-                        };
-                    });
-                    return;
-                }
-
-                // Разделяем строки: с приходом и без прихода
-                const rowsWithArrival = rows.filter(s => s.arrival_warehouse_qty > 0);
-                const rowsWithoutArrival = rows.filter(s => !s.arrival_warehouse_qty || s.arrival_warehouse_qty <= 0);
-
-                // Для строк БЕЗ прихода - показываем средние значения из ВЭД
-                rowsWithoutArrival.forEach(s => {
-                    result[s.id] = {
-                        covered: 0,
-                        shortage: 0,
-                        avg_logistics: vedData.avg_logistics_per_unit || 0,
-                        avg_price_rub: vedData.avg_cost_per_unit_rub || 0
-                    };
-                });
-
-                // Для строк С приходом - распределяем позиции ВЭД
-                if (rowsWithArrival.length === 0) return;
-
-                // Копируем позиции ВЭД для распределения (с оставшимся количеством)
-                const vedItems = vedData.items.map(item => ({
-                    remaining: item.quantity,
-                    logistics_per_unit: item.logistics_per_unit,
-                    cost_per_unit_rub: item.cost_per_unit_rub
-                }));
-
-                // Сортируем по дате выхода с фабрики ПЛАН (по возрастанию)
-                rowsWithArrival.sort((a, b) => {
-                    const dateA = a.exit_plan_date || '9999-12-31';
-                    const dateB = b.exit_plan_date || '9999-12-31';
-                    return dateA.localeCompare(dateB);
-                });
-
-                // Распределяем позиции ВЭД по строкам поставок
-                rowsWithArrival.forEach(s => {
-                    const arrivalQty = s.arrival_warehouse_qty || 0;
-                    let needQty = arrivalQty;
-                    let totalCovered = 0;
-                    let weightedLogistics = 0;
-                    let weightedPrice = 0;
-
-                    // Берём позиции ВЭД пока не покроем или не кончатся
-                    for (const item of vedItems) {
-                        if (needQty <= 0 || item.remaining <= 0) continue;
-
-                        // Сколько берём из этой позиции
-                        const take = Math.min(needQty, item.remaining);
-                        item.remaining -= take;
-                        needQty -= take;
-                        totalCovered += take;
-
-                        // Накапливаем для средневзвешенного
-                        weightedLogistics += take * item.logistics_per_unit;
-                        weightedPrice += take * item.cost_per_unit_rub;
-                    }
-
-                    // Рассчитываем средние только из покрытой части
-                    const shortage = arrivalQty - totalCovered;
-                    const avgLogistics = totalCovered > 0 ? weightedLogistics / totalCovered : vedData.avg_logistics_per_unit || 0;
-                    const avgPriceRub = totalCovered > 0 ? weightedPrice / totalCovered : vedData.avg_cost_per_unit_rub || 0;
-
-                    result[s.id] = {
-                        covered: totalCovered,
-                        shortage: shortage,
-                        avg_logistics: avgLogistics,
-                        avg_price_rub: avgPriceRub
-                    };
-                });
-            });
-
-            return result;
-        }
-
-        /**
          * Создание HTML-элемента строки таблицы поставок
          *
          * Параметры:
          *   data — объект с данными поставки (из базы) или null для новой строки
-         *   vedCoverage — рассчитанное покрытие ВЭД {covered, shortage} или null
          */
-        function createSupplyRowElement(data, vedCoverage) {
+        function createSupplyRowElement(data) {
             const row = document.createElement('tr');
             // Строки поставок создаются автоматически из контейнеров ВЭД
             const isNewRow = !data;
@@ -13304,52 +13186,92 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Создание редактируемой ячейки с числовым полем.
-         * Используется только для arrival_warehouse_qty.
+         * Создание ячейки для кол-ва прихода на склад.
+         * Поле только для чтения (заполняется из оприходований).
+         * Добавляет кнопку раскрытия для просмотра распределений.
          */
         function createNumberCell(value, isLocked, row, fieldName) {
             const td = document.createElement('td');
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'supply-input';
-            input.dataset.field = fieldName || '';
-            input.style.minWidth = '90px';
-            if (value !== null && value !== undefined && value !== '') {
-                input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
+            td.style.position = 'relative';
+            td.className = 'supply-arrival-cell';
+
+            // Span для отображения значения (только для чтения)
+            const valueSpan = document.createElement('span');
+            valueSpan.className = 'supply-arrival-value';
+            if (value !== null && value !== undefined && value !== '' && value !== 0) {
+                valueSpan.textContent = formatNumberWithSpaces(Math.round(parseFloat(value)));
+            } else {
+                valueSpan.textContent = '0';
+                valueSpan.style.color = '#999';
+            }
+            td.appendChild(valueSpan);
+
+            // Кнопка раскрытия для просмотра распределений (только если есть значение)
+            if (value && parseFloat(value) > 0) {
+                const expandBtn = document.createElement('button');
+                expandBtn.type = 'button';
+                expandBtn.className = 'supply-expand-btn';
+                expandBtn.textContent = '▼';
+                expandBtn.title = 'Показать откуда приход';
+                expandBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #ddd;background:#f5f5f5;border-radius:4px;cursor:pointer;padding:2px 6px;font-size:10px;color:#666;line-height:1;';
+                expandBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    toggleSupplyDistributions(row, expandBtn);
+                };
+                td.appendChild(expandBtn);
             }
 
-            // Валидация: нельзя заполнять количество без соответствующей даты
-            input.onfocus = function() {
-                const dateInputs = row.querySelectorAll('input[type="date"]');
+            return td;
+        }
 
-                // Проверка: дата прихода на склад должна быть заполнена
-                if (fieldName === 'arrival_warehouse_qty' && (!dateInputs[0] || !dateInputs[0].value)) {
-                    this.blur();
-                    alert('⚠️ Сначала заполните дату прихода на склад');
-                    return;
-                }
+        /**
+         * Раскрыть/скрыть детали распределений для строки поставки.
+         */
+        function toggleSupplyDistributions(row, btn) {
+            const supplyId = row.dataset.supplyId;
+            if (!supplyId || supplyId.startsWith('new_')) return;
 
-                // Проверка: предыдущая поставка должна быть заполнена
-                if (fieldName === 'arrival_warehouse_qty') {
-                    if (!canFillQtyField(row, fieldName)) {
-                        this.blur();
+            // Проверяем, есть ли уже развёрнутая строка
+            const existingDetails = row.nextElementSibling;
+            if (existingDetails && existingDetails.classList.contains('supply-distributions-row')) {
+                existingDetails.remove();
+                if (btn) btn.textContent = '▼';
+                return;
+            }
+
+            // Загружаем распределения
+            authFetch('/api/supplies/' + supplyId + '/distributions')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || !data.distributions || data.distributions.length === 0) {
+                        alert('Нет данных о распределении приходов');
                         return;
                     }
-                }
-            };
 
-            // Форматирование при вводе — только цифры и пробелы
-            input.oninput = function() {
-                const raw = this.value.replace(/[^\\d]/g, '');
-                this.value = raw ? formatNumberWithSpaces(parseInt(raw)) : '';
-            };
+                    // Создаём строку с деталями
+                    const detailsRow = document.createElement('tr');
+                    detailsRow.className = 'supply-distributions-row';
+                    detailsRow.style.backgroundColor = '#f9fafb';
 
-            input.onblur = () => {
-                onSupplyFieldChange(row);
-            };
+                    const detailsTd = document.createElement('td');
+                    detailsTd.colSpan = 8;
+                    detailsTd.style.padding = '8px 16px';
 
-            td.appendChild(input);
-            return td;
+                    let html = '<div style="font-size:12px;color:#666;"><strong>📦 Приходы (оприходования):</strong><ul style="margin:4px 0 0 16px;padding:0;list-style:none;">';
+                    data.distributions.forEach(d => {
+                        const date = d.receipt_date ? d.receipt_date.split('-').reverse().join('.') : '—';
+                        const cost = d.cost_plus_6 ? formatNumberWithSpaces(Math.round(d.cost_plus_6)) : '—';
+                        html += '<li style="margin:2px 0;">📋 Дата: <strong>' + date + '</strong>, Кол-во: <strong>' + formatNumberWithSpaces(d.quantity) + '</strong>, Себест.+6%: <strong>' + cost + ' ₽</strong></li>';
+                    });
+                    html += '</ul></div>';
+
+                    detailsTd.innerHTML = html;
+                    detailsRow.appendChild(detailsTd);
+
+                    // Вставляем после текущей строки
+                    row.after(detailsRow);
+                    if (btn) btn.textContent = '▲';
+                });
         }
 
         /**
@@ -13422,14 +13344,8 @@ HTML_TEMPLATE = '''
             const exitFactoryDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
             const exitFactoryQtySpan = cells[2] ? cells[2].querySelector('.supply-readonly-value') : null;
 
-            // Редактируемые поля: приход на склад (только кол-во)
-            const textInputs = row.querySelectorAll('input[type="text"]');
-
-            // Вспомогательная функция: пустое поле → null, иначе число
-            function numOrNull(input) {
-                if (!input || input.value.trim() === '') return null;
-                return parseNumberFromSpaces(input.value);
-            }
+            // Кол-во прихода на склад - нередактируемый span
+            const arrivalQtySpan = cells[3] ? cells[3].querySelector('.supply-arrival-value') : null;
 
             // Парсинг даты из формата ДД.ММ.ГГГГ в ГГГГ-ММ-ДД
             function parseDateFromSpan(span) {
@@ -13467,7 +13383,7 @@ HTML_TEMPLATE = '''
                 product_name: productName,
                 exit_factory_date: parseDateFromSpan(exitFactoryDateSpan),
                 exit_factory_qty: parseNumberFromSpan(exitFactoryQtySpan),
-                arrival_warehouse_qty: numOrNull(textInputs[0]),
+                arrival_warehouse_qty: parseNumberFromSpan(arrivalQtySpan),
                 logistics_cost_per_unit: logisticsValue,
                 price_rub: priceRubValue
             };
@@ -13830,9 +13746,6 @@ HTML_TEMPLATE = '''
 
             // Кол-во прихода (сумма)
             html += '<td>' + (sumArrival ? formatNumberWithSpaces(sumArrival) : '') + '</td>';
-
-            // Учтено ВЭД (пусто в итогах)
-            html += '<td></td>';
 
             // Логистика (средневзвешенная)
             html += '<td>' + (avgLogistics > 0 ? formatNumberWithSpaces(Math.round(avgLogistics)) : '') + '</td>';
