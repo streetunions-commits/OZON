@@ -6413,7 +6413,7 @@ HTML_TEMPLATE = '''
                                     <th>Кол-во прихода<br>на склад</th>
                                     <th title="Количество единиц товара, учтённых в ВЭД (Поступления). Отрицательное значение = не хватает данных.">Учтено<br>ВЭД</th>
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
-                                    <th>Цена товара<br>единица, ¥</th>
+                                    <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
                                     <th>Внести<br>в долги</th>
                                     <th>План<br>на FBO</th>
@@ -6451,21 +6451,22 @@ HTML_TEMPLATE = '''
 
                     <!-- Форма нового контейнера (скрыта по умолчанию) -->
                     <div class="receipt-form" id="ved-container-form" style="display: none;">
-                        <!-- Курс юаня и процент к переводу -->
-                        <div class="currency-rates-panel" style="margin-bottom: 20px;">
-                            <div class="currency-rates-row">
-                                <div class="currency-rate-card">
-                                    <span class="currency-label">¥ Юань (CNY)</span>
-                                    <span class="currency-value" id="ved-rate-cny">—</span>
-                                    <span class="currency-rub">₽</span>
+                        <div class="receipt-form-header">
+                            <!-- Курс юаня и процент к переводу -->
+                            <div class="receipt-form-row" style="margin-bottom: 15px;">
+                                <div class="receipt-form-field" style="flex: 0 0 160px;">
+                                    <label>¥ Курс юаня</label>
+                                    <div class="wh-input" style="background: #f8f9fa; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                        <span id="ved-rate-cny" style="font-weight: 600; font-size: 16px;">—</span>
+                                        <span style="color: #666;">₽</span>
+                                    </div>
                                 </div>
-                                <div class="currency-rate-card" style="min-width: 120px;">
-                                    <span class="currency-label">% к переводу</span>
-                                    <input type="number" id="ved-cny-percent" class="wh-input" style="width: 80px; text-align: center; font-size: 18px; font-weight: 600; padding: 4px 8px;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
+                                <div class="receipt-form-field" style="flex: 0 0 140px;">
+                                    <label>% к переводу</label>
+                                    <input type="number" id="ved-cny-percent" class="wh-input" style="text-align: center; font-weight: 600;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
                                 </div>
                             </div>
-                        </div>
-                        <div class="receipt-form-header">
+                            <!-- Основные поля -->
                             <div class="receipt-form-row">
                                 <div class="receipt-form-field" style="flex: 0 0 160px;">
                                     <label>Дата выхода <span style="color: #e74c3c;">*</span></label>
@@ -12810,15 +12811,33 @@ HTML_TEMPLATE = '''
             tdLogistics.appendChild(logisticsSpan);
             row.appendChild(tdLogistics);
 
-            // 10. Цена товара единица (юани)
-            row.appendChild(createNumberCell(data ? data.price_cny : '', isLocked, row, 'price_cny'));
+            // 10. Цена товара единица в рублях (из ВЭД, только для чтения)
+            const tdPrice = document.createElement('td');
+            const priceSpan = document.createElement('span');
+            priceSpan.className = 'supply-price-auto';
+            // Берём среднюю себестоимость из ВЭД (в рублях)
+            const avgCostRub = vedData ? vedData.avg_cost_per_unit_rub : 0;
+            if (avgCostRub > 0) {
+                priceSpan.textContent = formatNumberWithSpaces(Math.round(avgCostRub));
+                priceSpan.title = 'Средняя себестоимость из ВЭД (Поступления)';
+            } else {
+                priceSpan.textContent = '—';
+                priceSpan.style.color = '#999';
+            }
+            // Сохраняем значение для расчётов
+            priceSpan.dataset.value = avgCostRub;
+            tdPrice.appendChild(priceSpan);
+            row.appendChild(tdPrice);
 
-            // 10. Себестоимость товара +6% (рассчитывается автоматически)
+            // 11. Себестоимость товара +6% = (логистика + цена) * 1.06
             const tdCost = document.createElement('td');
             const costSpan = document.createElement('span');
             costSpan.className = 'supply-cost-auto';
-            if (data && data.cost_plus_6) {
-                costSpan.textContent = formatNumberWithSpaces(Math.round(data.cost_plus_6));
+            // Формула: (логистика_за_ед + цена_за_ед) * 1.06
+            if (avgLogistics > 0 || avgCostRub > 0) {
+                const costPlus6 = (avgLogistics + avgCostRub) * 1.06;
+                costSpan.textContent = formatNumberWithSpaces(Math.round(costPlus6));
+                costSpan.title = 'Формула: (логистика + цена) × 1.06';
             } else {
                 costSpan.textContent = '—';
             }
@@ -13189,6 +13208,10 @@ HTML_TEMPLATE = '''
             const logisticsSpan = row.querySelector('.supply-logistics-auto');
             const logisticsValue = logisticsSpan ? parseFloat(logisticsSpan.dataset.value) || 0 : 0;
 
+            // Цена товара теперь тоже берётся из ВЭД (span с dataset.value)
+            const priceSpan = row.querySelector('.supply-price-auto');
+            const priceRubValue = priceSpan ? parseFloat(priceSpan.dataset.value) || 0 : 0;
+
             return {
                 id: row.dataset.supplyId,
                 sku: select ? parseInt(select.value) || 0 : 0,
@@ -13200,7 +13223,7 @@ HTML_TEMPLATE = '''
                 arrival_warehouse_date: dateInputs[2] ? dateInputs[2].value : '',
                 arrival_warehouse_qty: numOrNull(textInputs[2]),
                 logistics_cost_per_unit: logisticsValue,
-                price_cny: numOrNull(textInputs[3]),
+                price_rub: priceRubValue,
                 add_to_marketing: false,
                 add_to_debts: checkboxes[0] ? checkboxes[0].checked : false,
                 plan_fbo: checkboxes[1] ? checkboxes[1].checked : false
@@ -13209,7 +13232,8 @@ HTML_TEMPLATE = '''
 
         /**
          * Пересчёт себестоимости товара +6%
-         * Формула: (логистика_за_единицу + цена_юань * курс_юаня) * 1.06
+         * Формула: (логистика_за_единицу + цена_руб) * 1.06
+         * Курс юаня больше не используется - все данные уже в рублях из ВЭД
          */
         function recalcCost(row) {
             const data = getRowData(row);
@@ -13217,10 +13241,10 @@ HTML_TEMPLATE = '''
             if (!costSpan) return;
 
             const logistics = data.logistics_cost_per_unit || 0;
-            const priceCny = data.price_cny || 0;
+            const priceRub = data.price_rub || 0;
 
-            if (logistics > 0 || priceCny > 0) {
-                const cost = (logistics + priceCny * currentCnyRate) * 1.06;
+            if (logistics > 0 || priceRub > 0) {
+                const cost = (logistics + priceRub) * 1.06;
                 costSpan.textContent = formatNumberWithSpaces(Math.round(cost));
             } else {
                 costSpan.textContent = '—';
@@ -17241,51 +17265,71 @@ def get_ved_receipts():
 @require_auth(['admin', 'viewer'])
 def get_ved_product_logistics():
     """
-    Получить среднюю логистику за единицу товара из завершённых контейнеров ВЭД.
+    Получить среднюю логистику и себестоимость за единицу товара из завершённых контейнеров ВЭД.
 
     Возвращает для каждого SKU:
     - avg_logistics_per_unit: средняя логистика за штуку (взвешенная по количеству)
+    - avg_cost_per_unit_rub: средняя себестоимость за штуку в рублях (цена_юань * курс)
     - total_quantity: общее количество товара в поступлениях ВЭД
 
-    Расчёт: SUM(all_logistics) / SUM(quantity) для каждого SKU
-    где all_logistics = logistics_rf + logistics_cn + terminal + customs
+    Расчёт:
+    - avg_logistics = SUM(all_logistics) / SUM(quantity)
+    - avg_cost_rub = SUM(price_cny * quantity * adjusted_rate) / SUM(quantity)
     """
     try:
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем агрегированные данные по каждому SKU из завершённых контейнеров
+        # Получаем данные по каждой позиции с курсом контейнера
         cursor.execute('''
             SELECT
                 i.sku,
-                SUM(i.quantity) as total_qty,
-                SUM(
-                    COALESCE(i.logistics_rf, 0) +
-                    COALESCE(i.logistics_cn, 0) +
-                    COALESCE(i.terminal, 0) +
-                    COALESCE(i.customs, 0)
-                ) as total_logistics
+                i.quantity,
+                i.price_cny,
+                COALESCE(i.logistics_rf, 0) + COALESCE(i.logistics_cn, 0) +
+                COALESCE(i.terminal, 0) + COALESCE(i.customs, 0) as all_logistics,
+                d.cny_rate,
+                d.cny_percent
             FROM ved_container_items i
             INNER JOIN ved_container_docs d ON d.id = i.doc_id
             WHERE d.is_completed = 1 AND i.quantity > 0
-            GROUP BY i.sku
         ''')
 
-        result = {}
+        # Агрегируем по SKU
+        sku_data = {}
         for row in cursor.fetchall():
-            sku = row[0]
-            total_qty = row[1] or 0
-            total_logistics = row[2] or 0
+            sku = str(row['sku'])
+            qty = row['quantity'] or 0
+            price_cny = row['price_cny'] or 0
+            all_logistics = row['all_logistics'] or 0
+            cny_rate = row['cny_rate'] or 0
+            cny_percent = row['cny_percent'] or 0
 
-            # Средняя логистика за единицу
-            avg_logistics = round(total_logistics / total_qty, 2) if total_qty > 0 else 0
+            # Скорректированный курс с учётом процента
+            adjusted_rate = cny_rate * (1 + cny_percent / 100)
+            # Себестоимость в рублях за эту партию
+            cost_rub = price_cny * adjusted_rate * qty
 
-            result[str(sku)] = {
-                'avg_logistics_per_unit': avg_logistics,
-                'total_quantity': total_qty
-            }
+            if sku not in sku_data:
+                sku_data[sku] = {'total_qty': 0, 'total_logistics': 0, 'total_cost_rub': 0}
+
+            sku_data[sku]['total_qty'] += qty
+            sku_data[sku]['total_logistics'] += all_logistics
+            sku_data[sku]['total_cost_rub'] += cost_rub
 
         conn.close()
+
+        # Формируем результат
+        result = {}
+        for sku, data in sku_data.items():
+            total_qty = data['total_qty']
+            if total_qty > 0:
+                result[sku] = {
+                    'avg_logistics_per_unit': round(data['total_logistics'] / total_qty, 2),
+                    'avg_cost_per_unit_rub': round(data['total_cost_rub'] / total_qty, 2),
+                    'total_quantity': total_qty
+                }
 
         return jsonify({'success': True, 'logistics': result})
     except Exception as e:
