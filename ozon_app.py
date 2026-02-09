@@ -6446,11 +6446,9 @@ HTML_TEMPLATE = '''
                             <thead>
                                 <tr>
                                     <th>Товар</th>
-                                    <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Выход с фабрики<br>ПЛАН <span class="sort-arrow"></span></th>
-                                    <th style="min-width: 130px;">Заказ кол-во<br>ПЛАН</th>
-                                    <th class="sortable-date" data-col="3" onclick="sortSuppliesByDate(3)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
+                                    <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
-                                    <th class="sortable-date" data-col="5" onclick="sortSuppliesByDate(5)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
+                                    <th class="sortable-date" data-col="3" onclick="sortSuppliesByDate(3)">Дата прихода<br>на склад <span class="sort-arrow"></span></th>
                                     <th>Кол-во прихода<br>на склад</th>
                                     <th title="Количество единиц товара, учтённых в ВЭД (Поступления). Отрицательное значение = не хватает данных.">Учтено<br>ВЭД</th>
                                     <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
@@ -6464,9 +6462,7 @@ HTML_TEMPLATE = '''
                             </tbody>
                         </table>
                     </div>
-                    <button class="supplies-add-btn admin-only" onclick="addSupplyRow()" title="Добавить строку">
-                        <span style="font-size: 20px; line-height: 1;">+</span>
-                    </button>
+                    <!-- Строки поставок создаются автоматически из контейнеров ВЭД -->
                 </div>
             </div>
 
@@ -12956,11 +12952,18 @@ HTML_TEMPLATE = '''
          */
         function createSupplyRowElement(data, vedCoverage) {
             const row = document.createElement('tr');
-            // Больше не используем глобальную блокировку строк
-            // Вместо этого используем кнопки редактирования для каждого поля плана
+            // Строки поставок создаются автоматически из контейнеров ВЭД
             const isNewRow = !data;
             const rowId = data ? data.id : 'new_' + Date.now();
             row.dataset.supplyId = rowId;
+
+            // Сохраняем связь с контейнером ВЭД
+            if (data && data.container_doc_id) {
+                row.dataset.containerDocId = data.container_doc_id;
+            }
+            if (data && data.container_item_id) {
+                row.dataset.containerItemId = data.container_item_id;
+            }
 
             // 1. Товар (выпадающий список) с кнопкой редактирования
             const tdProduct = document.createElement('td');
@@ -13024,24 +13027,23 @@ HTML_TEMPLATE = '''
                 };
                 tdProduct.appendChild(productEditBtn);
             }
+            // Если данные из контейнера — товар нельзя редактировать
+            if (data && data.container_doc_id) {
+                productSelect.disabled = true;
+                productSelect.title = 'Данные из контейнера ВЭД (автозаполнение)';
+            }
             row.appendChild(tdProduct);
 
-            // 2. Выход с фабрики ПЛАН (дата без года) — с кнопкой редактирования
-            row.appendChild(createDateCell(data ? data.exit_plan_date : '', false, row, 0, true));
+            // 2. Дата выхода с фабрики (из контейнера — нередактируемая)
+            row.appendChild(createReadOnlyDateCell(data ? data.exit_factory_date : '', data && data.container_doc_id));
 
-            // 3. Заказ кол-во ПЛАН (число) — с кнопкой редактирования
-            row.appendChild(createNumberCell(data ? data.order_qty_plan : '', false, row, 'order_qty_plan'));
+            // 3. Кол-во выхода с фабрики (из контейнера — нередактируемое)
+            row.appendChild(createReadOnlyNumberCell(data ? data.exit_factory_qty : '', data && data.container_doc_id));
 
-            // 4. Дата выхода с фабрики (дата)
-            row.appendChild(createDateCell(data ? data.exit_factory_date : '', false, row, 1, false));
+            // 4. Дата прихода на склад (редактируемая)
+            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', false, row, 0, false));
 
-            // 5. Кол-во выхода с фабрики (число) — с логикой перераспределения
-            row.appendChild(createNumberCell(data ? data.exit_factory_qty : '', false, row, 'exit_factory_qty'));
-
-            // 6. Дата прихода на склад (дата)
-            row.appendChild(createDateCell(data ? data.arrival_warehouse_date : '', false, row, 2, false));
-
-            // 7. Кол-во прихода на склад (число)
+            // 5. Кол-во прихода на склад (редактируемое)
             row.appendChild(createNumberCell(data ? data.arrival_warehouse_qty : '', false, row, 'arrival_warehouse_qty'));
 
             // 8. Учтено ВЭД (распределённое покрытие данными ВЭД)
@@ -13267,37 +13269,98 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Создание ячейки с числовым полем (пробелы в тысячных)
+         * Создание нередактируемой ячейки с датой (для данных из контейнера).
+         * Отображает дату в формате ДД.ММ.ГГГГ.
          */
+        function createReadOnlyDateCell(value, isFromContainer) {
+            const td = document.createElement('td');
+            td.className = 'supply-readonly-cell';
+            const span = document.createElement('span');
+            span.className = 'supply-readonly-value';
+
+            if (value) {
+                // Форматируем дату как ДД.ММ.ГГГГ
+                const parts = value.split('-');
+                if (parts.length === 3) {
+                    span.textContent = parts[2] + '.' + parts[1] + '.' + parts[0];
+                } else {
+                    span.textContent = value;
+                }
+            } else {
+                span.textContent = '—';
+                span.style.color = '#999';
+            }
+
+            if (isFromContainer) {
+                span.title = 'Данные из контейнера ВЭД (автозаполнение)';
+                td.style.backgroundColor = '#f0f9ff';
+            }
+
+            td.appendChild(span);
+            return td;
+        }
+
         /**
-         * Проверка: можно ли заполнять exit_factory_qty или arrival_warehouse_qty.
+         * Создание нередактируемой ячейки с числом (для данных из контейнера).
+         */
+        function createReadOnlyNumberCell(value, isFromContainer) {
+            const td = document.createElement('td');
+            td.className = 'supply-readonly-cell';
+            const span = document.createElement('span');
+            span.className = 'supply-readonly-value';
+
+            if (value !== null && value !== undefined && value !== '' && value !== 0) {
+                span.textContent = formatNumberWithSpaces(Math.round(parseFloat(value)));
+            } else {
+                span.textContent = '—';
+                span.style.color = '#999';
+            }
+
+            if (isFromContainer) {
+                span.title = 'Данные из контейнера ВЭД (автозаполнение)';
+                td.style.backgroundColor = '#f0f9ff';
+            }
+
+            td.appendChild(span);
+            return td;
+        }
+
+        /**
+         * Проверка: можно ли заполнять arrival_warehouse_qty.
          *
-         * Для exit_factory_qty: нельзя, если предыдущая строка того же товара
-         * не имеет заполненного "Кол-во выхода с фабрики".
-         *
-         * Для arrival_warehouse_qty: нельзя, если предыдущая строка того же товара
+         * Нельзя, если предыдущая строка того же товара (по дате выхода с фабрики)
          * не имеет заполненного "Кол-во прихода на склад".
          *
          * Возвращает true если можно заполнять, false если нет.
          */
         function canFillQtyField(row, fieldName) {
+            // Проверка только для прихода на склад
+            if (fieldName !== 'arrival_warehouse_qty') return true;
+
             const data = getRowData(row);
             if (!data.sku) return true;
 
-            const currentDate = data.exit_plan_date || data.exit_factory_date || '';
+            const currentDate = data.exit_factory_date || '';
             const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
 
-            // Ищем строки с тем же SKU и более ранней датой
+            // Ищем строки с тем же SKU и более ранней датой выхода с фабрики
             const prevRows = allRows.filter(r => {
                 if (r === row) return false;
                 const sel = r.querySelector('select');
                 const sku = sel ? (parseInt(sel.value) || 0) : 0;
                 if (sku !== data.sku) return false;
 
-                const dateInputs = r.querySelectorAll('input[type="date"]');
-                const rDate = dateInputs[0] ? dateInputs[0].value : '';
-                if (currentDate && rDate) return rDate < currentDate;
-                if (!currentDate && rDate) return true;
+                // Получаем дату выхода с фабрики из span
+                const cells = r.querySelectorAll('td');
+                const exitDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
+                const rDate = exitDateSpan ? exitDateSpan.textContent.trim() : '';
+                if (rDate === '—') return false;
+
+                // Конвертируем формат ДД.ММ.ГГГГ в ГГГГ-ММ-ДД для сравнения
+                const parts = rDate.split('.');
+                const rDateFormatted = parts.length === 3 ? parts[2] + '-' + parts[1] + '-' + parts[0] : '';
+
+                if (currentDate && rDateFormatted) return rDateFormatted < currentDate;
                 return allRows.indexOf(r) < allRows.indexOf(row);
             });
 
@@ -13305,28 +13368,20 @@ HTML_TEMPLATE = '''
 
             for (const prevRow of prevRows) {
                 const textInputs = prevRow.querySelectorAll('input[type="text"]');
-
-                // Для выхода с фабрики — проверяем exit_factory_qty (textInputs[1])
-                if (fieldName === 'exit_factory_qty') {
-                    const val = textInputs[1] ? textInputs[1].value.trim() : '';
-                    if (val === '') {
-                        alert('⚠️ Сначала заполните "Кол-во выхода с фабрики" в предыдущей поставке этого товара');
-                        return false;
-                    }
-                }
-
-                // Для прихода на склад — проверяем arrival_warehouse_qty (textInputs[2])
-                if (fieldName === 'arrival_warehouse_qty') {
-                    const val = textInputs[2] ? textInputs[2].value.trim() : '';
-                    if (val === '') {
-                        alert('⚠️ Сначала заполните "Кол-во прихода на склад" в предыдущей поставке этого товара');
-                        return false;
-                    }
+                // textInputs[0] = arrival_warehouse_qty (единственный редактируемый input)
+                const val = textInputs[0] ? textInputs[0].value.trim() : '';
+                if (val === '') {
+                    alert('⚠️ Сначала заполните "Кол-во прихода на склад" в предыдущей поставке этого товара');
+                    return false;
                 }
             }
             return true;
         }
 
+        /**
+         * Создание редактируемой ячейки с числовым полем.
+         * Используется только для arrival_warehouse_qty.
+         */
         function createNumberCell(value, isLocked, row, fieldName) {
             const td = document.createElement('td');
             const input = document.createElement('input');
@@ -13338,66 +13393,19 @@ HTML_TEMPLATE = '''
                 input.value = formatNumberWithSpaces(Math.round(parseFloat(value)));
             }
 
-            // Кнопка-карандаш для редактирования плана (только для order_qty_plan)
-            let pencilBtn = null;
-            let originalPlanValue = '';
-            let isPlanEditMode = false;
-
-            if (fieldName === 'order_qty_plan') {
-                originalPlanValue = input.value;
-                // Если есть значение — блокируем поле
-                if (input.value.trim() !== '') {
-                    input.disabled = true;
-                }
-
-                pencilBtn = document.createElement('button');
-                pencilBtn.type = 'button';
-                pencilBtn.className = 'supply-plan-edit-btn supply-field-edit-btn';
-                pencilBtn.textContent = 'Ред';
-                pencilBtn.title = 'Редактировать план';
-                pencilBtn.style.cssText = 'position:absolute;right:2px;top:50%;transform:translateY(-50%);border:1px solid #f59e0b;background:#fff8e1;border-radius:4px;cursor:pointer;padding:2px 6px;display:none;font-size:11px;color:#d97706;font-weight:600;line-height:1.4;z-index:1;';
-                // Ячейка должна быть position:relative для позиционирования кнопки
-                td.style.position = 'relative';
-                td.style.overflow = 'visible';
-
-                // Показываем карандаш если план заполнен
-                if (input.value.trim() !== '') {
-                    pencilBtn.style.display = 'inline-block';
-                }
-
-                // Клик по карандашу — разрешает редактирование поля план
-                pencilBtn.onclick = function() {
-                    originalPlanValue = input.value;
-                    isPlanEditMode = true;
-                    input.disabled = false;
-                    pencilBtn.style.display = 'none';
-                    input.focus();
-                };
-            }
-
             // Валидация: нельзя заполнять количество без соответствующей даты
             input.onfocus = function() {
                 const dateInputs = row.querySelectorAll('input[type="date"]');
 
-                // Проверка: дата должна быть заполнена для соответствующего количества
-                if (fieldName === 'order_qty_plan' && (!dateInputs[0] || !dateInputs[0].value)) {
-                    this.blur();
-                    alert('⚠️ Сначала заполните дату плана');
-                    return;
-                }
-                if (fieldName === 'exit_factory_qty' && (!dateInputs[1] || !dateInputs[1].value)) {
-                    this.blur();
-                    alert('⚠️ Сначала заполните дату выхода с фабрики');
-                    return;
-                }
-                if (fieldName === 'arrival_warehouse_qty' && (!dateInputs[2] || !dateInputs[2].value)) {
+                // Проверка: дата прихода на склад должна быть заполнена
+                if (fieldName === 'arrival_warehouse_qty' && (!dateInputs[0] || !dateInputs[0].value)) {
                     this.blur();
                     alert('⚠️ Сначала заполните дату прихода на склад');
                     return;
                 }
 
-                // Проверка: предыдущая поставка должна быть заполнена (выход с фабрики и приход)
-                if (fieldName === 'exit_factory_qty' || fieldName === 'arrival_warehouse_qty') {
+                // Проверка: предыдущая поставка должна быть заполнена
+                if (fieldName === 'arrival_warehouse_qty') {
                     if (!canFillQtyField(row, fieldName)) {
                         this.blur();
                         return;
@@ -13412,53 +13420,10 @@ HTML_TEMPLATE = '''
             };
 
             input.onblur = () => {
-                // После ввода плана — проверяем изменения и показываем подтверждение
-                if (fieldName === 'order_qty_plan' && input.value.trim() !== '' && pencilBtn) {
-                    if (isPlanEditMode && input.value !== originalPlanValue) {
-                        // Задержка чтобы не конфликтовать с другими обработчиками
-                        setTimeout(() => {
-                            showFieldChangeConfirm(
-                                'Изменение количества',
-                                'Вы уверены, что хотите изменить количество?',
-                                function() {
-                                    originalPlanValue = input.value;
-                                    isPlanEditMode = false;
-                                    input.disabled = true;
-                                    pencilBtn.style.display = 'inline-block';
-                                    onSupplyFieldChange(row);
-                                },
-                                function() {
-                                    input.value = originalPlanValue;
-                                    isPlanEditMode = false;
-                                    input.disabled = true;
-                                    pencilBtn.style.display = 'inline-block';
-                                }
-                            );
-                        }, 100);
-                        return;
-                    }
-                    input.disabled = true;
-                    pencilBtn.style.display = 'inline-block';
-                    isPlanEditMode = false;
-                }
-
-                // Логика перераспределения для "Кол-во выхода с фабрики"
-                if (fieldName === 'exit_factory_qty') {
-                    handleExitFactoryQtyChange(row);
-                }
-                // Логика перераспределения для "Кол-во прихода на склад"
-                if (fieldName === 'arrival_warehouse_qty') {
-                    handleArrivalQtyChange(row);
-                }
-
                 onSupplyFieldChange(row);
             };
 
             td.appendChild(input);
-            // Добавляем кнопку-карандаш рядом с полем плана
-            if (pencilBtn) {
-                td.appendChild(pencilBtn);
-            }
             return td;
         }
 
@@ -13509,22 +13474,28 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Извлечь данные из строки таблицы в объект для отправки на сервер
+         * Извлечь данные из строки таблицы в объект для отправки на сервер.
+         *
+         * Структура столбцов:
+         * 0: Товар (select)
+         * 1: Дата выхода с фабрики (span, нередактируемая)
+         * 2: Кол-во выхода с фабрики (span, нередактируемое)
+         * 3: Дата прихода на склад (input[type=date])
+         * 4: Кол-во прихода на склад (input[type=text])
+         * 5-8: ВЭД данные (span)
+         * 9: Кнопка удаления
          */
         function getRowData(row) {
             const cells = row.querySelectorAll('td');
             const select = cells[0].querySelector('select');
-            const inputs = row.querySelectorAll('input');
 
-            // Все input-ы по порядку:
-            // 0: exit_plan_date, 1: order_qty_plan, 2: exit_factory_date,
-            // 3: exit_factory_qty, 4: arrival_warehouse_date, 5: arrival_warehouse_qty,
-            // 6: logistics_cost, 7: price_cny
-            // Чекбоксы: 8: marketing, 9: debts, 10: fbo
+            // Дата и кол-во выхода с фабрики - нередактируемые span
+            const exitFactoryDateSpan = cells[1] ? cells[1].querySelector('.supply-readonly-value') : null;
+            const exitFactoryQtySpan = cells[2] ? cells[2].querySelector('.supply-readonly-value') : null;
 
+            // Редактируемые поля: приход на склад
             const dateInputs = row.querySelectorAll('input[type="date"]');
             const textInputs = row.querySelectorAll('input[type="text"]');
-            const checkboxes = row.querySelectorAll('input[type="checkbox"]');
 
             // Вспомогательная функция: пустое поле → null, иначе число
             function numOrNull(input) {
@@ -13532,29 +13503,46 @@ HTML_TEMPLATE = '''
                 return parseNumberFromSpaces(input.value);
             }
 
-            // Логистика теперь берётся из ВЭД (span с dataset.value)
+            // Парсинг даты из формата ДД.ММ.ГГГГ в ГГГГ-ММ-ДД
+            function parseDateFromSpan(span) {
+                if (!span) return '';
+                const text = span.textContent.trim();
+                if (!text || text === '—') return '';
+                const parts = text.split('.');
+                if (parts.length === 3) {
+                    return parts[2] + '-' + parts[1] + '-' + parts[0];
+                }
+                return text;
+            }
+
+            // Парсинг числа из span (с пробелами)
+            function parseNumberFromSpan(span) {
+                if (!span) return null;
+                const text = span.textContent.trim();
+                if (!text || text === '—') return null;
+                return parseNumberFromSpaces(text);
+            }
+
+            // Логистика берётся из ВЭД (span с dataset.value)
             const logisticsSpan = row.querySelector('.supply-logistics-auto');
             const logisticsValue = logisticsSpan ? parseFloat(logisticsSpan.dataset.value) || 0 : 0;
 
-            // Цена товара теперь тоже берётся из ВЭД (span с dataset.value)
+            // Цена товара тоже берётся из ВЭД (span с dataset.value)
             const priceSpan = row.querySelector('.supply-price-auto');
             const priceRubValue = priceSpan ? parseFloat(priceSpan.dataset.value) || 0 : 0;
 
             return {
                 id: row.dataset.supplyId,
+                container_doc_id: row.dataset.containerDocId || null,
+                container_item_id: row.dataset.containerItemId || null,
                 sku: select ? parseInt(select.value) || 0 : 0,
                 product_name: select ? select.options[select.selectedIndex]?.text || '' : '',
-                exit_plan_date: dateInputs[0] ? dateInputs[0].value : '',
-                order_qty_plan: numOrNull(textInputs[0]),
-                exit_factory_date: dateInputs[1] ? dateInputs[1].value : '',
-                exit_factory_qty: numOrNull(textInputs[1]),
-                arrival_warehouse_date: dateInputs[2] ? dateInputs[2].value : '',
-                arrival_warehouse_qty: numOrNull(textInputs[2]),
+                exit_factory_date: parseDateFromSpan(exitFactoryDateSpan),
+                exit_factory_qty: parseNumberFromSpan(exitFactoryQtySpan),
+                arrival_warehouse_date: dateInputs[0] ? dateInputs[0].value : '',
+                arrival_warehouse_qty: numOrNull(textInputs[0]),
                 logistics_cost_per_unit: logisticsValue,
-                price_rub: priceRubValue,
-                add_to_marketing: false,
-                add_to_debts: false,
-                plan_fbo: false
+                price_rub: priceRubValue
             };
         }
 
@@ -13626,290 +13614,6 @@ HTML_TEMPLATE = '''
                     row.dataset.supplyId = result.id;
                 }
             });
-        }
-
-        // ============================================================
-        // ПЕРЕРАСПРЕДЕЛЕНИЕ ПЛАН / ВЫХОД С ФАБРИКИ / ПРИХОД НА СКЛАД
-        // ============================================================
-
-        /**
-         * Обработка "Кол-во выхода с фабрики".
-         *
-         * При вводе факта с фабрики:
-         *   - Запоминаем исходный план
-         *   - План в ЭТОЙ строке обновляется на значение факта
-         *   - Разница (исходный план - факт) переносится на следующую строку того же товара
-         *   - Если следующей строки нет — создаётся новая
-         */
-        function handleExitFactoryQtyChange(row) {
-            const data = getRowData(row);
-            if (!data.sku) return;
-
-            const factQty = data.exit_factory_qty || 0;
-
-            // Запоминаем исходный план при первом вводе факта
-            if (!row.dataset.originalPlan) {
-                row.dataset.originalPlan = String(data.order_qty_plan);
-            }
-            const originalPlan = parseInt(row.dataset.originalPlan) || 0;
-
-            // --- Шаг 1: откатываем предыдущий перенос ---
-            const prevTargetId = row.dataset.redistTarget || '';
-            const prevAmount = parseInt(row.dataset.redistAmount) || 0;
-
-            if (prevTargetId && prevAmount !== 0) {
-                const prevTargetRow = findRowById(prevTargetId);
-                if (prevTargetRow) {
-                    modifyPlanQty(prevTargetRow, -prevAmount);
-                }
-            }
-            row.dataset.redistTarget = '';
-            row.dataset.redistAmount = '0';
-
-            // --- Шаг 2: обновляем план в ЭТОЙ строке = факт ---
-            const planInput = row.querySelectorAll('input[type="text"]')[0];
-            if (planInput) {
-                const wasDisabled = planInput.disabled;
-                if (wasDisabled) planInput.disabled = false;
-                planInput.value = factQty ? formatNumberWithSpaces(factQty) : formatNumberWithSpaces(originalPlan);
-                if (wasDisabled) planInput.disabled = true;
-            }
-
-            // Если факт не введён — восстанавливаем исходный план, очищаем память
-            if (!factQty) {
-                row.dataset.originalPlan = '';
-                onSupplyFieldChange(row);
-                return;
-            }
-
-            // --- Шаг 3: считаем остаток и переносим ---
-            const remainder = originalPlan - factQty;
-            if (remainder === 0) {
-                onSupplyFieldChange(row);
-                return;
-            }
-
-            // Ищем строку-получатель
-            let targetRow = null;
-
-            if (prevTargetId) {
-                targetRow = findRowById(prevTargetId);
-            }
-            if (!targetRow) {
-                targetRow = findNextSameSkuRow(row, data);
-            }
-            if (!targetRow) {
-                targetRow = createRedistributionRow(data);
-            }
-
-            // Переносим остаток (remainder > 0 = недополучили, добавляем к следующему)
-            modifyPlanQty(targetRow, remainder);
-
-            row.dataset.redistTarget = getRowId(targetRow);
-            row.dataset.redistAmount = String(remainder);
-
-            onSupplyFieldChange(row);
-        }
-
-        /**
-         * Обработка "Кол-во прихода на склад".
-         *
-         * Сравниваем приход с выходом с фабрики:
-         *   - Приход < выход: разницу вычитаем из плана текущей строки,
-         *     прибавляем к плану следующей строки (каскадно)
-         *   - Приход > выход: разницу прибавляем к плану текущей строки,
-         *     вычитаем из плана следующей строки (каскадно)
-         *   - Приход = выход: ничего не делаем
-         *
-         * Пример: выход=3000, приход=2000, разница=1000
-         *   → Текущая строка: план -= 1000
-         *   → Следующая строка: план += 1000 (каскад если не хватает)
-         */
-        function handleArrivalQtyChange(row) {
-            const data = getRowData(row);
-            if (!data.sku) return;
-
-            const factoryQty = data.exit_factory_qty || 0;
-            const arrivalQty = data.arrival_warehouse_qty || 0;
-
-            // --- Шаг 1: откатываем ВСЕ предыдущие переносы (каскадные) ---
-            const prevCascadeJson = row.dataset.arrivalCascade || '[]';
-            const prevLocalAdj = parseInt(row.dataset.arrivalLocalAdj) || 0;
-
-            try {
-                const prevCascade = JSON.parse(prevCascadeJson);
-                for (const entry of prevCascade) {
-                    const targetRow = findRowById(entry.id);
-                    if (targetRow && entry.amount !== 0) {
-                        modifyPlanQty(targetRow, -entry.amount);
-                    }
-                }
-            } catch(e) {}
-
-            // Откат из текущей строки
-            if (prevLocalAdj !== 0) {
-                modifyPlanQty(row, -prevLocalAdj);
-            }
-
-            row.dataset.arrivalCascade = '[]';
-            row.dataset.arrivalLocalAdj = '0';
-
-            // --- Шаг 2: если нет данных или приход = выход — разницы нет ---
-            if (!arrivalQty || !factoryQty || arrivalQty === factoryQty) return;
-
-            // shortage > 0: пришло меньше чем уехало → вычитаем из текущей, прибавляем к следующим
-            // shortage < 0: пришло больше → прибавляем к текущей, вычитаем из следующих
-            const shortage = factoryQty - arrivalQty;
-
-            // --- Шаг 3: корректируем план текущей строки ---
-            modifyPlanQty(row, -shortage);
-            row.dataset.arrivalLocalAdj = String(-shortage);
-
-            // --- Шаг 4: каскадный перенос на следующие строки ---
-            const cascade = [];
-            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
-            const currentDate = data.exit_plan_date || '';
-
-            const sameSku = allRows.filter(r => {
-                if (r === row) return false;
-                const sel = r.querySelector('select');
-                return sel && (parseInt(sel.value) || 0) === data.sku;
-            });
-
-            const sorted = sameSku.map(r => {
-                const di = r.querySelectorAll('input[type="date"]');
-                return { row: r, date: di[0] ? di[0].value : '' };
-            }).filter(item => {
-                if (!currentDate || !item.date) return true;
-                return item.date > currentDate;
-            }).sort((a, b) => {
-                if (a.date && b.date) return a.date.localeCompare(b.date);
-                return 0;
-            });
-
-            let remaining = shortage; // положит. = прибавить к следующим, отрицат. = вычесть
-
-            for (const item of sorted) {
-                if (remaining === 0) break;
-
-                const targetRow = item.row;
-                const textInputs = targetRow.querySelectorAll('input[type="text"]');
-                const targetPlan = parseNumberFromSpaces(textInputs[0] ? textInputs[0].value : '0');
-
-                if (remaining > 0) {
-                    // Пришло меньше — прибавляем к следующим строкам
-                    modifyPlanQty(targetRow, remaining);
-                    cascade.push({ id: getRowId(targetRow), amount: remaining });
-                    remaining = 0;
-                } else {
-                    // Пришло больше — вычитаем из следующих строк (каскадно)
-                    const canTake = Math.min(Math.abs(remaining), targetPlan);
-                    if (canTake > 0) {
-                        modifyPlanQty(targetRow, -canTake);
-                        cascade.push({ id: getRowId(targetRow), amount: -canTake });
-                        remaining += canTake;
-                    }
-                }
-            }
-
-            row.dataset.arrivalCascade = JSON.stringify(cascade);
-        }
-
-        /**
-         * Найти строку таблицы по supply ID
-         */
-        function findRowById(id) {
-            if (!id) return null;
-            return document.querySelector('#supplies-tbody tr[data-supply-id="' + id + '"]');
-        }
-
-        /**
-         * Получить ID строки (dataset.supplyId)
-         */
-        function getRowId(row) {
-            return row.dataset.supplyId || '';
-        }
-
-        /**
-         * Найти следующую строку с тем же SKU для переноса разницы.
-         * Приоритет: по дате > ниже в таблице > любая.
-         */
-        function findNextSameSkuRow(currentRow, data) {
-            const allRows = Array.from(document.querySelectorAll('#supplies-tbody tr'));
-            const currentIdx = allRows.indexOf(currentRow);
-            const currentDate = data.exit_plan_date || data.exit_factory_date || '';
-            const skuNum = data.sku;
-
-            // Собираем все строки с тем же SKU, кроме текущей
-            const sameSku = allRows.filter(r => {
-                if (r === currentRow) return false;
-                const sel = r.querySelector('select');
-                return sel && (parseInt(sel.value) || 0) === skuNum;
-            });
-
-            if (sameSku.length === 0) return null;
-
-            // a) Строка с более поздней датой (ближайшая)
-            if (currentDate) {
-                const withLaterDate = sameSku
-                    .map(r => {
-                        const dateInputs = r.querySelectorAll('input[type="date"]');
-                        return { row: r, date: dateInputs[0] ? dateInputs[0].value : '' };
-                    })
-                    .filter(item => item.date && item.date > currentDate)
-                    .sort((a, b) => a.date.localeCompare(b.date));
-
-                if (withLaterDate.length > 0) return withLaterDate[0].row;
-            }
-
-            // b) Следующая по порядку в таблице
-            const below = sameSku.find(r => allRows.indexOf(r) > currentIdx);
-            if (below) return below;
-
-            // c) Любая
-            return sameSku[0];
-        }
-
-        /**
-         * Изменить "Заказ кол-во ПЛАН" в строке на указанную дельту.
-         * Работает даже с заблокированными строками.
-         */
-        function modifyPlanQty(targetRow, delta) {
-            const textInputs = targetRow.querySelectorAll('input[type="text"]');
-            const planInput = textInputs[0]; // order_qty_plan
-            if (!planInput) return;
-
-            const wasDisabled = planInput.disabled;
-            if (wasDisabled) planInput.disabled = false;
-
-            const currentVal = parseNumberFromSpaces(planInput.value);
-            const newVal = Math.max(0, currentVal + delta);
-            planInput.value = formatNumberWithSpaces(newVal);
-
-            if (wasDisabled) planInput.disabled = true;
-
-            // Показываем кнопку "Ред" если её не видно
-            const pencilBtn = targetRow.querySelector('.supply-plan-edit-btn');
-            if (pencilBtn && newVal > 0) {
-                pencilBtn.style.display = 'inline-block';
-            }
-
-            onSupplyFieldChange(targetRow);
-        }
-
-        /**
-         * Создать новую строку для перераспределения остатка.
-         * Возвращает созданную строку (план пока 0 — вызывающий код сам впишет).
-         */
-        function createRedistributionRow(sourceData) {
-            const tbody = document.getElementById('supplies-tbody');
-            const newRow = createSupplyRowElement(null);
-            tbody.appendChild(newRow);
-
-            const newSelect = newRow.querySelector('select');
-            if (newSelect) newSelect.value = sourceData.sku;
-
-            return newRow;
         }
 
         // ============================================================
@@ -13996,7 +13700,15 @@ HTML_TEMPLATE = '''
 
         /**
          * Сортировка таблицы поставок по столбцу с датой.
-         * colIndex — индекс столбца (1 = Выход план, 3 = Дата выхода, 5 = Дата прихода)
+         * colIndex — индекс столбца (1 = Дата выхода с фабрики, 3 = Дата прихода на склад)
+         *
+         * Структура столбцов:
+         * 0: Товар
+         * 1: Дата выхода с фабрики (span, нередактируемая)
+         * 2: Кол-во выхода с фабрики
+         * 3: Дата прихода на склад (input[type=date])
+         * 4: Кол-во прихода на склад
+         * ...
          */
         function sortSuppliesByDate(colIndex) {
             const tbody = document.getElementById('supplies-tbody');
@@ -14010,13 +13722,36 @@ HTML_TEMPLATE = '''
                 suppliesSortAsc = true;
             }
 
+            // Функция парсинга даты из span (формат ДД.ММ.ГГГГ → ГГГГ-ММ-ДД)
+            function parseDateFromSpan(span) {
+                if (!span) return '';
+                const text = span.textContent.trim();
+                if (!text || text === '—') return '';
+                const parts = text.split('.');
+                if (parts.length === 3) {
+                    return parts[2] + '-' + parts[1] + '-' + parts[0];
+                }
+                return text;
+            }
+
             rows.sort((a, b) => {
-                const dateA = a.querySelectorAll('input[type="date"]');
-                const dateB = b.querySelectorAll('input[type="date"]');
-                // colIndex 1→dateInputs[0], 3→dateInputs[1], 5→dateInputs[2]
-                const dateIdx = colIndex === 1 ? 0 : colIndex === 3 ? 1 : 2;
-                const valA = dateA[dateIdx] ? dateA[dateIdx].value : '';
-                const valB = dateB[dateIdx] ? dateB[dateIdx].value : '';
+                let valA = '', valB = '';
+                const cellsA = a.querySelectorAll('td');
+                const cellsB = b.querySelectorAll('td');
+
+                if (colIndex === 1) {
+                    // Дата выхода с фабрики (span в ячейке 1)
+                    const spanA = cellsA[1] ? cellsA[1].querySelector('.supply-readonly-value') : null;
+                    const spanB = cellsB[1] ? cellsB[1].querySelector('.supply-readonly-value') : null;
+                    valA = parseDateFromSpan(spanA);
+                    valB = parseDateFromSpan(spanB);
+                } else if (colIndex === 3) {
+                    // Дата прихода на склад (input[type=date])
+                    const dateInputA = a.querySelector('input[type="date"]');
+                    const dateInputB = b.querySelector('input[type="date"]');
+                    valA = dateInputA ? dateInputA.value : '';
+                    valB = dateInputB ? dateInputB.value : '';
+                }
 
                 // Пустые даты — в конец
                 if (!valA && !valB) return 0;
@@ -14107,26 +13842,31 @@ HTML_TEMPLATE = '''
                 .filter(r => r.style.display !== 'none');
 
             // Индексы столбцов (0-based):
-            // 0:товар, 1:дата план, 2:заказ план, 3:дата выхода, 4:кол выхода,
-            // 5:дата прихода, 6:кол прихода, 7:учтено ВЭД, 8:логистика₽, 9:цена₽, 10:себестоимость,
-            // 11:долги, 12:FBO, 13:замок, 14:удалить
+            // 0:товар, 1:дата выхода, 2:кол выхода, 3:дата прихода, 4:кол прихода,
+            // 5:учтено ВЭД, 6:логистика₽, 7:цена₽, 8:себестоимость, 9:удалить
 
             // Собираем данные
-            let sumOrderPlan = 0, sumExitFactory = 0, sumArrival = 0;
+            let sumExitFactory = 0, sumArrival = 0;
             let avgLogistics = 0, countLogistics = 0;
             let avgPrice = 0, countPrice = 0;
             let avgCost = 0, countCost = 0;
 
             rows.forEach(row => {
-                const textInputs = row.querySelectorAll('input[type="text"]');
-                // textInputs порядок: 0=order_qty_plan, 1=exit_factory_qty, 2=arrival_warehouse_qty
-                const vals = [];
-                textInputs.forEach(inp => vals.push(parseNumberFromSpaces(inp.value)));
+                const cells = row.querySelectorAll('td');
 
-                // Суммы
-                if (vals[0]) sumOrderPlan += vals[0];
-                if (vals[1]) sumExitFactory += vals[1];
-                if (vals[2]) sumArrival += vals[2];
+                // Кол-во выхода с фабрики (нередактируемый span в ячейке 2)
+                const exitFactorySpan = cells[2] ? cells[2].querySelector('.supply-readonly-value') : null;
+                if (exitFactorySpan && exitFactorySpan.textContent !== '—') {
+                    const val = parseNumberFromSpaces(exitFactorySpan.textContent);
+                    if (val) sumExitFactory += val;
+                }
+
+                // Кол-во прихода на склад (редактируемый input)
+                const textInputs = row.querySelectorAll('input[type="text"]');
+                if (textInputs[0]) {
+                    const val = parseNumberFromSpaces(textInputs[0].value);
+                    if (val) sumArrival += val;
+                }
 
                 // Логистика из span (из ВЭД)
                 const logisticsSpan = row.querySelector('.supply-logistics-auto');
@@ -14152,10 +13892,6 @@ HTML_TEMPLATE = '''
 
             // Строим строку итогов
             let html = '<td style="font-weight:600; text-align:right;">Итого:</td>'; // товар
-            html += '<td></td>'; // дата план
-
-            // Заказ план (сумма)
-            html += '<td>' + (sumOrderPlan ? formatNumberWithSpaces(sumOrderPlan) : '') + '</td>';
             html += '<td></td>'; // дата выхода
 
             // Кол-во выхода (сумма)
@@ -16592,7 +16328,7 @@ def get_supplies():
 
         cursor.execute('''
             SELECT * FROM supplies
-            ORDER BY exit_plan_date ASC, created_at ASC
+            ORDER BY exit_factory_date ASC, created_at ASC
         ''')
 
         supplies = [dict(row) for row in cursor.fetchall()]
@@ -16708,10 +16444,11 @@ def get_warehouse_movements_by_sku(sku):
 @require_auth(['admin'])
 def save_supply():
     """
-    Сохранить или обновить строку поставки.
+    Обновить строку поставки.
 
-    Если id начинается с 'new_' — создаёт новую запись.
-    Иначе — обновляет существующую.
+    Обновляются только редактируемые поля: arrival_warehouse_date и arrival_warehouse_qty.
+    Остальные данные (sku, exit_factory_date, exit_factory_qty) приходят из контейнеров ВЭД
+    и не редактируются пользователем.
     """
     try:
         data = request.json
@@ -16719,63 +16456,24 @@ def save_supply():
         cursor = conn.cursor()
 
         supply_id = data.get('id', '')
-        is_new = str(supply_id).startswith('new_') or not supply_id
+        if not supply_id or str(supply_id).startswith('new_'):
+            # Новые строки создаются только из контейнеров ВЭД
+            conn.close()
+            return jsonify({'success': False, 'error': 'Строки поставок создаются автоматически из контейнеров ВЭД'})
 
-        if is_new:
-            cursor.execute('''
-                INSERT INTO supplies (
-                    sku, product_name, exit_plan_date, order_qty_plan,
-                    exit_factory_date, exit_factory_qty,
-                    arrival_warehouse_date, arrival_warehouse_qty,
-                    logistics_cost_per_unit, price_cny, cost_plus_6,
-                    add_to_marketing, add_to_debts, plan_fbo,
-                    is_locked, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
-            ''', (
-                data.get('sku', 0),
-                data.get('product_name', ''),
-                data.get('exit_plan_date', ''),
-                data.get('order_qty_plan'),
-                data.get('exit_factory_date', ''),
-                data.get('exit_factory_qty'),
-                data.get('arrival_warehouse_date', ''),
-                data.get('arrival_warehouse_qty'),
-                data.get('logistics_cost_per_unit'),
-                data.get('price_cny'),
-                data.get('cost_plus_6'),
-                1 if data.get('add_to_marketing') else 0,
-                1 if data.get('add_to_debts') else 0,
-                1 if data.get('plan_fbo') else 0
-            ))
-            new_id = cursor.lastrowid
-        else:
-            cursor.execute('''
-                UPDATE supplies SET
-                    sku = ?, product_name = ?, exit_plan_date = ?, order_qty_plan = ?,
-                    exit_factory_date = ?, exit_factory_qty = ?,
-                    arrival_warehouse_date = ?, arrival_warehouse_qty = ?,
-                    logistics_cost_per_unit = ?, price_cny = ?, cost_plus_6 = ?,
-                    add_to_marketing = ?, add_to_debts = ?, plan_fbo = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (
-                data.get('sku', 0),
-                data.get('product_name', ''),
-                data.get('exit_plan_date', ''),
-                data.get('order_qty_plan'),
-                data.get('exit_factory_date', ''),
-                data.get('exit_factory_qty'),
-                data.get('arrival_warehouse_date', ''),
-                data.get('arrival_warehouse_qty'),
-                data.get('logistics_cost_per_unit'),
-                data.get('price_cny'),
-                data.get('cost_plus_6'),
-                1 if data.get('add_to_marketing') else 0,
-                1 if data.get('add_to_debts') else 0,
-                1 if data.get('plan_fbo') else 0,
-                int(supply_id)
-            ))
-            new_id = int(supply_id)
+        # Обновляем только редактируемые поля (приход на склад)
+        cursor.execute('''
+            UPDATE supplies SET
+                arrival_warehouse_date = ?,
+                arrival_warehouse_qty = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('arrival_warehouse_date', ''),
+            data.get('arrival_warehouse_qty'),
+            int(supply_id)
+        ))
+        new_id = int(supply_id)
 
         conn.commit()
         conn.close()
@@ -17406,8 +17104,9 @@ def save_ved_container():
                 WHERE id = ?
             ''', (container_date, supplier, comment, important, cny_rate, cny_percent, username, doc_id))
 
-            # Удаляем старые позиции
+            # Удаляем старые позиции и связанные записи в supplies
             cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
+            cursor.execute('DELETE FROM supplies WHERE container_doc_id = ?', (doc_id,))
         else:
             # Создаём новый документ (шапку)
             cursor.execute('''
@@ -17433,19 +17132,35 @@ def save_ved_container():
             total_terminal += terminal
             total_customs += customs
 
+            sku = item.get('sku', 0)
+            quantity = item.get('quantity', 0)
+            price_cny = item.get('price_cny', 0)
+
             cursor.execute('''
                 INSERT INTO ved_container_items (doc_id, sku, quantity, price_cny, logistics_rf, logistics_cn, terminal, customs, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ''', (
                 doc_id,
-                item.get('sku', 0),
-                item.get('quantity', 0),
-                item.get('price_cny', 0),
+                sku,
+                quantity,
+                price_cny,
                 logistics_rf,
                 logistics_cn,
                 terminal,
                 customs
             ))
+            item_id = cursor.lastrowid
+
+            # Рассчитываем логистику за единицу для данной позиции
+            total_item_logistics = logistics_rf + logistics_cn + terminal + customs
+            logistics_per_unit = total_item_logistics / quantity if quantity > 0 else 0
+
+            # Автоматически создаём запись в supplies для каждой позиции контейнера
+            cursor.execute('''
+                INSERT INTO supplies (sku, exit_factory_date, exit_factory_qty, logistics_cost_per_unit, price_cny,
+                                      container_doc_id, container_item_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ''', (sku, container_date, quantity, logistics_per_unit, price_cny, doc_id, item_id))
 
         # Вся логистика = сумма всех полей логистики
         total_all_logistics = total_logistics_rf + total_logistics_cn + total_terminal + total_customs
@@ -17485,6 +17200,9 @@ def delete_ved_container():
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+
+        # Удаляем связанные записи в supplies
+        cursor.execute('DELETE FROM supplies WHERE container_doc_id = ?', (doc_id,))
 
         # Удаляем позиции
         cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
