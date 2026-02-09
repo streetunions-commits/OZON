@@ -11451,15 +11451,15 @@ HTML_TEMPLATE = '''
                     const row = document.createElement('tr');
                     const dateFormatted = item.container_date ? item.container_date.split('-').reverse().join('.') : '';
 
-                    const logisticsPerUnit = item.quantity > 0 ? item.all_logistics / item.quantity : 0;
-                    const costPerUnit = item.quantity > 0 ? item.cost_rub / item.quantity : 0;
+                    const logisticsPerUnit = item.quantity > 0 ? Math.ceil(item.all_logistics / item.quantity) : 0;
+                    const costPerUnit = item.quantity > 0 ? Math.ceil(item.cost_rub / item.quantity) : 0;
                     row.innerHTML = `
                         <td>${dateFormatted}</td>
                         <td>${item.article || '-'}</td>
                         <td>${formatVedNumber(item.quantity)}</td>
                         <td>${formatVedNumber(item.price_cny, '¥')}</td>
-                        <td>${formatVedNumber(costPerUnit, '₽')}</td>
-                        <td>${formatVedNumber(logisticsPerUnit, '₽')}</td>
+                        <td>${costPerUnit.toLocaleString('ru-RU')} ₽</td>
+                        <td>${logisticsPerUnit.toLocaleString('ru-RU')} ₽</td>
                     `;
                     tbody.appendChild(row);
                 });
