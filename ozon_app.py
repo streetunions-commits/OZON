@@ -6775,7 +6775,7 @@ HTML_TEMPLATE = '''
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
             const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
-            const validVedSubtabs = ['ved-containers'];
+            const validVedSubtabs = ['ved-containers', 'ved-receipts'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
