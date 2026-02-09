@@ -8251,7 +8251,6 @@ HTML_TEMPLATE = '''
 
             const rows = document.querySelectorAll('#wh-receipt-items-tbody tr');
             const items = [];
-            let hasItemWithoutPrice = false;
 
             rows.forEach(row => {
                 const select = row.querySelector('select');
@@ -8261,20 +8260,12 @@ HTML_TEMPLATE = '''
                 const price = parseInt((inputs[1]?.value || '').replace(/\s/g, '')) || 0;
 
                 if (sku > 0 && qty > 0) {
-                    if (price <= 0) {
-                        hasItemWithoutPrice = true;
-                    }
                     items.push({ sku, quantity: qty, purchase_price: price });
                 }
             });
 
             if (items.length === 0) {
                 alert('Добавьте хотя бы один товар с количеством');
-                return;
-            }
-
-            if (hasItemWithoutPrice) {
-                alert('Укажите цену закупки для всех товаров');
                 return;
             }
 
@@ -12904,11 +12895,14 @@ HTML_TEMPLATE = '''
 
             // Данные из конкретного контейнера (не усреднённые!)
             // logistics_cost_per_unit - уже рассчитано при создании поставки из контейнера
-            // price_cny * container_cny_rate - цена в рублях
+            // price_cny * adjusted_rate - цена в рублях (с учётом процента наценки)
             const containerLogistics = data ? (data.logistics_cost_per_unit || 0) : 0;
             const containerPriceCny = data ? (data.price_cny || 0) : 0;
             const containerCnyRate = data ? (data.container_cny_rate || 0) : 0;
-            const containerPriceRub = containerPriceCny * containerCnyRate;
+            const containerCnyPercent = data ? (data.container_cny_percent || 0) : 0;
+            // Скорректированный курс с учётом процента наценки (как в ВЭД Поступлениях)
+            const adjustedCnyRate = containerCnyRate * (1 + containerCnyPercent / 100);
+            const containerPriceRub = containerPriceCny * adjustedCnyRate;
 
             // 5. Стоимость логистики за единицу (из контейнера, только для завершённых)
             const tdLogistics = document.createElement('td');
@@ -12937,7 +12931,11 @@ HTML_TEMPLATE = '''
             // Показываем только если контейнер завершён
             if (isContainerCompleted && containerPriceRub > 0) {
                 priceSpan.textContent = formatNumberWithSpaces(Math.round(containerPriceRub));
-                priceSpan.title = 'Цена ' + containerPriceCny + ' ¥ × ' + containerCnyRate.toFixed(2) + ' = ' + Math.round(containerPriceRub) + ' ₽';
+                // Показываем формулу с учётом процента, если он есть
+                const rateInfo = containerCnyPercent > 0
+                    ? containerCnyRate.toFixed(2) + ' × ' + (1 + containerCnyPercent/100).toFixed(2) + ' = ' + adjustedCnyRate.toFixed(2)
+                    : containerCnyRate.toFixed(2);
+                priceSpan.title = 'Цена ' + containerPriceCny + ' ¥ × ' + rateInfo + ' = ' + Math.round(containerPriceRub) + ' ₽';
             } else {
                 priceSpan.textContent = '—';
                 priceSpan.style.color = '#999';
@@ -16168,11 +16166,12 @@ def get_supplies():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Получаем поставки с информацией о завершённости контейнера и курсе юаня
+        # Получаем поставки с информацией о завершённости контейнера, курсе юаня и проценте наценки
         cursor.execute('''
             SELECT s.*,
                    COALESCE(d.is_completed, 0) as container_is_completed,
-                   COALESCE(d.cny_rate, 0) as container_cny_rate
+                   COALESCE(d.cny_rate, 0) as container_cny_rate,
+                   COALESCE(d.cny_percent, 0) as container_cny_percent
             FROM supplies s
             LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
             ORDER BY s.exit_factory_date ASC, s.created_at ASC
@@ -16918,9 +16917,6 @@ def mark_receipt_doc_processed():
     """
     Отметить документ прихода как разобранный.
     Используется для документов, созданных через Telegram.
-
-    Проверяет, что все позиции имеют указанную цену закупки > 0.
-    Если цена не указана — возвращает ошибку.
     """
     try:
         data = request.json
@@ -16930,34 +16926,9 @@ def mark_receipt_doc_processed():
             return jsonify({'success': False, 'error': 'Не указан ID документа'})
 
         conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Проверяем, что все позиции имеют цену закупки
-        cursor.execute('''
-            SELECT r.id, r.sku, p.name, r.purchase_price
-            FROM warehouse_receipts r
-            LEFT JOIN products p ON p.sku = r.sku
-            WHERE r.doc_id = ? AND (r.purchase_price IS NULL OR r.purchase_price <= 0)
-        ''', (doc_id,))
-
-        items_without_price = cursor.fetchall()
-
-        if items_without_price:
-            # Есть позиции без цены — возвращаем ошибку
-            items_list = []
-            for item in items_without_price:
-                name = item['name'] or f"SKU {item['sku']}"
-                items_list.append(name)
-
-            conn.close()
-            return jsonify({
-                'success': False,
-                'error': f"Укажите цену закупки для: {', '.join(items_list[:3])}{'...' if len(items_list) > 3 else ''}",
-                'items_without_price': len(items_without_price)
-            })
-
-        # Все позиции имеют цену — помечаем как разобранный
+        # Помечаем документ как разобранный
         cursor.execute('''
             UPDATE warehouse_receipt_docs
             SET is_processed = 1, updated_at = CURRENT_TIMESTAMP
