@@ -15500,6 +15500,13 @@ def api_container_messages_send():
             VALUES (?, ?, ?, ?, ?, 'web')
         ''', (container_id, message, sender_id, sender_username, ','.join(map(str, recipient_ids))))
         message_id = cursor.lastrowid
+
+        # Помечаем все сообщения этого контейнера (адресованные текущему пользователю) как прочитанные
+        cursor.execute('''
+            UPDATE container_messages
+            SET is_read = 1
+            WHERE container_id = ? AND recipient_ids LIKE ? AND sender_id != ?
+        ''', (container_id, f'%{sender_id}%', sender_id))
         conn.commit()
 
         # Отправляем уведомления в Telegram
