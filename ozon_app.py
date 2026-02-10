@@ -3341,7 +3341,7 @@ HTML_TEMPLATE = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ozon Товары FBO</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23005BFF'/%3E%3Cpath d='M20 18h24l4 8H16l4-8z' fill='%23fff' opacity='0.85'/%3E%3Crect x='16' y='26' width='32' height='22' rx='3' fill='%23fff'/%3E%3Cpath d='M28 26v22M36 26v22M16 35h32' stroke='%23005BFF' stroke-width='1.5' opacity='0.3'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%237D256F'/%3E%3Cstop offset='100%25' stop-color='%23CB11AB'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='900' font-size='28' fill='white' letter-spacing='-1'%3EMS%3C/text%3E%3C/svg%3E">
     <style>
         * {
             margin: 0;
