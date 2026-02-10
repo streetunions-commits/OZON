@@ -7449,8 +7449,17 @@ HTML_TEMPLATE = '''
                                     <div class="container-msg-input">
                                         <label style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 13px;">Сообщение:</label>
                                         <textarea id="ved-container-msg-text" placeholder="Введите сообщение..." class="container-msg-textarea"></textarea>
-                                        <div class="container-msg-send">
-                                            <button onclick="sendContainerMessage()" class="wh-save-receipt-btn container-msg-send-btn">
+                                        <!-- Превью прикрепленных файлов -->
+                                        <div id="ved-container-msg-files-preview" style="display: none; margin-top: 8px; flex-wrap: wrap; gap: 6px;"></div>
+                                        <input type="file" id="ved-container-msg-file-input" style="display: none;" multiple
+                                               accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar">
+                                        <div class="container-msg-send" style="display: flex; gap: 8px; align-items: center;">
+                                            <button type="button" onclick="document.getElementById('ved-container-msg-file-input').click()"
+                                                    style="padding: 8px 12px; border: 1px solid #ddd; background: #f5f5f5; border-radius: 4px; cursor: pointer; font-size: 13px; white-space: nowrap;"
+                                                    title="Прикрепить файл">
+                                                📎 Файл
+                                            </button>
+                                            <button onclick="sendContainerMessage()" class="wh-save-receipt-btn container-msg-send-btn" style="flex: 1;">
                                                 📤 Отправить в Telegram
                                             </button>
                                         </div>
@@ -7914,6 +7923,9 @@ HTML_TEMPLATE = '''
 
             // Обновляем badge сообщений
             updateMessagesBadge();
+
+            // Инициализируем обработчик файлов для чата контейнеров
+            initContainerMsgFileInput();
         }
 
         // ✅ СИНХРОНИЗАЦИЯ ДАННЫХ С OZON
@@ -13535,6 +13547,41 @@ HTML_TEMPLATE = '''
                     const icon = isFromTelegram ? '📱' : '🌐';
                     const time = new Date(msg.created_at).toLocaleString('ru-RU');
 
+                    // Формируем HTML для прикрепленных файлов
+                    let filesHtml = '';
+                    if (msg.files && msg.files.length > 0) {
+                        filesHtml = '<div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;">';
+                        msg.files.forEach(file => {
+                            const isImage = file.file_type && file.file_type.startsWith('image/');
+                            if (isImage) {
+                                // Картинки — кликабельные превью
+                                filesHtml += '<a href="/api/container-messages/files/' + file.id + '?view=1&token=' + authToken + '" target="_blank" style="display: block; max-width: 200px;">'
+                                    + '<img src="/api/container-messages/files/' + file.id + '?view=1&token=' + authToken + '"'
+                                    + ' style="max-width: 200px; max-height: 150px; border-radius: 4px; cursor: pointer; object-fit: cover;"'
+                                    + ' alt="' + escapeHtml(file.filename) + '" loading="lazy">'
+                                    + '</a>';
+                            } else {
+                                // Документы — компактный chip с иконкой
+                                let fileIcon = '📄';
+                                if (file.file_type === 'application/pdf') fileIcon = '📕';
+                                else if (file.file_type && file.file_type.includes('word')) fileIcon = '📘';
+                                else if (file.file_type && (file.file_type.includes('excel') || file.file_type.includes('spreadsheet'))) fileIcon = '📗';
+                                else if (file.file_type && (file.file_type.includes('zip') || file.file_type.includes('rar'))) fileIcon = '📦';
+
+                                const sizeKb = Math.round(file.file_size / 1024);
+                                const sizeStr = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' МБ' : sizeKb + ' КБ';
+
+                                filesHtml += '<a href="/api/container-messages/files/' + file.id + '?token=' + authToken + '" target="_blank"'
+                                    + ' style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: rgba(255,255,255,0.7); border-radius: 4px; border: 1px solid #ddd; text-decoration: none; color: #333; font-size: 12px;">'
+                                    + '<span style="font-size: 16px;">' + fileIcon + '</span>'
+                                    + '<span style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(file.filename) + '</span>'
+                                    + '<span style="color: #888; font-size: 11px;">' + sizeStr + '</span>'
+                                    + '</a>';
+                            }
+                        });
+                        filesHtml += '</div>';
+                    }
+
                     const msgDiv = document.createElement('div');
                     msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${isFromTelegram ? '#2196f3' : '#ff9800'};`;
                     msgDiv.innerHTML = `
@@ -13542,7 +13589,8 @@ HTML_TEMPLATE = '''
                             <strong>${icon} ${escapeHtml(msg.sender_name)}</strong>
                             <small style="color: #666;">${time}</small>
                         </div>
-                        <div style="white-space: pre-wrap;">${escapeHtml(msg.message)}</div>
+                        ${msg.message ? '<div style="white-space: pre-wrap;">' + escapeHtml(msg.message) + '</div>' : ''}
+                        ${filesHtml}
                         ${msg.recipient_names ? `<div style="margin-top: 4px; font-size: 11px; color: #666;">Кому: ${escapeHtml(msg.recipient_names)}</div>` : ''}
                     `;
                     listDiv.appendChild(msgDiv);
@@ -13557,7 +13605,34 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Отправить сообщение по контейнеру
+         * Обработчик выбора файлов для прикрепления к сообщению чата
+         */
+        function initContainerMsgFileInput() {
+            const fileInput = document.getElementById('ved-container-msg-file-input');
+            if (!fileInput) return;
+            fileInput.addEventListener('change', function() {
+                const preview = document.getElementById('ved-container-msg-files-preview');
+                if (!preview) return;
+                preview.innerHTML = '';
+                preview.style.display = this.files.length > 0 ? 'flex' : 'none';
+
+                for (let i = 0; i < this.files.length; i++) {
+                    const file = this.files[i];
+                    const isImage = file.type.startsWith('image/');
+                    const icon = isImage ? '🖼️' : '📄';
+                    const sizeKb = Math.round(file.size / 1024);
+                    const sizeStr = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' МБ' : sizeKb + ' КБ';
+
+                    const chip = document.createElement('div');
+                    chip.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: #e3f2fd; border-radius: 12px; font-size: 12px;';
+                    chip.innerHTML = icon + ' ' + escapeHtml(file.name) + ' <span style="color:#888;">(' + sizeStr + ')</span>';
+                    preview.appendChild(chip);
+                }
+            });
+        }
+
+        /**
+         * Отправить сообщение по контейнеру (текст и/или файлы)
          */
         async function sendContainerMessage() {
             if (!editingVedContainerId) {
@@ -13575,25 +13650,51 @@ HTML_TEMPLATE = '''
             }
 
             const message = document.getElementById('ved-container-msg-text').value.trim();
-            if (!message) {
-                alert('Введите сообщение');
+            const fileInput = document.getElementById('ved-container-msg-file-input');
+            const hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
+
+            if (!message && !hasFiles) {
+                alert('Введите сообщение или прикрепите файл');
                 return;
             }
 
             try {
-                const resp = await authFetch('/api/container-messages/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        container_id: editingVedContainerId,
-                        recipient_ids: recipientIds,
-                        message: message
-                    })
-                });
+                let resp;
+                if (hasFiles) {
+                    // Используем FormData для отправки файлов
+                    const formData = new FormData();
+                    formData.append('container_id', editingVedContainerId);
+                    formData.append('recipient_ids', recipientIds.join(','));
+                    formData.append('message', message);
+                    for (let i = 0; i < fileInput.files.length; i++) {
+                        formData.append('files', fileInput.files[i]);
+                    }
+                    // Не используем authFetch с Content-Type, браузер сам выставит boundary
+                    resp = await fetch('/api/container-messages/send', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + authToken },
+                        body: formData
+                    });
+                } else {
+                    // JSON для текстовых сообщений (обратная совместимость)
+                    resp = await authFetch('/api/container-messages/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            container_id: editingVedContainerId,
+                            recipient_ids: recipientIds,
+                            message: message
+                        })
+                    });
+                }
                 const data = await resp.json();
 
                 if (data.success) {
                     document.getElementById('ved-container-msg-text').value = '';
+                    // Очищаем файловый инпут и превью
+                    if (fileInput) fileInput.value = '';
+                    const preview = document.getElementById('ved-container-msg-files-preview');
+                    if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
                     // Снимаем выделение с чекбоксов
                     document.querySelectorAll('.container-msg-recipient').forEach(cb => cb.checked = false);
                     // Перезагружаем сообщения
@@ -16375,6 +16476,27 @@ def api_container_messages_get(container_id):
                 msg['recipient_names'] = ''
             messages.append(msg)
 
+        # Загружаем файлы для всех сообщений одним запросом
+        message_ids = [msg['id'] for msg in messages]
+        files_by_message = {}
+        if message_ids:
+            placeholders = ','.join('?' * len(message_ids))
+            cursor.execute(f'''
+                SELECT id, message_id, filename, file_type, file_size
+                FROM container_message_files
+                WHERE message_id IN ({placeholders})
+                ORDER BY id ASC
+            ''', message_ids)
+            for file_row in cursor.fetchall():
+                mid = file_row['message_id']
+                if mid not in files_by_message:
+                    files_by_message[mid] = []
+                files_by_message[mid].append(dict(file_row))
+
+        # Добавляем массив files к каждому сообщению
+        for msg in messages:
+            msg['files'] = files_by_message.get(msg['id'], [])
+
         conn.close()
         return jsonify({'success': True, 'messages': messages})
 
@@ -16389,19 +16511,29 @@ def api_container_messages_send():
     """
     Отправить сообщение по контейнеру.
     Отправляет уведомления в Telegram всем получателям.
+    Поддерживает JSON (только текст) и multipart/form-data (текст + файлы).
     """
     try:
-        data = request.json or {}
-        container_id = data.get('container_id')
-        recipient_ids = data.get('recipient_ids', [])
-        message = data.get('message', '').strip()
+        # Определяем формат запроса: multipart (с файлами) или JSON (только текст)
+        files = []
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            container_id = request.form.get('container_id', type=int)
+            recipient_ids_raw = request.form.get('recipient_ids', '')
+            recipient_ids = [int(x) for x in recipient_ids_raw.split(',') if x.strip()]
+            message = request.form.get('message', '').strip()
+            files = request.files.getlist('files')
+        else:
+            data = request.json or {}
+            container_id = data.get('container_id')
+            recipient_ids = data.get('recipient_ids', [])
+            message = data.get('message', '').strip()
 
         if not container_id:
             return jsonify({'success': False, 'error': 'Укажите container_id'}), 400
         if not recipient_ids:
             return jsonify({'success': False, 'error': 'Укажите получателей'}), 400
-        if not message:
-            return jsonify({'success': False, 'error': 'Введите сообщение'}), 400
+        if not message and not files:
+            return jsonify({'success': False, 'error': 'Введите сообщение или прикрепите файл'}), 400
 
         # Получаем информацию об отправителе
         user_info = getattr(request, 'current_user', {})
@@ -16429,6 +16561,11 @@ def api_container_messages_send():
             VALUES (?, ?, ?, ?, ?, 'web')
         ''', (container_id, message, sender_id, sender_username, ','.join(map(str, recipient_ids))))
         message_id = cursor.lastrowid
+
+        # Сохраняем прикрепленные файлы (если есть)
+        saved_files = []
+        if files:
+            saved_files = save_message_files(cursor, message_id, container_id, files)
 
         # Помечаем как прочитанные только сообщения ОТ тех пользователей, которым мы отвечаем
         # Например: отвечаем Малышеву → сообщения ОТ Малышева становятся прочитанными
@@ -16468,6 +16605,9 @@ def api_container_messages_send():
                     tg_msg_id = send_telegram_container_message(chat_id, tg_text, container_id, message_id)
                     if tg_msg_id:
                         telegram_message_ids.append(str(tg_msg_id))
+                    # Отправляем прикрепленные файлы в Telegram
+                    if saved_files:
+                        send_telegram_container_files(chat_id, saved_files)
                 except Exception as tg_err:
                     print(f"⚠️ Ошибка отправки в Telegram (chat_id={chat_id}): {tg_err}")
 
@@ -16492,22 +16632,32 @@ def api_container_messages_receive():
     """
     Получить ответ из Telegram бота.
     Вызывается из telegram_bot.py.
+    Поддерживает JSON (только текст) и multipart/form-data (текст + файлы).
     """
     try:
-        data = request.json or {}
+        # Определяем формат запроса
+        files = []
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            token = request.form.get('token', '')
+            container_id = request.form.get('container_id', type=int)
+            message = request.form.get('message', '').strip()
+            chat_id = request.form.get('chat_id')
+            sender_name = request.form.get('sender_name', 'Telegram')
+            files = request.files.getlist('files')
+        else:
+            data = request.json or {}
+            token = data.get('token', '')
+            container_id = data.get('container_id')
+            message = data.get('message', '').strip()
+            chat_id = data.get('chat_id')
+            sender_name = data.get('sender_name', 'Telegram')
 
         # Проверяем токен
-        token = data.get('token', '')
         expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
         if not expected_token or token != expected_token:
             return jsonify({'success': False, 'error': 'Неверный токен'}), 403
 
-        container_id = data.get('container_id')
-        message = data.get('message', '').strip()
-        chat_id = data.get('chat_id')
-        sender_name = data.get('sender_name', 'Telegram')
-
-        if not container_id or not message or not chat_id:
+        if not container_id or (not message and not files) or not chat_id:
             return jsonify({'success': False, 'error': 'Недостаточно данных'}), 400
 
         conn = sqlite3.connect(DB_PATH)
@@ -16515,7 +16665,7 @@ def api_container_messages_receive():
         cursor = conn.cursor()
 
         # Находим пользователя по chat_id
-        cursor.execute('SELECT id, username FROM users WHERE telegram_chat_id = ?', (chat_id,))
+        cursor.execute('SELECT id, username FROM users WHERE telegram_chat_id = ?', (str(chat_id),))
         user = cursor.fetchone()
         sender_id = user['id'] if user else 0
         sender_display = user['username'] if user else sender_name
@@ -16525,11 +16675,16 @@ def api_container_messages_receive():
             INSERT INTO container_messages (container_id, message, sender_id, sender_name, sender_type)
             VALUES (?, ?, ?, ?, 'telegram')
         ''', (container_id, message, sender_id, sender_display))
+        message_id = cursor.lastrowid
+
+        # Сохраняем прикрепленные файлы (если есть)
+        if files:
+            save_message_files(cursor, message_id, container_id, files)
 
         conn.commit()
         conn.close()
 
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'message_id': message_id})
 
     except Exception as e:
         print(f"❌ Ошибка api_container_messages_receive: {e}")

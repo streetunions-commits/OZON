@@ -1038,7 +1038,7 @@ async def container_reply_button_callback(update: Update, context: ContextTypes.
 
     await query.message.reply_text(
         f"📦 *Ответ на контейнер \\#{container_id}*\n\n"
-        "Напишите ваш ответ\\.\n"
+        "Напишите ваш ответ, отправьте фото или файл\\.\n"
         "Или нажмите «❌ Отменить ответ» для отмены\\.",
         parse_mode='MarkdownV2',
         reply_markup=keyboard
@@ -1109,7 +1109,7 @@ async def receive_container_reply_text(update: Update, context: ContextTypes.DEF
 
 def send_container_reply(chat_id: int, container_id: int, message: str, sender_name: str) -> dict:
     """
-    Отправляет ответ на сообщение контейнера через API.
+    Отправляет ответ на сообщение контейнера через API (только текст).
     """
     try:
         response = requests.post(
@@ -1127,6 +1127,117 @@ def send_container_reply(chat_id: int, container_id: int, message: str, sender_n
     except requests.RequestException as e:
         logger.error(f"Ошибка API (container reply): {e}")
         return {'success': False, 'error': str(e)}
+
+
+def send_container_reply_with_file(chat_id: int, container_id: int, message: str,
+                                    sender_name: str, file_data: bytes, filename: str) -> dict:
+    """
+    Отправляет ответ на сообщение контейнера с прикрепленным файлом через multipart API.
+    """
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/container-messages/receive",
+            data={
+                'token': TELEGRAM_BOT_SECRET,
+                'container_id': container_id,
+                'chat_id': chat_id,
+                'message': message,
+                'sender_name': sender_name
+            },
+            files={
+                'files': (filename, file_data)
+            },
+            timeout=30
+        )
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Ошибка API (container reply with file): {e}")
+        return {'success': False, 'error': str(e)}
+
+
+async def receive_container_reply_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработчик файлов/фото в ответе на контейнер.
+    Скачивает файл из Telegram и отправляет на сервер.
+    """
+    message = update.message
+
+    # Проверяем, есть ли данные о контейнере
+    pending = context.user_data.get('pending_container_reply')
+    if not pending:
+        await message.reply_text(
+            "❌ Ошибка: нет данных о контейнере. Попробуйте ещё раз нажать кнопку «Ответить».",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    container_id = pending['container_id']
+
+    # Получаем имя отправителя
+    user = message.from_user
+    sender_name = user.username or user.first_name or str(message.chat_id)
+    if user.username:
+        sender_name = f"@{user.username}"
+
+    # Текст подписи (caption) если есть
+    caption = message.caption or ''
+
+    # Скачиваем файл из Telegram
+    try:
+        if message.photo:
+            # Фото — берём самое большое разрешение (последний элемент)
+            file_obj = await message.photo[-1].get_file()
+            filename = f"photo_{message.photo[-1].file_unique_id}.jpg"
+        elif message.document:
+            file_obj = await message.document.get_file()
+            filename = message.document.file_name or f"file_{message.document.file_unique_id}"
+        else:
+            await message.reply_text(
+                "❌ Неподдерживаемый тип файла.",
+                reply_markup=get_main_menu()
+            )
+            context.user_data.pop('pending_container_reply', None)
+            return ConversationHandler.END
+
+        # Скачиваем содержимое файла в память
+        file_bytes = await file_obj.download_as_bytearray()
+
+        # Отправляем на сервер через multipart API
+        result = send_container_reply_with_file(
+            chat_id=message.chat_id,
+            container_id=container_id,
+            message=caption,
+            sender_name=sender_name,
+            file_data=bytes(file_bytes),
+            filename=filename
+        )
+
+        # Очищаем pending
+        context.user_data.pop('pending_container_reply', None)
+
+        if result.get('success'):
+            file_label = '📷 фото' if message.photo else f'📄 {filename}'
+            await message.reply_text(
+                f"✅ {file_label} по контейнеру #{container_id} отправлен!",
+                reply_markup=get_main_menu()
+            )
+        else:
+            error = result.get('error', 'Неизвестная ошибка')
+            logger.error(f"Ошибка отправки файла на контейнер: {error}")
+            await message.reply_text(
+                f"❌ Ошибка отправки: {error}",
+                reply_markup=get_main_menu()
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка скачивания/отправки файла: {e}")
+        context.user_data.pop('pending_container_reply', None)
+        await message.reply_text(
+            f"❌ Ошибка обработки файла: {e}",
+            reply_markup=get_main_menu()
+        )
+
+    return ConversationHandler.END
 
 
 # ============================================================================
@@ -1216,13 +1327,15 @@ def main():
     )
 
     # Обработчик диалога ответа на сообщение о контейнере ВЭД
+    # PHOTO и Document хендлеры стоят ПЕРЕД TEXT, потому что фото с caption содержат и текст
     container_reply_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(container_reply_button_callback, pattern=r'^reply_container:')
         ],
         states={
             STATE_CONTAINER_REPLY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_container_reply_text)
+                MessageHandler(filters.PHOTO | filters.Document.ALL, receive_container_reply_file),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_container_reply_text),
             ]
         },
         fallbacks=[
