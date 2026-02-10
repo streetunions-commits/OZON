@@ -13126,13 +13126,13 @@ HTML_TEMPLATE = '''
             const sizeStr = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' МБ' : sizeKb + ' КБ';
             const displayName = pendingFile.displayName || file.name;
 
-            div.innerHTML = \`
-                <span style="font-size: 18px;">\${icon}</span>
-                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="\${file.name}">\${displayName}</span>
+            div.innerHTML = `
+                <span style="font-size: 18px;">${icon}</span>
+                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name}">${displayName}</span>
                 <span style="color: #f57f17; font-size: 11px;">⏳ Ожидает сохранения</span>
-                <span style="color: #888; font-size: 11px;">\${sizeStr}</span>
-                <button onclick="removePendingFile(\${index})" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>
-            \`;
+                <span style="color: #888; font-size: 11px;">${sizeStr}</span>
+                <button onclick="removePendingFile(${index})" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>
+            `;
 
             return div;
         }
