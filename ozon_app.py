@@ -6842,6 +6842,7 @@ HTML_TEMPLATE = '''
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД</button>
                 <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
+                <button class="tab-button" onclick="switchTab(event, 'finance')">ФИНАНСЫ</button>
                 <button class="tab-button" onclick="switchTab(event, 'messages')" id="messages-tab-btn">Сообщения <span id="messages-badge" class="tab-badge" style="display:none;"></span></button>
                 <button class="tab-button admin-only" onclick="switchTab(event, 'users')" id="users-tab-btn">Пользователи</button>
             </div>
@@ -7535,6 +7536,14 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
+            <!-- ТАБ: Финансы -->
+            <div id="finance" class="tab-content">
+                <div style="padding: 40px; text-align: center; color: #999;">
+                    <h2 style="font-size: 28px; letter-spacing: 2px; color: #666;">ФИНАНСЫ</h2>
+                    <p style="margin-top: 12px;">Раздел в разработке</p>
+                </div>
+            </div>
+
             <!-- ТАБ: Сообщения (чат с Telegram) -->
             <div id="messages" class="tab-content">
                 <div class="messages-tab">
@@ -7807,7 +7816,7 @@ HTML_TEMPLATE = '''
             // Формат hash: "tab" или "tab:subtab" или "tab:subtab:doc_id" (например "warehouse:wh-receipt:12")
             const hashValue = location.hash.replace('#', '');
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
-            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'users'];
+            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'finance', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
             const validVedSubtabs = ['ved-containers', 'ved-receipts'];
 
@@ -7874,6 +7883,8 @@ HTML_TEMPLATE = '''
                             }
                         }, 50);
                     }
+                } else if (savedTab === 'finance') {
+                    // Финансы — пока без загрузки данных
                 } else if (savedTab === 'users') {
                     loadUsers();
                 }
@@ -7981,6 +7992,10 @@ HTML_TEMPLATE = '''
             // Если открыли ВЭД - загружаем данные
             if (tab === 'ved') {
                 loadVed();
+            }
+            // Если открыли финансы - пока ничего не загружаем
+            if (tab === 'finance') {
+                // Раздел в разработке
             }
             // Если открыли сообщения - загружаем список
             if (tab === 'messages') {
