@@ -8040,7 +8040,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладки финансов -->
                 <div class="finance-subtabs">
                     <button class="finance-subtab-btn active" onclick="switchFinanceSubtab(event, 'finance-records')">Записи</button>
-                    <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-pendel')">Пендель</button>
+                    <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-pendel')">P&amp;L</button>
                 </div>
 
                 <!-- Подвкладка: Записи (существующий контент) -->
