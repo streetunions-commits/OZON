@@ -7260,9 +7260,7 @@ HTML_TEMPLATE = '''
         <div class="table-container">
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
-                <button class="tab-button" onclick="switchTab(event, 'fbo')">АНАЛИТИКА FBO</button>
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД</button>
-                <button class="tab-button" onclick="switchTab(event, 'supplies')">ПОСТАВКИ</button>
                 <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
                 <button class="tab-button" onclick="switchTab(event, 'finance')">ФИНАНСЫ</button>
                 <button class="tab-button" onclick="switchTab(event, 'messages')" id="messages-tab-btn">Сообщения <span id="messages-badge" class="tab-badge" style="display:none;"></span></button>
@@ -7275,6 +7273,7 @@ HTML_TEMPLATE = '''
                 <div class="sub-tabs">
                     <button class="sub-tab-button active" onclick="switchSubTab(event, 'summary')">Сводная</button>
                     <button class="sub-tab-button" onclick="switchSubTab(event, 'product-analysis')">Анализ товара</button>
+                    <button class="sub-tab-button" onclick="switchSubTab(event, 'fbo')">Аналитика FBO</button>
                 </div>
 
                 <!-- Под-вкладка: Анализ товара -->
@@ -7328,12 +7327,12 @@ HTML_TEMPLATE = '''
                         <div class="loading">Загрузка данных...</div>
                     </div>
                 </div>
-            </div>
 
-            <!-- ТАБ: Аналитика FBO -->
-            <div id="fbo" class="tab-content">
-                <div id="fbo-content">
-                    <div class="fbo-loading">Загрузка данных...</div>
+                <!-- Под-вкладка: Аналитика FBO -->
+                <div id="fbo" class="sub-tab-content">
+                    <div id="fbo-content">
+                        <div class="fbo-loading">Загрузка данных...</div>
+                    </div>
                 </div>
             </div>
 
@@ -7625,95 +7624,6 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
-            <!-- ТАБ: Поставки -->
-            <div id="supplies" class="tab-content">
-                <!-- Кнопка показа/скрытия сводных данных -->
-                <div style="margin-bottom: 10px;">
-                    <button type="button" id="toggle-supplies-stats" onclick="toggleSuppliesStats()"
-                            style="background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; color: #374151; display: flex; align-items: center; gap: 6px;">
-                        <span id="supplies-stats-arrow" style="transition: transform 0.2s;">▼</span>
-                        <span id="supplies-stats-label">Скрыть сводные данные</span>
-                    </button>
-                </div>
-                <!-- Статистика поставок (сворачиваемая) -->
-                <div class="currency-rates-panel" id="supplies-stats-panel">
-                    <!-- Стоимость товара в пути -->
-                    <div class="currency-rates-row" style="flex-wrap: wrap;">
-                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Товар в пути</span>
-                            <div><span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">шт.</span></div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Себестоимость в пути</span>
-                            <div><span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
-                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no6">без наценки +6%: —</div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Себестоимость в пути без логистики</span>
-                            <div><span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
-                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
-                            <span class="currency-label">Логистика в пути</span>
-                            <div><span class="currency-value" id="logistics-in-transit" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
-                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="logistics-in-transit-no6">без наценки +6%: —</div>
-                        </div>
-                    </div>
-                    <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
-                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">План не доставлен</span>
-                            <div><span class="currency-value" id="plan-not-delivered-qty" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">шт.</span></div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">Себестоимость плана</span>
-                            <div><span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
-                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no6">без наценки +6%: —</div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">Себестоимость плана без логистики</span>
-                            <div><span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
-                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no-log-no6">без наценки +6%: —</div>
-                        </div>
-                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
-                            <span class="currency-label">Логистика план</span>
-                            <div><span class="currency-value" id="logistics-plan" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
-                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="logistics-plan-no6">без наценки +6%: —</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Фильтр по товару -->
-                <div class="supplies-filter-bar">
-                    <label style="font-weight:500; font-size:13px; color:#555;">Фильтр по товару:</label>
-                    <select id="supplies-product-filter" class="supply-select" style="min-width:220px; border:1px solid #dee2e6;" onchange="filterSuppliesTable()">
-                        <option value="">Все товары</option>
-                    </select>
-                </div>
-
-                <!-- Таблица поставок -->
-                <div class="supplies-table-wrapper">
-                    <div style="overflow-x: auto;">
-                        <table class="supplies-table" id="supplies-table">
-                            <thead>
-                                <tr>
-                                    <th>Товар</th>
-                                    <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
-                                    <th>Кол-во выхода<br>с фабрики</th>
-                                    <th>Кол-во прихода<br>на склад</th>
-                                    <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
-                                    <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
-                                    <th>Себестоимость<br>товара +6%, ₽</th>
-                                </tr>
-                                <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
-                            </thead>
-                            <tbody id="supplies-tbody">
-                            </tbody>
-                        </table>
-                    </div>
-                    <!-- Строки поставок создаются автоматически из контейнеров ВЭД -->
-                </div>
-            </div>
-
             <!-- ТАБ: ВЭД (внешнеэкономическая деятельность) -->
             <div id="ved" class="tab-content">
                 <!-- Подвкладки ВЭД -->
@@ -7966,6 +7876,95 @@ HTML_TEMPLATE = '''
                     <div class="wh-empty-state" id="ved-receipts-empty">
                         <p>Нет товаров из завершённых контейнеров</p>
                     </div>
+                </div>
+            
+                <!-- Подвкладка: Поставки -->
+                <div id="ved-supplies" class="ved-subtab-content">
+                    <!-- Кнопка показа/скрытия сводных данных -->
+                <div style="margin-bottom: 10px;">
+                    <button type="button" id="toggle-supplies-stats" onclick="toggleSuppliesStats()"
+                            style="background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; color: #374151; display: flex; align-items: center; gap: 6px;">
+                        <span id="supplies-stats-arrow" style="transition: transform 0.2s;">▼</span>
+                        <span id="supplies-stats-label">Скрыть сводные данные</span>
+                    </button>
+                </div>
+                <!-- Статистика поставок (сворачиваемая) -->
+                <div class="currency-rates-panel" id="supplies-stats-panel">
+                    <!-- Стоимость товара в пути -->
+                    <div class="currency-rates-row" style="flex-wrap: wrap;">
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Товар в пути</span>
+                            <div><span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">шт.</span></div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Себестоимость в пути</span>
+                            <div><span class="currency-value" id="goods-in-transit-cost" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
+                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no6">без наценки +6%: —</div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Себестоимость в пути без логистики</span>
+                            <div><span class="currency-value" id="goods-in-transit-cost-no-log" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
+                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="goods-in-transit-cost-no-log-no6">без наценки +6%: —</div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
+                            <span class="currency-label">Логистика в пути</span>
+                            <div><span class="currency-value" id="logistics-in-transit" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
+                            <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="logistics-in-transit-no6">без наценки +6%: —</div>
+                        </div>
+                    </div>
+                    <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">План не доставлен</span>
+                            <div><span class="currency-value" id="plan-not-delivered-qty" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">шт.</span></div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">Себестоимость плана</span>
+                            <div><span class="currency-value" id="plan-not-delivered-cost" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
+                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no6">без наценки +6%: —</div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">Себестоимость плана без логистики</span>
+                            <div><span class="currency-value" id="plan-not-delivered-cost-no-log" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
+                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="plan-cost-no-log-no6">без наценки +6%: —</div>
+                        </div>
+                        <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
+                            <span class="currency-label">Логистика план</span>
+                            <div><span class="currency-value" id="logistics-plan" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
+                            <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="logistics-plan-no6">без наценки +6%: —</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Фильтр по товару -->
+                <div class="supplies-filter-bar">
+                    <label style="font-weight:500; font-size:13px; color:#555;">Фильтр по товару:</label>
+                    <select id="supplies-product-filter" class="supply-select" style="min-width:220px; border:1px solid #dee2e6;" onchange="filterSuppliesTable()">
+                        <option value="">Все товары</option>
+                    </select>
+                </div>
+
+                <!-- Таблица поставок -->
+                <div class="supplies-table-wrapper">
+                    <div style="overflow-x: auto;">
+                        <table class="supplies-table" id="supplies-table">
+                            <thead>
+                                <tr>
+                                    <th>Товар</th>
+                                    <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
+                                    <th>Кол-во выхода<br>с фабрики</th>
+                                    <th>Кол-во прихода<br>на склад</th>
+                                    <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
+                                    <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
+                                    <th>Себестоимость<br>товара +6%, ₽</th>
+                                </tr>
+                                <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
+                            </thead>
+                            <tbody id="supplies-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Строки поставок создаются автоматически из контейнеров ВЭД -->
+                </div>
                 </div>
             </div>
 
@@ -8427,7 +8426,7 @@ HTML_TEMPLATE = '''
             // Формат hash: "tab" или "tab:subtab" или "tab:subtab:doc_id" (например "warehouse:wh-receipt:12")
             const hashValue = location.hash.replace('#', '');
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
-            const validTabs = ['history', 'fbo', 'warehouse', 'supplies', 'ved', 'finance', 'users'];
+            const validTabs = ['history', 'warehouse', 'supplies', 'ved', 'finance', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
             const validVedSubtabs = ['ved-containers', 'ved-receipts'];
 
@@ -8457,9 +8456,6 @@ HTML_TEMPLATE = '''
                     setTimeout(() => {
                         restoreActiveSubTab();
                     }, 50);
-                } else if (savedTab === 'fbo') {
-                    loadProductsList();
-                    loadFboAnalytics();
                 } else if (savedTab === 'warehouse') {
                     loadProductsList();
                     loadWarehouse();
@@ -8591,10 +8587,6 @@ HTML_TEMPLATE = '''
             if (tab === 'history') {
                 loadProductsList();
             }
-            // Если открыли FBO аналитику - загружаем данные
-            if (tab === 'fbo') {
-                loadFboAnalytics();
-            }
             // Если открыли склад - загружаем данные
             if (tab === 'warehouse') {
                 loadWarehouse();
@@ -8633,8 +8625,10 @@ HTML_TEMPLATE = '''
                 e.target.classList.add('active');
             } else {
                 // Если вызвано программно - находим кнопку по subTab
+                const subTabLabels = {'summary': 'Сводная', 'product-analysis': 'Анализ товара', 'fbo': 'Аналитика FBO'};
+                const label = subTabLabels[subTab] || '';
                 document.querySelectorAll('.sub-tab-button').forEach(btn => {
-                    if (btn.textContent.includes(subTab === 'summary' ? 'Сводная' : 'Анализ')) {
+                    if (label && btn.textContent.trim() === label) {
                         btn.classList.add('active');
                     }
                 });
@@ -8647,12 +8641,17 @@ HTML_TEMPLATE = '''
             if (subTab === 'summary') {
                 loadSummary();
             }
+            // Если открыли аналитику FBO - загружаем данные
+            if (subTab === 'fbo') {
+                loadFboAnalytics();
+            }
         }
 
         // ✅ Восстановление активной под-вкладки при загрузке страницы
         function restoreActiveSubTab() {
             const savedSubTab = localStorage.getItem('ozon_active_subtab');
-            if (savedSubTab && (savedSubTab === 'summary' || savedSubTab === 'product-analysis')) {
+            const validOzonSubtabs = ['summary', 'product-analysis', 'fbo'];
+            if (savedSubTab && validOzonSubtabs.includes(savedSubTab)) {
                 // Скрываем все под-вкладки
                 document.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.sub-tab-button').forEach(el => el.classList.remove('active'));
@@ -8661,9 +8660,10 @@ HTML_TEMPLATE = '''
                 document.getElementById(savedSubTab).classList.add('active');
 
                 // Активируем соответствующую кнопку
+                const subTabLabels = {'summary': 'Сводная', 'product-analysis': 'Анализ товара', 'fbo': 'Аналитика FBO'};
+                const label = subTabLabels[savedSubTab] || '';
                 document.querySelectorAll('.sub-tab-button').forEach(btn => {
-                    if ((savedSubTab === 'summary' && btn.textContent.includes('Сводная')) ||
-                        (savedSubTab === 'product-analysis' && btn.textContent.includes('Анализ'))) {
+                    if (label && btn.textContent.trim() === label) {
                         btn.classList.add('active');
                     }
                 });
@@ -8671,6 +8671,8 @@ HTML_TEMPLATE = '''
                 // Загружаем данные для активной вкладки
                 if (savedSubTab === 'summary') {
                     loadSummary();
+                } else if (savedSubTab === 'fbo') {
+                    loadFboAnalytics();
                 }
             } else {
                 // По умолчанию загружаем сводную
