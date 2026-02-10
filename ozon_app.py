@@ -7833,12 +7833,29 @@ HTML_TEMPLATE = '''
                     </div>
                 </div>
 
-                <!-- Кнопка добавления записи (только для admin) -->
-                <div style="margin-bottom: 20px;">
+                <!-- Кнопки: добавить запись + управление счетами (только для admin) -->
+                <div style="margin-bottom: 20px; display: flex; gap: 12px; flex-wrap: wrap;">
                     <button class="wh-save-receipt-btn admin-only" onclick="showFinanceForm()"
                             style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
                         <span style="font-size: 18px;">+</span> Добавить запись
                     </button>
+                    <button class="wh-clear-btn admin-only" onclick="toggleFinanceAccountsManager()"
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; font-size: 14px;">
+                        🏦 Управление счетами
+                    </button>
+                </div>
+
+                <!-- Панель управления счетами (скрыта по умолчанию) -->
+                <div class="finance-form" id="finance-accounts-manager" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="margin: 0; color: #333;">🏦 Счета / Источники</h4>
+                        <button class="wh-clear-btn" onclick="toggleFinanceAccountsManager()" style="padding: 4px 10px; font-size: 12px;">Закрыть</button>
+                    </div>
+                    <div id="finance-accounts-list" style="margin-bottom: 12px;"></div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="finance-new-account-name" class="wh-input" placeholder="Название нового счёта" style="flex: 1; max-width: 300px;">
+                        <button class="wh-save-receipt-btn" onclick="addFinanceAccountFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
+                    </div>
                 </div>
 
                 <!-- Форма добавления/редактирования (скрыта по умолчанию) -->
@@ -10276,6 +10293,117 @@ HTML_TEMPLATE = '''
                 dropdown.classList.remove('show');
             }
         });
+
+        // ============================================
+        // Панель управления счетами (добавление/удаление)
+        // ============================================
+
+        /**
+         * Показать/скрыть панель управления счетами.
+         */
+        function toggleFinanceAccountsManager() {
+            const panel = document.getElementById('finance-accounts-manager');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                renderFinanceAccountsList();
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        /**
+         * Отрисовать список счетов с кнопками удаления.
+         */
+        function renderFinanceAccountsList() {
+            const container = document.getElementById('finance-accounts-list');
+            if (!container) return;
+
+            if (financeAccounts.length === 0) {
+                container.innerHTML = '<p style="color: #999; font-size: 13px;">Нет счетов</p>';
+                return;
+            }
+
+            container.innerHTML = '';
+            financeAccounts.forEach(acc => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #f0f0f0;';
+
+                const name = document.createElement('span');
+                name.textContent = acc.name;
+                name.style.cssText = 'flex: 1; font-size: 14px;';
+                row.appendChild(name);
+
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '✕';
+                delBtn.title = 'Удалить счёт';
+                delBtn.style.cssText = 'background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #999; cursor: pointer; padding: 4px 8px; font-size: 13px; transition: all 0.2s;';
+                delBtn.onmouseenter = () => { delBtn.style.color = '#ef4444'; delBtn.style.borderColor = '#ef4444'; };
+                delBtn.onmouseleave = () => { delBtn.style.color = '#999'; delBtn.style.borderColor = '#e0e0e0'; };
+                delBtn.onclick = () => deleteFinanceAccount(acc.id, acc.name);
+                row.appendChild(delBtn);
+
+                container.appendChild(row);
+            });
+        }
+
+        /**
+         * Удалить финансовый счёт.
+         */
+        async function deleteFinanceAccount(id, name) {
+            if (!confirm('Удалить счёт "' + name + '"?\n\nЕсли к нему привязаны записи — удаление будет невозможно.')) return;
+
+            try {
+                const resp = await authFetch('/api/finance/accounts/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    await loadFinanceAccounts();
+                    renderFinanceAccountsList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка удаления счёта:', e);
+            }
+        }
+
+        /**
+         * Добавить счёт из панели управления.
+         */
+        async function addFinanceAccountFromManager() {
+            const input = document.getElementById('finance-new-account-name');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название счёта');
+                input.focus();
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/finance/accounts/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    input.value = '';
+                    await loadFinanceAccounts();
+                    renderFinanceAccountsList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка добавления счёта:', e);
+            }
+        }
 
 
         // ============================================================================
@@ -21645,7 +21773,7 @@ def api_finance_accounts_delete():
     """
     Удалить финансовый счёт.
     Payload: {'id': 5}
-    Нельзя удалить дефолтный счёт или счёт с привязанными записями.
+    Можно удалить любой счёт, если к нему не привязаны финансовые записи.
     """
     try:
         data = request.json
@@ -21657,16 +21785,12 @@ def api_finance_accounts_delete():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Проверяем, не дефолтный ли счёт
+        # Проверяем существование счёта
         cursor.execute('SELECT is_default, name FROM finance_accounts WHERE id = ?', (account_id,))
         row = cursor.fetchone()
         if not row:
             conn.close()
             return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
-
-        if row[0]:
-            conn.close()
-            return jsonify({'success': False, 'error': 'Нельзя удалить дефолтный счёт'}), 400
 
         # Проверяем, нет ли привязанных записей
         cursor.execute('SELECT COUNT(*) FROM finance_records WHERE account_id = ?', (account_id,))
