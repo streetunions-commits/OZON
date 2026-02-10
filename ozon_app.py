@@ -7886,7 +7886,7 @@ HTML_TEMPLATE = '''
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 160px;">
                             <label>Дата</label>
-                            <input type="date" id="finance-date" class="wh-input" style="cursor: pointer;">
+                            <input type="date" id="finance-date" class="wh-input" style="cursor: pointer;" max="">
                         </div>
                         <div class="finance-form-field" style="flex: 1; min-width: 200px;">
                             <label>Описание (на что)</label>
@@ -10003,9 +10003,10 @@ HTML_TEMPLATE = '''
             const form = document.getElementById('finance-form');
             form.style.display = 'block';
 
-            // Устанавливаем дату по умолчанию — сегодня
+            // Устанавливаем дату по умолчанию — сегодня, максимум — сегодня
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('finance-date').value = today;
+            document.getElementById('finance-date').max = today;
             document.getElementById('finance-type').value = 'expense';
             document.getElementById('finance-amount').value = '';
             document.getElementById('finance-account-input').value = '';
@@ -10077,6 +10078,13 @@ HTML_TEMPLATE = '''
 
             if (!recordDate) {
                 alert('Укажите дату');
+                document.getElementById('finance-date').focus();
+                return;
+            }
+
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (recordDate > todayStr) {
+                alert('Дата не может быть позже сегодняшней');
                 document.getElementById('finance-date').focus();
                 return;
             }
@@ -21950,6 +21958,11 @@ def api_finance_records_add():
         if not record_date:
             record_date = get_snapshot_date()
 
+        # Дата не может быть позже сегодняшней
+        today = get_snapshot_date()
+        if record_date > today:
+            return jsonify({'success': False, 'error': 'Дата не может быть позже сегодняшней'}), 400
+
         # Получаем название счёта
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -22012,6 +22025,11 @@ def api_finance_records_update():
 
         if not record_date:
             record_date = get_snapshot_date()
+
+        # Дата не может быть позже сегодняшней
+        today = get_snapshot_date()
+        if record_date > today:
+            return jsonify({'success': False, 'error': 'Дата не может быть позже сегодняшней'}), 400
 
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
