@@ -22942,13 +22942,21 @@ def api_telegram_finance_add():
 
         record_date = get_snapshot_date()
 
+        # Определяем created_by: ищем логин пользователя по telegram_chat_id
+        created_by = telegram_username  # fallback на TG-имя
+        if telegram_chat_id:
+            cursor.execute('SELECT username FROM users WHERE telegram_chat_id = ?', (telegram_chat_id,))
+            user_row = cursor.fetchone()
+            if user_row:
+                created_by = user_row[0]
+
         cursor.execute('''
             INSERT INTO finance_records
             (record_type, amount, account_id, account_name, category_id, category_name,
              description, created_by, source, telegram_chat_id, telegram_username, record_date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?)
         ''', (record_type, amount, account_id, account_name, category_id, category_name,
-              description, telegram_username, telegram_chat_id, telegram_username, record_date))
+              description, created_by, telegram_chat_id, telegram_username, record_date))
 
         conn.commit()
         new_id = cursor.lastrowid
