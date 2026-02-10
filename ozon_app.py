@@ -3942,6 +3942,119 @@ HTML_TEMPLATE = '''
         }
 
         /* ============================================================================
+           ФОРМА КОНТЕЙНЕРА ВЭД — ВЕРХНЯЯ СТРОКА (курс, %, дата, поставщик)
+           ============================================================================ */
+        .ved-form-top-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .ved-form-field-rate {
+            flex: 0 0 140px;
+        }
+
+        .ved-form-field-percent {
+            flex: 0 0 120px;
+        }
+
+        .ved-form-field-date {
+            flex: 0 0 160px;
+        }
+
+        .ved-form-field-supplier {
+            flex: 1 1 220px;
+            min-width: 180px;
+        }
+
+        .ved-form-field-rate label,
+        .ved-form-field-percent label,
+        .ved-form-field-date label,
+        .ved-form-field-supplier label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 13px;
+            color: #555;
+        }
+
+        /* ============================================================================
+           ФОРМА КОНТЕЙНЕРА ВЭД — СЕКЦИЯ ФАЙЛОВ
+           ============================================================================ */
+        .container-files-section {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .container-files-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* ============================================================================
+           ФОРМА КОНТЕЙНЕРА ВЭД — СЕКЦИЯ СООБЩЕНИЙ
+           ============================================================================ */
+        .container-messages-section {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .container-message-form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .container-msg-layout {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .container-msg-recipients {
+            flex: 0 0 auto;
+            min-width: 160px;
+        }
+
+        .container-msg-input {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .container-msg-textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        .container-msg-send {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 8px;
+        }
+
+        .container-msg-send-btn {
+            padding: 8px 20px;
+        }
+
+        /* ============================================================================
            МОБИЛЬНАЯ АДАПТАЦИЯ — ПЛАНШЕТЫ (до 1024px)
            ============================================================================ */
         @media (max-width: 1024px) {
@@ -4377,12 +4490,95 @@ HTML_TEMPLATE = '''
 
             /* --- Дропдаун назначений --- */
             .destination-dropdown-wrapper {
-                flex-direction: column;
-                align-items: stretch;
+                flex-direction: row;
+                align-items: center;
             }
 
             .destination-dropdown {
                 right: 0;
+            }
+
+            /* --- Форма контейнера ВЭД --- */
+            .ved-form-top-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .ved-form-field-rate,
+            .ved-form-field-percent,
+            .ved-form-field-date,
+            .ved-form-field-supplier {
+                flex: 1 1 100%;
+                min-width: 0;
+            }
+
+            /* Курс и процент — в одну строку на мобилке */
+            .ved-form-top-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+
+            .ved-form-field-date {
+                grid-column: 1 / 2;
+            }
+
+            .ved-form-field-supplier {
+                grid-column: 1 / -1;
+            }
+
+            /* --- Секция файлов контейнера --- */
+            .container-files-section {
+                padding: 12px;
+                margin-top: 12px;
+            }
+
+            .container-files-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            /* --- Секция сообщений контейнера --- */
+            .container-messages-section {
+                padding: 12px;
+                margin-top: 12px;
+            }
+
+            .container-msg-layout {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .container-msg-recipients {
+                min-width: 0;
+                width: 100%;
+            }
+
+            .container-msg-recipients > div {
+                flex-direction: row !important;
+                flex-wrap: wrap;
+                gap: 8px !important;
+            }
+
+            .container-msg-input {
+                width: 100%;
+            }
+
+            .container-msg-textarea {
+                min-height: 60px;
+            }
+
+            .container-msg-send {
+                justify-content: stretch;
+            }
+
+            .container-msg-send-btn {
+                width: 100%;
+                text-align: center;
+                justify-content: center;
+                padding: 10px 16px;
+                font-size: 14px;
             }
 
             /* --- Пустые состояния --- */
@@ -4516,6 +4712,22 @@ HTML_TEMPLATE = '''
             .add-user-btn {
                 width: 100%;
                 text-align: center;
+            }
+
+            /* --- Форма контейнера: все поля в одну колонку --- */
+            .ved-form-top-row {
+                grid-template-columns: 1fr;
+            }
+
+            .ved-form-field-date,
+            .ved-form-field-supplier {
+                grid-column: 1;
+            }
+
+            .container-files-section,
+            .container-messages-section {
+                padding: 8px;
+                margin-top: 8px;
             }
 
             /* Дата-пикер — одна строка без переноса */
@@ -7090,26 +7302,23 @@ HTML_TEMPLATE = '''
                     <div class="receipt-form" id="ved-container-form" style="display: none;">
                         <div class="receipt-form-header">
                             <!-- Курс юаня и процент к переводу -->
-                            <div class="receipt-form-row" style="margin-bottom: 15px;">
-                                <div class="receipt-form-field" style="flex: 0 0 160px;">
+                            <div class="ved-form-top-row">
+                                <div class="ved-form-field-rate">
                                     <label>¥ Курс юаня</label>
                                     <div class="wh-input" style="background: #f8f9fa; display: flex; align-items: center; justify-content: center; gap: 4px;">
                                         <span id="ved-rate-cny" style="font-weight: 600; font-size: 16px;">—</span>
                                         <span style="color: #666;">₽</span>
                                     </div>
                                 </div>
-                                <div class="receipt-form-field" style="flex: 0 0 140px;">
+                                <div class="ved-form-field-percent">
                                     <label>% к переводу</label>
                                     <input type="number" id="ved-cny-percent" class="wh-input" style="text-align: center; font-weight: 600;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
                                 </div>
-                            </div>
-                            <!-- Основные поля -->
-                            <div class="receipt-form-row">
-                                <div class="receipt-form-field" style="flex: 0 0 160px;">
+                                <div class="ved-form-field-date">
                                     <label>Дата выхода <span style="color: #e74c3c;">*</span></label>
                                     <input type="date" id="ved-container-date" class="wh-input" style="cursor: pointer;" required>
                                 </div>
-                                <div class="receipt-form-field" style="flex: 0 0 250px;">
+                                <div class="ved-form-field-supplier">
                                     <label>Поставщик <span style="color: #e74c3c;">*</span></label>
                                     <div class="destination-dropdown-wrapper">
                                         <input type="text" id="ved-container-supplier" class="wh-input" placeholder="Выберите или введите" autocomplete="off" onclick="toggleVedSupplierDropdown()" oninput="filterVedSuppliers()" required>
@@ -7117,12 +7326,15 @@ HTML_TEMPLATE = '''
                                         <button type="button" class="wh-add-btn-small" onclick="addNewVedSupplier()" title="Добавить в список">+</button>
                                     </div>
                                 </div>
+                            </div>
+                            <!-- Комментарий и Важно -->
+                            <div class="receipt-form-row" style="margin-top: 12px;">
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Комментарий</label>
                                     <input type="text" id="ved-container-comment" class="wh-input" placeholder="Примечания к контейнеру">
                                 </div>
                             </div>
-                            <div class="receipt-form-row" style="margin-top: 15px;">
+                            <div class="receipt-form-row" style="margin-top: 12px;">
                                 <div class="receipt-form-field" style="flex: 1;">
                                     <label>Важно <span style="color: #dc3545; font-size: 11px;">(блокирует завершение)</span></label>
                                     <input type="text" id="ved-container-important" class="wh-input" placeholder="Важные заметки, блокирующие завершение" style="border-color: #ffc107;">
@@ -7176,8 +7388,8 @@ HTML_TEMPLATE = '''
                         <!-- ========================================
                              БЛОК ПРИКРЕПЛЕННЫХ ФАЙЛОВ
                              ======================================== -->
-                        <div id="ved-container-files-section" class="container-files-section" style="margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div id="ved-container-files-section" class="container-files-section">
+                            <div class="container-files-header">
                                 <h4 style="margin: 0; color: #333;">📎 Прикрепленные файлы</h4>
                                 <label class="wh-add-btn-small" style="cursor: pointer; margin: 0;">
                                     + Добавить файл
@@ -7192,7 +7404,7 @@ HTML_TEMPLATE = '''
                         <!-- ========================================
                              БЛОК СООБЩЕНИЙ КОНТЕЙНЕРА
                              ======================================== -->
-                        <div id="ved-container-messages-section" class="container-messages-section" style="margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;">
+                        <div id="ved-container-messages-section" class="container-messages-section">
                             <h4 style="margin: 0 0 12px 0; color: #333;">💬 Сообщения по контейнеру</h4>
 
                             <!-- История сообщений (скрыта пока нет ID) -->
@@ -7200,21 +7412,21 @@ HTML_TEMPLATE = '''
                             </div>
 
                             <!-- Форма отправки -->
-                            <div class="container-message-form" style="display: flex; flex-direction: column; gap: 12px;">
-                                <div style="display: flex; gap: 16px; align-items: flex-start;">
+                            <div class="container-message-form">
+                                <div class="container-msg-layout">
                                     <!-- Чекбоксы получателей -->
-                                    <div style="min-width: 200px;">
+                                    <div class="container-msg-recipients">
                                         <label style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 13px;">Получатели:</label>
                                         <div id="ved-container-msg-recipients" style="display: flex; flex-direction: column; gap: 6px;">
                                             <span style="color: #999; font-size: 12px;">Загрузка...</span>
                                         </div>
                                     </div>
                                     <!-- Поле сообщения -->
-                                    <div style="flex: 1;">
+                                    <div class="container-msg-input">
                                         <label style="display: block; margin-bottom: 8px; font-weight: 500; font-size: 13px;">Сообщение:</label>
-                                        <textarea id="ved-container-msg-text" placeholder="Введите сообщение..." style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;"></textarea>
-                                        <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-                                            <button onclick="sendContainerMessage()" class="wh-save-receipt-btn" style="padding: 8px 20px;">
+                                        <textarea id="ved-container-msg-text" placeholder="Введите сообщение..." class="container-msg-textarea"></textarea>
+                                        <div class="container-msg-send">
+                                            <button onclick="sendContainerMessage()" class="wh-save-receipt-btn container-msg-send-btn">
                                                 📤 Отправить в Telegram
                                             </button>
                                         </div>
