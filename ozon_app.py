@@ -10772,6 +10772,12 @@ HTML_TEMPLATE = '''
          * Если editId передан — заполняет поля из существующей записи.
          */
         function showFinanceForm(editId) {
+            // Сворачиваем панели управления счетами и категориями
+            const accPanel = document.getElementById('finance-accounts-manager');
+            const catPanel = document.getElementById('finance-categories-manager');
+            if (accPanel) accPanel.style.display = 'none';
+            if (catPanel) catPanel.style.display = 'none';
+
             const form = document.getElementById('finance-form');
             form.style.display = 'block';
 
