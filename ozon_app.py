@@ -10359,7 +10359,8 @@ HTML_TEMPLATE = '''
          * Удалить финансовый счёт.
          */
         async function deleteFinanceAccount(id, name) {
-            if (!confirm('Удалить счёт "' + name + '"?\\n\\nЕсли к нему привязаны записи — удаление будет невозможно.')) return;
+            const input = prompt('Для удаления счёта "' + name + '" введите слово  удалить');
+            if (!input || input.trim().toLowerCase() !== 'удалить') return;
 
             try {
                 const resp = await authFetch('/api/finance/accounts/delete', {
