@@ -3980,6 +3980,12 @@ HTML_TEMPLATE = '''
             color: #555;
         }
 
+        /* Комментарий и Важно — выровнены под Дата/Поставщик */
+        .ved-form-bottom-fields {
+            margin-left: calc(140px + 12px + 120px + 12px);
+            margin-top: 12px;
+        }
+
         /* ============================================================================
            ФОРМА КОНТЕЙНЕРА ВЭД — СЕКЦИЯ ФАЙЛОВ
            ============================================================================ */
@@ -4517,6 +4523,10 @@ HTML_TEMPLATE = '''
                 display: grid;
                 grid-template-columns: 1fr 1fr;
                 gap: 10px;
+            }
+
+            .ved-form-bottom-fields {
+                margin-left: 0;
             }
 
             .ved-form-field-date {
@@ -7327,16 +7337,14 @@ HTML_TEMPLATE = '''
                                     </div>
                                 </div>
                             </div>
-                            <!-- Комментарий и Важно -->
-                            <div class="receipt-form-row" style="margin-top: 12px;">
-                                <div class="receipt-form-field" style="flex: 1;">
-                                    <label>Комментарий</label>
+                            <!-- Комментарий и Важно — выровнены под Дата/Поставщик -->
+                            <div class="ved-form-bottom-fields">
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 13px; color: #555;">Комментарий</label>
                                     <input type="text" id="ved-container-comment" class="wh-input" placeholder="Примечания к контейнеру">
                                 </div>
-                            </div>
-                            <div class="receipt-form-row" style="margin-top: 12px;">
-                                <div class="receipt-form-field" style="flex: 1;">
-                                    <label>Важно <span style="color: #dc3545; font-size: 11px;">(блокирует завершение)</span></label>
+                                <div>
+                                    <label style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 13px; color: #555;">Важно <span style="color: #dc3545; font-size: 11px;">(блокирует завершение)</span></label>
                                     <input type="text" id="ved-container-important" class="wh-input" placeholder="Важные заметки, блокирующие завершение" style="border-color: #ffc107;">
                                 </div>
                             </div>
