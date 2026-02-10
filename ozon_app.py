@@ -4256,7 +4256,8 @@ HTML_TEMPLATE = '''
             /* --- Подвкладки --- */
             .sub-tabs,
             .ved-subtabs,
-            .warehouse-subtabs {
+            .warehouse-subtabs,
+            .finance-subtabs {
                 overflow-x: auto;
                 overflow-y: hidden;
                 -webkit-overflow-scrolling: touch;
@@ -4268,18 +4269,32 @@ HTML_TEMPLATE = '''
 
             .sub-tabs::-webkit-scrollbar,
             .ved-subtabs::-webkit-scrollbar,
-            .warehouse-subtabs::-webkit-scrollbar {
+            .warehouse-subtabs::-webkit-scrollbar,
+            .finance-subtabs::-webkit-scrollbar {
                 display: none;
             }
 
             .sub-tab-button,
             .ved-subtab-button,
-            .subtab-button {
+            .subtab-button,
+            .finance-subtab-btn {
                 padding: 10px 14px;
                 font-size: 13px;
                 flex-shrink: 0;
                 white-space: nowrap;
             }
+
+            /* --- Пендель мобильная адаптация --- */
+            .pendel-filters { padding: 12px; gap: 8px; }
+            .pendel-filters input[type="date"] { flex: 1; min-width: 120px; }
+            .pendel-summary-cards { gap: 10px; }
+            .pendel-summary-card { min-width: 120px; padding: 12px 14px; }
+            .pendel-summary-card .value { font-size: 18px; }
+            .pendel-category-row td { padding: 10px 12px; font-size: 13px; }
+            .pendel-accordion-content { padding: 10px 12px; }
+            .pendel-accordion-table { font-size: 12px; }
+            .pendel-accordion-table thead th,
+            .pendel-accordion-table tbody td { padding: 8px 8px; }
 
             /* --- Контент вкладок --- */
             .tab-content {
@@ -5859,6 +5874,56 @@ HTML_TEMPLATE = '''
         .warehouse-subtab-content.active {
             display: block;
         }
+
+        /* ============================================================================
+           СТИЛИ ПОДВКЛАДОК ФИНАНСЫ
+           ============================================================================ */
+        .finance-subtabs { display: flex; gap: 0; border-bottom: 2px solid #e9ecef; padding: 0 20px; background: #f8f9fa; }
+        .finance-subtab-btn { padding: 12px 24px; background: none; border: none; cursor: pointer; font-size: 14px; font-weight: 500; color: #666; border-bottom: 3px solid transparent; transition: all 0.2s; margin-bottom: -2px; }
+        .finance-subtab-btn.active { color: #667eea; border-bottom-color: #667eea; background: #fff; }
+        .finance-subtab-btn:hover:not(.active) { color: #667eea; background: rgba(102, 126, 234, 0.05); }
+        .finance-subtab-content { display: none; padding: 20px; }
+        .finance-subtab-content.active { display: block; }
+        /* --- Пендель: фильтры --- */
+        .pendel-filters { display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: #f8f9fa; border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .pendel-filters label { font-size: 13px; font-weight: 500; color: #555; }
+        .pendel-filters input[type="date"] { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; background: #fff; }
+        .pendel-filter-btn { padding: 8px 18px; border: none; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .pendel-filter-btn.apply { background: #667eea; color: #fff; }
+        .pendel-filter-btn.apply:hover { background: #5a6fd6; }
+        .pendel-filter-btn.reset { background: #e9ecef; color: #666; }
+        .pendel-filter-btn.reset:hover { background: #dee2e6; }
+        /* --- Пендель: карточки итогов --- */
+        .pendel-summary-cards { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+        .pendel-summary-card { flex: 1; min-width: 160px; padding: 16px 20px; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .pendel-summary-card .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+        .pendel-summary-card .value { font-size: 22px; font-weight: 700; }
+        .pendel-summary-card.total-expense .value { color: #e53e3e; }
+        .pendel-summary-card.cat-count .value { color: #667eea; }
+        /* --- Пендель: таблица категорий --- */
+        .pendel-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .pendel-table thead th { background: #667eea; color: #fff; padding: 12px 16px; font-size: 13px; font-weight: 500; text-align: left; }
+        .pendel-table thead th:last-child { text-align: center; width: 60px; }
+        .pendel-category-row { cursor: pointer; transition: background 0.15s; }
+        .pendel-category-row:hover { background: #f0f4ff; }
+        .pendel-category-row.expanded { background: #e8f0fe; }
+        .pendel-category-row td { padding: 14px 16px; border-bottom: 1px solid #e9ecef; font-size: 14px; }
+        .pendel-category-row .cat-name { font-weight: 600; color: #333; }
+        .pendel-category-row .cat-amount { font-weight: 700; color: #e53e3e; }
+        .pendel-category-row .cat-count { color: #888; font-size: 13px; }
+        .pendel-category-arrow { display: inline-block; transition: transform 0.2s; font-size: 12px; color: #999; text-align: center; }
+        .pendel-category-row.expanded .pendel-category-arrow { transform: rotate(90deg); }
+        .pendel-accordion { display: none; }
+        .pendel-accordion.visible { display: table-row; }
+        .pendel-accordion-cell { padding: 0 !important; background: #fafbfc; border-bottom: 2px solid #667eea; }
+        .pendel-accordion-content { padding: 16px 20px; }
+        .pendel-accordion-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .pendel-accordion-table thead th { background: #f1f3f5; color: #555; padding: 10px 12px; font-weight: 500; font-size: 12px; text-align: left; }
+        .pendel-accordion-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+        .pendel-accordion-table tbody tr:hover { background: #f8f9fa; }
+        .pendel-accordion-table tbody tr:last-child td { border-bottom: none; }
+        .pendel-accordion-loading { text-align: center; padding: 20px; color: #888; font-size: 13px; }
+        .pendel-empty { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
 
         .wh-section-header {
             margin-bottom: 20px;
@@ -7630,6 +7695,7 @@ HTML_TEMPLATE = '''
                 <div class="ved-subtabs">
                     <button class="ved-subtab-button active" onclick="switchVedSubtab(event, 'ved-containers')">Контейнеры</button>
                     <button class="ved-subtab-button" onclick="switchVedSubtab(event, 'ved-receipts')">Поступления</button>
+                    <button class="ved-subtab-button" onclick="switchVedSubtab(event, 'ved-supplies')">Поставки</button>
                 </div>
 
                 <!-- Подвкладка: Контейнеры -->
@@ -7971,6 +8037,15 @@ HTML_TEMPLATE = '''
             <!-- ТАБ: Финансы — учёт доходов и расходов -->
             <div id="finance" class="tab-content">
 
+                <!-- Подвкладки финансов -->
+                <div class="finance-subtabs">
+                    <button class="finance-subtab-btn active" onclick="switchFinanceSubtab(event, 'finance-records')">Записи</button>
+                    <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-pendel')">Пендель</button>
+                </div>
+
+                <!-- Подвкладка: Записи (существующий контент) -->
+                <div id="finance-records" class="finance-subtab-content active">
+
                 <!-- Сводка: доход, расход, баланс -->
                 <div class="finance-summary">
                     <div class="finance-summary-card income">
@@ -8152,6 +8227,51 @@ HTML_TEMPLATE = '''
                     <p>Нет финансовых записей</p>
                     <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Добавьте первую запись кнопкой выше или через Telegram-бота</p>
                 </div>
+
+                </div><!-- /finance-records -->
+
+                <!-- Подвкладка: Пендель — расходы по категориям -->
+                <div id="finance-pendel" class="finance-subtab-content">
+                    <!-- Фильтры по дате -->
+                    <div class="pendel-filters">
+                        <label>С:</label>
+                        <input type="date" id="pendel-date-from">
+                        <label>По:</label>
+                        <input type="date" id="pendel-date-to">
+                        <button class="pendel-filter-btn apply" onclick="loadPendelData()">Применить</button>
+                        <button class="pendel-filter-btn reset" onclick="resetPendelFilters()">Сбросить</button>
+                    </div>
+                    <!-- Карточки итогов -->
+                    <div class="pendel-summary-cards">
+                        <div class="pendel-summary-card total-expense">
+                            <div class="label">Общий расход</div>
+                            <div class="value" id="pendel-total-expense">0 ₽</div>
+                        </div>
+                        <div class="pendel-summary-card cat-count">
+                            <div class="label">Категорий</div>
+                            <div class="value" id="pendel-cat-count">0</div>
+                        </div>
+                    </div>
+                    <!-- Таблица категорий с аккордеоном -->
+                    <div id="pendel-table-wrapper" style="display: none;">
+                        <table class="pendel-table">
+                            <thead>
+                                <tr>
+                                    <th>Категория</th>
+                                    <th style="width: 160px;">Сумма</th>
+                                    <th style="width: 100px;">Записей</th>
+                                    <th style="width: 60px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="pendel-tbody"></tbody>
+                        </table>
+                    </div>
+                    <!-- Пустое состояние -->
+                    <div class="pendel-empty" id="pendel-empty" style="display: none;">
+                        <p>Нет расходов за выбранный период</p>
+                    </div>
+                </div><!-- /finance-pendel -->
+
             </div>
 
             <!-- ТАБ: Сообщения (чат с Telegram) -->
@@ -8424,11 +8544,17 @@ HTML_TEMPLATE = '''
         function initApp() {
             // Восстанавливаем активный таб из URL hash при обновлении страницы
             // Формат hash: "tab" или "tab:subtab" или "tab:subtab:doc_id" (например "warehouse:wh-receipt:12")
-            const hashValue = location.hash.replace('#', '');
+            let hashValue = location.hash.replace('#', '');
+            // Backward-compatibility: старый hash #supplies → перенаправляем на ved:ved-supplies
+            if (hashValue === 'supplies') {
+                hashValue = 'ved:ved-supplies';
+                location.hash = hashValue;
+            }
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
-            const validTabs = ['history', 'warehouse', 'supplies', 'ved', 'finance', 'users'];
+            const validTabs = ['history', 'warehouse', 'ved', 'finance', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
-            const validVedSubtabs = ['ved-containers', 'ved-receipts'];
+            const validVedSubtabs = ['ved-containers', 'ved-receipts', 'ved-supplies'];
+            const validFinanceSubtabs = ['finance-records', 'finance-pendel'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -8472,9 +8598,6 @@ HTML_TEMPLATE = '''
                             }
                         }, 50);
                     }
-                } else if (savedTab === 'supplies') {
-                    loadProductsList();
-                    loadSupplies();
                 } else if (savedTab === 'ved') {
                     loadProductsList();
                     loadVed();
@@ -8492,6 +8615,11 @@ HTML_TEMPLATE = '''
                     }
                 } else if (savedTab === 'finance') {
                     loadFinance();
+                    if (savedSubtab && validFinanceSubtabs.includes(savedSubtab)) {
+                        setTimeout(() => {
+                            activateFinanceSubtab(savedSubtab);
+                        }, 50);
+                    }
                 } else if (savedTab === 'users') {
                     loadUsers();
                 }
@@ -8590,10 +8718,6 @@ HTML_TEMPLATE = '''
             // Если открыли склад - загружаем данные
             if (tab === 'warehouse') {
                 loadWarehouse();
-            }
-            // Если открыли поставки - загружаем данные
-            if (tab === 'supplies') {
-                loadSupplies();
             }
             // Если открыли ВЭД - загружаем данные
             if (tab === 'ved') {
@@ -14067,6 +14191,8 @@ HTML_TEMPLATE = '''
             } else if (subtab === 'ved-containers') {
                 // Загружаем получателей для сообщений
                 loadContainerMessageRecipients();
+            } else if (subtab === 'ved-supplies') {
+                loadSupplies();
             }
 
             // Сохраняем подвкладку в URL hash (формат: ved:subtab)
@@ -14097,6 +14223,8 @@ HTML_TEMPLATE = '''
             } else if (subtab === 'ved-containers') {
                 // Загружаем получателей для сообщений
                 loadContainerMessageRecipients();
+            } else if (subtab === 'ved-supplies') {
+                loadSupplies();
             }
         }
 
