@@ -11079,6 +11079,243 @@ HTML_TEMPLATE = '''
 
 
         // ============================================================================
+        // ПОДВКЛАДКИ ФИНАНСОВ + ПЕНДЕЛЬ
+        // ============================================================================
+
+        let pendelDataLoaded = false;
+        let pendelCache = {};
+
+        /**
+         * Переключение подвкладок финансов (Записи / Пендель).
+         */
+        function switchFinanceSubtab(e, subtab) {
+            document.querySelectorAll('.finance-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.finance-subtab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(subtab).classList.add('active');
+            e.target.classList.add('active');
+            location.hash = 'finance:' + subtab;
+
+            // Загружаем данные Пендель при первом открытии
+            if (subtab === 'finance-pendel' && !pendelDataLoaded) {
+                loadPendelData();
+            }
+        }
+
+        /**
+         * Программная активация подвкладки финансов (для восстановления из hash).
+         */
+        function activateFinanceSubtab(subtab) {
+            document.querySelectorAll('.finance-subtab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.finance-subtab-btn').forEach(el => el.classList.remove('active'));
+
+            const subtabContent = document.getElementById(subtab);
+            if (subtabContent) {
+                subtabContent.classList.add('active');
+            }
+
+            document.querySelectorAll('.finance-subtab-btn').forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + subtab + "'")) {
+                    btn.classList.add('active');
+                }
+            });
+
+            if (subtab === 'finance-pendel' && !pendelDataLoaded) {
+                loadPendelData();
+            }
+        }
+
+        /**
+         * Загрузка данных для подвкладки Пендель — расходы, сгруппированные по категориям.
+         */
+        async function loadPendelData() {
+            const dateFrom = document.getElementById('pendel-date-from')?.value || '';
+            const dateTo = document.getElementById('pendel-date-to')?.value || '';
+
+            const params = new URLSearchParams();
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+
+            // Сбрасываем кеш аккордеонов при изменении фильтров
+            pendelCache = {};
+
+            try {
+                const resp = await authFetch('/api/finance/pendel?' + params.toString());
+                const data = await resp.json();
+
+                if (data.error) {
+                    console.error('Pendel error:', data.error);
+                    return;
+                }
+
+                pendelDataLoaded = true;
+
+                // Обновляем карточки итогов
+                document.getElementById('pendel-total-expense').textContent =
+                    Number(data.summary.total_expense || 0).toLocaleString('ru-RU', {minimumFractionDigits: 2}) + ' ₽';
+                document.getElementById('pendel-cat-count').textContent = data.summary.category_count || 0;
+
+                // Рендерим таблицу категорий
+                renderPendelTable(data.categories || []);
+
+            } catch (err) {
+                console.error('Failed to load pendel data:', err);
+            }
+        }
+
+        /**
+         * Рендер таблицы категорий Пендель с аккордеонами.
+         */
+        function renderPendelTable(categories) {
+            const tbody = document.getElementById('pendel-tbody');
+            const wrapper = document.getElementById('pendel-table-wrapper');
+            const empty = document.getElementById('pendel-empty');
+
+            if (!categories || categories.length === 0) {
+                wrapper.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+
+            wrapper.style.display = 'block';
+            empty.style.display = 'none';
+
+            let html = '';
+            categories.forEach((cat, idx) => {
+                const catId = cat.category_id || 0;
+                const catName = escapeHtml(cat.category_name || 'Без категории');
+                const totalAmount = Number(cat.total_amount || 0).toLocaleString('ru-RU', {minimumFractionDigits: 2});
+                const count = cat.count || 0;
+
+                // Строка категории (кликабельная)
+                html += '<tr class="pendel-category-row" id="pendel-cat-row-' + catId + '" onclick="togglePendelAccordion(' + catId + ')">';
+                html += '<td class="cat-name">' + catName + '</td>';
+                html += '<td class="cat-amount">' + totalAmount + ' ₽</td>';
+                html += '<td class="cat-count">' + count + '</td>';
+                html += '<td style="text-align:center;"><span class="pendel-category-arrow">▶</span></td>';
+                html += '</tr>';
+
+                // Скрытый аккордеон для транзакций
+                html += '<tr class="pendel-accordion" id="pendel-accordion-' + catId + '">';
+                html += '<td colspan="4" class="pendel-accordion-cell">';
+                html += '<div class="pendel-accordion-content" id="pendel-accordion-content-' + catId + '">';
+                html += '<div class="pendel-accordion-loading">Загрузка...</div>';
+                html += '</div>';
+                html += '</td>';
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        /**
+         * Раскрытие/закрытие аккордеона категории в Пендель.
+         */
+        async function togglePendelAccordion(categoryId) {
+            const row = document.getElementById('pendel-cat-row-' + categoryId);
+            const accordion = document.getElementById('pendel-accordion-' + categoryId);
+            const content = document.getElementById('pendel-accordion-content-' + categoryId);
+
+            const isExpanded = row.classList.contains('expanded');
+
+            // Закрываем все открытые аккордеоны
+            document.querySelectorAll('.pendel-category-row.expanded').forEach(r => r.classList.remove('expanded'));
+            document.querySelectorAll('.pendel-accordion.visible').forEach(a => a.classList.remove('visible'));
+
+            // Если уже был открыт — просто закрываем
+            if (isExpanded) return;
+
+            // Открываем текущий
+            row.classList.add('expanded');
+            accordion.classList.add('visible');
+
+            // Проверяем кеш
+            if (pendelCache[categoryId]) {
+                renderPendelAccordionContent(categoryId, pendelCache[categoryId]);
+                return;
+            }
+
+            // Загружаем транзакции с сервера
+            content.innerHTML = '<div class="pendel-accordion-loading">Загрузка транзакций...</div>';
+
+            try {
+                const dateFrom = document.getElementById('pendel-date-from')?.value || '';
+                const dateTo = document.getElementById('pendel-date-to')?.value || '';
+
+                const params = new URLSearchParams();
+                params.append('category_id', categoryId);
+                if (dateFrom) params.append('date_from', dateFrom);
+                if (dateTo) params.append('date_to', dateTo);
+
+                const resp = await authFetch('/api/finance/pendel/details?' + params.toString());
+                const data = await resp.json();
+
+                if (data.error) {
+                    content.innerHTML = '<div class="pendel-accordion-loading">Ошибка: ' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+
+                pendelCache[categoryId] = data.transactions || [];
+                renderPendelAccordionContent(categoryId, data.transactions || []);
+
+            } catch (err) {
+                content.innerHTML = '<div class="pendel-accordion-loading">Ошибка загрузки</div>';
+            }
+        }
+
+        /**
+         * Рендер содержимого аккордеона — таблица транзакций категории.
+         */
+        function renderPendelAccordionContent(categoryId, transactions) {
+            const content = document.getElementById('pendel-accordion-content-' + categoryId);
+
+            if (!transactions || transactions.length === 0) {
+                content.innerHTML = '<div class="pendel-accordion-loading" style="color:#999;font-style:italic;">Нет транзакций</div>';
+                return;
+            }
+
+            let html = '<table class="pendel-accordion-table">';
+            html += '<thead><tr>';
+            html += '<th>Дата</th>';
+            html += '<th>Сумма</th>';
+            html += '<th>Счёт</th>';
+            html += '<th>Комментарий</th>';
+            html += '<th>Создал</th>';
+            html += '</tr></thead>';
+            html += '<tbody>';
+
+            transactions.forEach(tx => {
+                const txDate = tx.record_date || '';
+                const txAmount = Number(tx.amount || 0).toLocaleString('ru-RU', {minimumFractionDigits: 2});
+                const txAccount = escapeHtml(tx.account_name || '—');
+                const txDesc = escapeHtml(tx.description || '—');
+                const txCreatedBy = escapeHtml(tx.created_by || '—');
+
+                html += '<tr>';
+                html += '<td>' + txDate + '</td>';
+                html += '<td style="font-weight:600;color:#e53e3e;">' + txAmount + ' ₽</td>';
+                html += '<td>' + txAccount + '</td>';
+                html += '<td>' + txDesc + '</td>';
+                html += '<td>' + txCreatedBy + '</td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            content.innerHTML = html;
+        }
+
+        /**
+         * Сброс фильтров Пендель и перезагрузка данных.
+         */
+        function resetPendelFilters() {
+            document.getElementById('pendel-date-from').value = '';
+            document.getElementById('pendel-date-to').value = '';
+            pendelDataLoaded = false;
+            pendelCache = {};
+            loadPendelData();
+        }
+
+
+        // ============================================================================
         // ФУНКЦИИ ДЛЯ ВКЛАДКИ "СООБЩЕНИЯ"
         // ============================================================================
 
@@ -23446,6 +23683,144 @@ def api_finance_records_delete():
         return jsonify({'success': True, 'message': 'Запись удалена'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ФИНАНСЫ — ПЕНДЕЛЬ (расходы по категориям)
+# ============================================================================
+
+@app.route('/api/finance/pendel')
+@require_auth(['admin', 'viewer'])
+def api_finance_pendel():
+    """
+    Получить расходы, сгруппированные по категориям.
+    Параметры: date_from, date_to (необязательные).
+    Возвращает: { categories: [...], summary: {...} }
+    """
+    try:
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Базовое условие — только расходы
+        conditions = ["record_type = 'expense'"]
+        params = []
+
+        if date_from:
+            conditions.append('record_date >= ?')
+            params.append(date_from)
+        if date_to:
+            conditions.append('record_date <= ?')
+            params.append(date_to)
+
+        where_clause = ' AND '.join(conditions)
+
+        # Группируем по категории
+        query = f"""
+            SELECT
+                COALESCE(category_id, 0) as category_id,
+                COALESCE(category_name, 'Без категории') as category_name,
+                SUM(amount) as total_amount,
+                COUNT(*) as count
+            FROM finance_records
+            WHERE {where_clause}
+            GROUP BY COALESCE(category_id, 0), COALESCE(category_name, 'Без категории')
+            ORDER BY total_amount DESC
+        """
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        categories = []
+        total_expense = 0
+
+        for row in rows:
+            cat = {
+                'category_id': row['category_id'],
+                'category_name': row['category_name'],
+                'total_amount': round(row['total_amount'], 2),
+                'count': row['count']
+            }
+            categories.append(cat)
+            total_expense += row['total_amount']
+
+        conn.close()
+
+        return jsonify({
+            'categories': categories,
+            'summary': {
+                'total_expense': round(total_expense, 2),
+                'category_count': len(categories)
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/finance/pendel/details')
+@require_auth(['admin', 'viewer'])
+def api_finance_pendel_details():
+    """
+    Получить детальные транзакции для конкретной категории расходов.
+    Параметры: category_id, date_from, date_to.
+    Возвращает: { transactions: [...] }
+    """
+    try:
+        category_id = request.args.get('category_id', '0').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        conditions = ["record_type = 'expense'"]
+        params = []
+
+        # Обработка категории: 0 = без категории (NULL)
+        if category_id == '0':
+            conditions.append('(category_id IS NULL OR category_id = 0)')
+        else:
+            conditions.append('category_id = ?')
+            params.append(int(category_id))
+
+        if date_from:
+            conditions.append('record_date >= ?')
+            params.append(date_from)
+        if date_to:
+            conditions.append('record_date <= ?')
+            params.append(date_to)
+
+        where_clause = ' AND '.join(conditions)
+
+        query = f"""
+            SELECT id, record_date, amount, account_name, description, created_by, source
+            FROM finance_records
+            WHERE {where_clause}
+            ORDER BY record_date DESC
+        """
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        transactions = []
+        for row in rows:
+            transactions.append({
+                'id': row['id'],
+                'record_date': row['record_date'],
+                'amount': round(row['amount'], 2),
+                'account_name': row['account_name'],
+                'description': row['description'] or '',
+                'created_by': row['created_by'] or '',
+                'source': row['source'] or 'web'
+            })
+
+        conn.close()
+
+        return jsonify({'transactions': transactions})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================================================
