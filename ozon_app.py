@@ -8464,8 +8464,10 @@ HTML_TEMPLATE = '''
                     <select id="finance-period" style="width: 180px;" onchange="applyFinancePeriod(); loadFinanceRecords()">
                         <option value="month">Текущий месяц</option>
                         <option value="prev_month">Прошлый месяц</option>
-                        <option value="3months">Последние 3 месяца</option>
-                        <option value="6months">Последние 6 месяцев</option>
+                        <option value="q1">1 квартал</option>
+                        <option value="q2">2 квартал</option>
+                        <option value="q3">3 квартал</option>
+                        <option value="q4">4 квартал</option>
                         <option value="year">Последний год</option>
                         <option value="all">Вся история</option>
                         <option value="custom">Свой период...</option>
@@ -10497,12 +10499,18 @@ HTML_TEMPLATE = '''
                 const lastDay = new Date(prev.getFullYear(), prev.getMonth() + 1, 0);
                 fromStr = prev.getFullYear() + '-' + String(prev.getMonth() + 1).padStart(2, '0') + '-01';
                 toStr = lastDay.getFullYear() + '-' + String(lastDay.getMonth() + 1).padStart(2, '0') + '-' + String(lastDay.getDate()).padStart(2, '0');
-            } else if (period === '3months') {
-                const d = new Date(yyyy, today.getMonth() - 2, 1);
-                fromStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
-            } else if (period === '6months') {
-                const d = new Date(yyyy, today.getMonth() - 5, 1);
-                fromStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
+            } else if (period === 'q1') {
+                fromStr = yyyy + '-01-01';
+                toStr = yyyy + '-03-31';
+            } else if (period === 'q2') {
+                fromStr = yyyy + '-04-01';
+                toStr = yyyy + '-06-30';
+            } else if (period === 'q3') {
+                fromStr = yyyy + '-07-01';
+                toStr = yyyy + '-09-30';
+            } else if (period === 'q4') {
+                fromStr = yyyy + '-10-01';
+                toStr = yyyy + '-12-31';
             } else if (period === 'year') {
                 fromStr = yyyy + '-01-01';
             } else if (period === 'all') {
