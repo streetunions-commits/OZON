@@ -2129,9 +2129,10 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
     row = []
     for cat in categories:
         cat_name = cat['name'][:30]
+        linked = cat.get('is_container_linked', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2162,21 +2163,31 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_cat:id:name
-    parts = query.data.split(':', 2)
+    # Парсим callback: fin_cat:id:name:is_container_linked
+    parts = query.data.split(':', 3)
     category_id = int(parts[1])
-    category_name = parts[2]
+    category_name = parts[2] if len(parts) > 2 else ''
+    is_container_linked = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
 
     context.user_data['finance']['category_id'] = category_id
     context.user_data['finance']['category_name'] = category_name
+    context.user_data['finance']['is_container_linked'] = is_container_linked
 
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
 
-    # Если категория "Другое" — комментарий обязателен, иначе можно пропустить
+    # Комментарий обязателен при "Другое" или при контейнерной категории
     is_other = category_name.lower() == 'другое'
-    if is_other:
+    comment_required = is_other or is_container_linked
+    if is_container_linked:
+        comment_prompt = (
+            "📝 *Комментарий обязателен!*\n\n"
+            "Распишите какие суммы за что были оплачены.\n"
+            "Например: _кроссовки 5000$, куртки 3000$, доставка 2000$_"
+        )
+        reply_markup = None
+    elif is_other:
         comment_prompt = "📝 Введите комментарий (обязательно при категории «Другое»):"
         reply_markup = None
     else:
@@ -2242,10 +2253,19 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     description = update.message.text.strip()
     fin = context.user_data['finance']
     is_other = (fin.get('category_name') or '').lower() == 'другое'
+    is_container_linked = fin.get('is_container_linked', 0)
 
     if is_other and not description:
         await update.message.reply_text(
             "❌ При категории «Другое» комментарий обязателен. Введите комментарий:"
+        )
+        return STATE_FIN_DESCRIPTION
+
+    if is_container_linked and not description:
+        await update.message.reply_text(
+            "❌ Комментарий обязателен для этой категории.\n\n"
+            "Распишите какие суммы за что были оплачены.\n"
+            "Например: кроссовки 5000$, куртки 3000$, доставка 2000$"
         )
         return STATE_FIN_DESCRIPTION
 

@@ -10797,10 +10797,16 @@ HTML_TEMPLATE = '''
                 }
             }
 
-            // Если категория "Другое" — комментарий обязателен
-            const selectedCatName = financeCategories.find(c => c.id === selectedFinanceCategoryId)?.name || categoryInput;
+            // Если категория "Другое" или контейнерная — комментарий обязателен
+            const selectedCat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            const selectedCatName = selectedCat?.name || categoryInput;
             if (selectedCatName.toLowerCase() === 'другое' && !description) {
                 alert('При категории "Другое" комментарий обязателен');
+                document.getElementById('finance-description').focus();
+                return;
+            }
+            if (selectedCat?.is_container_linked && !description) {
+                alert('Для категории закупки необходимо указать комментарий — распишите какие суммы за что были оплачены');
                 document.getElementById('finance-description').focus();
                 return;
             }
@@ -24686,10 +24692,13 @@ def api_finance_records_add():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
 
-        # При категории "Другое" комментарий обязателен
+        # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
+        if is_container_linked and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
 
         cursor.execute('''
             INSERT INTO finance_records
@@ -24786,10 +24795,13 @@ def api_finance_records_update():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
 
-        # При категории "Другое" комментарий обязателен
+        # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
+        if is_container_linked and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
 
         cursor.execute('''
             UPDATE finance_records
@@ -25235,12 +25247,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name']} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
@@ -25319,10 +25331,13 @@ def api_telegram_finance_add():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
 
-        # При категории "Другое" комментарий обязателен
+        # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
+        if is_container_linked and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
 
         record_date = get_snapshot_date()
 
