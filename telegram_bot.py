@@ -116,6 +116,17 @@ def escape_markdown(text: str) -> str:
     return text
 
 
+def escape_md(text: str) -> str:
+    """
+    Экранирует символы Markdown v1 для безопасной вставки в сообщения с parse_mode='Markdown'.
+    Только 4 символа: _ * ` [
+    Используется для динамического пользовательского контента (имена, текст, имена файлов).
+    """
+    for char in ['_', '*', '`', '[']:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
 def is_authorized(chat_id: int) -> bool:
     """
     Проверяет, авторизован ли пользователь.
@@ -1661,7 +1672,7 @@ async def msg_recipient_done_callback(update: Update, context: ContextTypes.DEFA
 
     await query.edit_message_text(
         f"📦 Контейнер *#{container_id}*\n"
-        f"👥 Получатели: {names_str}\n\n"
+        f"👥 Получатели: {escape_md(names_str)}\n\n"
         "💬 *Введите текст сообщения:*\n"
         "Можно также отправить фото или документ",
         parse_mode='Markdown',
@@ -1755,13 +1766,13 @@ async def show_send_confirmation(update_or_msg, context, is_message=False):
         "📋 *ПРОВЕРЬТЕ СООБЩЕНИЕ:*\n"
         "────────────────────────\n\n"
         f"📦 Контейнер: *#{container_id}*\n"
-        f"👥 Получатели: {names_str}\n\n"
+        f"👥 Получатели: {escape_md(names_str)}\n\n"
     )
 
     if message_text:
-        text += f"💬 {message_text}\n"
+        text += f"💬 {escape_md(message_text)}\n"
     if has_file:
-        text += f"📎 Файл: {flow['filename']}\n"
+        text += f"📎 Файл: {escape_md(flow['filename'])}\n"
     if not message_text and not has_file:
         text += "⚠️ Пустое сообщение\n"
 
