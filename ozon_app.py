@@ -13173,9 +13173,10 @@ HTML_TEMPLATE = '''
 
             div.innerHTML = `
                 <span style="font-size: 18px;">${icon}</span>
-                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name}">${displayName}</span>
+                <span class="ved-file-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${file.name}">${displayName}</span>
                 <span style="color: #f57f17; font-size: 11px;">⏳ Ожидает сохранения</span>
                 <span style="color: #888; font-size: 11px;">${sizeStr}</span>
+                <button onclick="renamePendingFile(${index})" style="padding: 4px 8px; border: none; background: #fff3e0; color: #e65100; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Переименовать">✏️</button>
                 <button onclick="removePendingFile(${index})" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>
             `;
 
@@ -13314,10 +13315,11 @@ HTML_TEMPLATE = '''
 
             div.innerHTML = `
                 <span style="font-size: 18px;">${icon}</span>
-                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${tooltip}">${displayName}</span>
+                <span class="ved-file-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${tooltip}">${displayName}</span>
                 <span style="color: #888; font-size: 11px;">${sizeStr}</span>
                 ${canPreview ? '<button onclick="previewVedFile(' + file.id + ', \\'' + file.file_type + '\\')" style="padding: 4px 8px; border: none; background: #e3f2fd; color: #1976d2; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Просмотреть">👁️</button>' : ''}
                 <button onclick="downloadVedFile(${file.id})" style="padding: 4px 8px; border: none; background: #e8f5e9; color: #388e3c; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Скачать">⬇️</button>
+                ${isAdmin ? '<button onclick="renameVedFile(' + file.id + ', \\'' + displayName.replace(/'/g, "\\\\'") + '\\')" style="padding: 4px 8px; border: none; background: #fff3e0; color: #e65100; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Переименовать">✏️</button>' : ''}
                 ${isAdmin ? '<button onclick="deleteVedFile(' + file.id + ')" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>' : ''}
             `;
 
@@ -13483,6 +13485,69 @@ HTML_TEMPLATE = '''
                 console.error('Ошибка удаления файла:', error);
                 alert('Ошибка удаления файла');
             }
+        }
+
+        /**
+         * Переименовать прикреплённый файл контейнера (уже сохранённый на сервере).
+         * Показывает prompt с текущим именем, отправляет PUT-запрос на сервер,
+         * обновляет отображение в DOM без перезагрузки списка.
+         */
+        async function renameVedFile(fileId, currentName) {
+            const newName = prompt('Введите новое имя файла:', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            try {
+                const response = await authFetch('/api/ved/containers/files/' + fileId + '/rename', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ display_name: newName.trim() })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Обновляем имя в DOM без перезагрузки всего списка
+                    const fileEl = document.querySelector('.ved-file-item[data-file-id="' + fileId + '"]');
+                    if (fileEl) {
+                        const nameSpan = fileEl.querySelector('.ved-file-name');
+                        if (nameSpan) {
+                            nameSpan.textContent = result.file.display_name || result.file.filename;
+                            const tooltip = result.file.display_name
+                                ? result.file.display_name + ' (' + result.file.filename + ')'
+                                : result.file.filename;
+                            nameSpan.title = tooltip;
+                        }
+                        // Обновляем onclick кнопки переименования с новым именем
+                        const renameBtn = fileEl.querySelector('button[title="Переименовать"]');
+                        if (renameBtn) {
+                            const updatedName = (result.file.display_name || result.file.filename).replace(/'/g, "\\'");
+                            renameBtn.setAttribute('onclick', "renameVedFile(" + fileId + ", '" + updatedName + "')");
+                        }
+                    }
+                } else {
+                    alert('Ошибка переименования: ' + (result.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка переименования файла:', error);
+                alert('Ошибка переименования файла');
+            }
+        }
+
+        /**
+         * Переименовать буферизованный файл (ещё не загруженный на сервер).
+         * Обновляет displayName в массиве vedContainerPendingFiles и перерисовывает список.
+         */
+        function renamePendingFile(index) {
+            if (index < 0 || index >= vedContainerPendingFiles.length) return;
+
+            const pendingFile = vedContainerPendingFiles[index];
+            const currentName = pendingFile.displayName || pendingFile.file.name;
+            const newName = prompt('Введите новое имя файла:', currentName);
+
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            vedContainerPendingFiles[index].displayName = newName.trim();
+            renderPendingFiles();
         }
 
         // ============================================================================
@@ -18713,6 +18778,79 @@ def delete_ved_container_file(file_id):
         conn.close()
 
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/ved/containers/files/<int:file_id>/rename', methods=['PUT'])
+@require_auth(['admin'])
+def rename_ved_container_file(file_id):
+    """
+    Переименовать прикреплённый файл контейнера ВЭД.
+
+    Позволяет изменить отображаемое имя файла (display_name) и/или
+    оригинальное имя файла (filename). Физический файл на диске
+    не переименовывается — используется stored_filename (UUID).
+
+    Аргументы (JSON body):
+        display_name (str, опционально): Новое отображаемое имя
+        filename (str, опционально): Новое оригинальное имя файла
+
+    Возвращает:
+        JSON с обновлёнными данными файла
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Нет данных'})
+
+        new_display_name = data.get('display_name', '').strip()
+        new_filename = data.get('filename', '').strip()
+
+        if not new_display_name and not new_filename:
+            return jsonify({'success': False, 'error': 'Укажите новое имя'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Проверяем существование файла
+        cursor.execute('SELECT * FROM ved_container_files WHERE id = ?', (file_id,))
+        file_info = cursor.fetchone()
+
+        if not file_info:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Файл не найден'})
+
+        # Обновляем поля в зависимости от того, что передано
+        if new_display_name:
+            cursor.execute(
+                'UPDATE ved_container_files SET display_name = ? WHERE id = ?',
+                (new_display_name, file_id)
+            )
+        if new_filename:
+            cursor.execute(
+                'UPDATE ved_container_files SET filename = ? WHERE id = ?',
+                (new_filename, file_id)
+            )
+
+        conn.commit()
+
+        # Получаем обновлённые данные
+        cursor.execute('SELECT * FROM ved_container_files WHERE id = ?', (file_id,))
+        updated = cursor.fetchone()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'file': {
+                'id': updated['id'],
+                'filename': updated['filename'],
+                'display_name': updated['display_name'],
+                'file_type': updated['file_type'],
+                'file_size': updated['file_size']
+            }
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
