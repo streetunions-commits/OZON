@@ -8024,8 +8024,12 @@ HTML_TEMPLATE = '''
                         <button class="wh-clear-btn" onclick="toggleFinanceCategoriesManager()" style="padding: 4px 10px; font-size: 12px;">Закрыть</button>
                     </div>
                     <div id="finance-categories-list" style="margin-bottom: 12px;"></div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <input type="text" id="finance-new-category-name" class="wh-input" placeholder="Название новой категории" style="flex: 1; max-width: 300px;">
+                        <select id="finance-new-category-type" class="wh-input" style="width: 140px; cursor: pointer;">
+                            <option value="expense">📉 Расход</option>
+                            <option value="income">📈 Доход</option>
+                        </select>
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
@@ -8035,7 +8039,7 @@ HTML_TEMPLATE = '''
                     <div class="finance-form-row">
                         <div class="finance-form-field" style="flex: 0 0 160px;">
                             <label>Тип</label>
-                            <select id="finance-type" class="wh-input" style="cursor: pointer;">
+                            <select id="finance-type" class="wh-input" style="cursor: pointer;" onchange="onFinanceTypeChange()">
                                 <option value="expense">📉 Расход</option>
                                 <option value="income">📈 Доход</option>
                             </select>
@@ -10000,7 +10004,8 @@ HTML_TEMPLATE = '''
                         financeCategories.forEach(cat => {
                             const opt = document.createElement('option');
                             opt.value = cat.id;
-                            opt.textContent = cat.name;
+                            const typeIcon = cat.record_type === 'income' ? '📈' : '📉';
+                            opt.textContent = typeIcon + ' ' + cat.name;
                             filterSelect.appendChild(opt);
                         });
                         filterSelect.value = currentVal;
@@ -10009,6 +10014,17 @@ HTML_TEMPLATE = '''
             } catch (e) {
                 console.error('Ошибка загрузки категорий:', e);
             }
+        }
+
+        /**
+         * Обработчик изменения типа записи (расход/доход).
+         * Сбрасывает выбранную категорию и обновляет dropdown.
+         */
+        function onFinanceTypeChange() {
+            selectedFinanceCategoryId = null;
+            const catInput = document.getElementById('finance-category-input');
+            if (catInput) catInput.value = '';
+            renderFinanceCategoryDropdown('');
         }
 
         /**
@@ -10686,10 +10702,14 @@ HTML_TEMPLATE = '''
             const dropdown = document.getElementById('finance-category-dropdown');
             if (!dropdown) return;
 
+            // Фильтруем по текущему типу записи (расход/доход)
+            const currentType = document.getElementById('finance-type')?.value || 'expense';
+            const byType = financeCategories.filter(c => c.record_type === currentType);
+
             const filterLower = (filter || '').toLowerCase();
             const filtered = filterLower
-                ? financeCategories.filter(c => c.name.toLowerCase().includes(filterLower))
-                : financeCategories;
+                ? byType.filter(c => c.name.toLowerCase().includes(filterLower))
+                : byType;
 
             dropdown.innerHTML = '';
 
@@ -10761,6 +10781,7 @@ HTML_TEMPLATE = '''
         async function addNewFinanceCategoryFromForm() {
             const input = document.getElementById('finance-category-input');
             const name = (input.value || '').trim();
+            const currentType = document.getElementById('finance-type')?.value || 'expense';
 
             if (!name) {
                 alert('Введите название категории');
@@ -10768,9 +10789,9 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Проверяем, не существует ли уже
-            if (financeCategories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
-                const existing = financeCategories.find(c => c.name.toLowerCase() === name.toLowerCase());
+            // Проверяем, не существует ли уже категория с таким именем И типом
+            if (financeCategories.some(c => c.name.toLowerCase() === name.toLowerCase() && c.record_type === currentType)) {
+                const existing = financeCategories.find(c => c.name.toLowerCase() === name.toLowerCase() && c.record_type === currentType);
                 selectFinanceCategory(existing.name, existing.id);
                 return;
             }
@@ -10779,12 +10800,12 @@ HTML_TEMPLATE = '''
                 const resp = await authFetch('/api/finance/categories/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({ name: name, record_type: currentType })
                 });
                 const data = await resp.json();
 
                 if (data.success) {
-                    financeCategories.push({ id: data.id, name: name });
+                    financeCategories.push({ id: data.id, name: name, record_type: currentType });
                     selectedFinanceCategoryId = data.id;
                     renderFinanceCategoryDropdown('');
                     loadFinanceCategories();
@@ -10847,8 +10868,14 @@ HTML_TEMPLATE = '''
                 row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #f0f0f0;';
 
                 const name = document.createElement('span');
-                name.textContent = cat.name;
-                name.style.cssText = 'flex: 1; font-size: 14px;';
+                name.style.cssText = 'flex: 1; font-size: 14px; display: flex; align-items: center; gap: 8px;';
+                const nameText = document.createTextNode(cat.name);
+                name.appendChild(nameText);
+                const badge = document.createElement('span');
+                badge.textContent = cat.record_type === 'income' ? '📈 Доход' : '📉 Расход';
+                badge.style.cssText = 'font-size: 11px; padding: 2px 6px; border-radius: 4px; ' +
+                    (cat.record_type === 'income' ? 'background: #dcfce7; color: #16a34a;' : 'background: #fee2e2; color: #dc2626;');
+                name.appendChild(badge);
                 row.appendChild(name);
 
                 const delBtn = document.createElement('button');
@@ -10896,6 +10923,7 @@ HTML_TEMPLATE = '''
         async function addFinanceCategoryFromManager() {
             const input = document.getElementById('finance-new-category-name');
             const name = (input.value || '').trim();
+            const catType = document.getElementById('finance-new-category-type')?.value || 'expense';
 
             if (!name) {
                 alert('Введите название категории');
@@ -10907,7 +10935,7 @@ HTML_TEMPLATE = '''
                 const resp = await authFetch('/api/finance/categories/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({ name: name, record_type: catType })
                 });
                 const data = await resp.json();
 
@@ -22902,24 +22930,30 @@ def api_finance_categories():
 def api_finance_categories_add():
     """
     Добавить новую категорию.
-    Payload: {'name': 'Логистика'}
+    Payload: {'name': 'Логистика', 'record_type': 'expense'}
     """
     try:
         data = request.json
         name = (data.get('name') or '').strip()
+        record_type = (data.get('record_type') or '').strip()
 
         if not name:
             return jsonify({'success': False, 'error': 'Укажите название категории'}), 400
 
+        if record_type not in ('income', 'expense'):
+            return jsonify({'success': False, 'error': 'Укажите тип: income или expense'}), 400
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        cursor.execute('SELECT id FROM finance_categories WHERE LOWER(name) = LOWER(?)', (name,))
+        # Проверка дубликата по паре (name, record_type)
+        cursor.execute('SELECT id FROM finance_categories WHERE LOWER(name) = LOWER(?) AND record_type = ?', (name, record_type))
         if cursor.fetchone():
+            type_label = 'расходов' if record_type == 'expense' else 'доходов'
             conn.close()
-            return jsonify({'success': False, 'error': f'Категория "{name}" уже существует'}), 400
+            return jsonify({'success': False, 'error': f'Категория "{name}" для {type_label} уже существует'}), 400
 
-        cursor.execute('INSERT INTO finance_categories (name) VALUES (?)', (name,))
+        cursor.execute('INSERT INTO finance_categories (name, record_type) VALUES (?, ?)', (name, record_type))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -23330,10 +23364,17 @@ def api_telegram_finance_categories():
         if not expected_token or token != expected_token:
             return jsonify({'success': False, 'error': 'Неверный токен'}), 403
 
+        record_type = request.args.get('type', '').strip()
+
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM finance_categories ORDER BY name ASC')
+
+        if record_type in ('income', 'expense'):
+            cursor.execute('SELECT id, name FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+        else:
+            cursor.execute('SELECT id, name FROM finance_categories ORDER BY name ASC')
+
         rows = cursor.fetchall()
         categories = [{'id': r['id'], 'name': r['name']} for r in rows]
         conn.close()
