@@ -12175,9 +12175,14 @@ HTML_TEMPLATE = '''
 
                             // Определяем тип сообщения
                             const isContainer = msg.msg_source === 'container' || msg.doc_type === 'container';
+                            const isFinanceDistribution = msg.doc_type === 'finance_distribution';
                             let docInfo, docIcon, openBtnText;
 
-                            if (isContainer) {
+                            if (isFinanceDistribution) {
+                                docInfo = `Расход #${msg.doc_id} — распределить по контейнерам`;
+                                docIcon = '💰';
+                                openBtnText = '📊 Распределить';
+                            } else if (isContainer) {
                                 docInfo = `Контейнер #${msg.doc_id}`;
                                 docIcon = '📦';
                                 openBtnText = '📦 Открыть контейнер';
@@ -12191,8 +12196,8 @@ HTML_TEMPLATE = '''
                                 openBtnText = '📂 Открыть документ';
                             }
 
-                            // Для контейнеров показываем иконку источника (web/telegram)
-                            const senderIcon = msg.sender_type === 'telegram' ? '📱' : '🌐';
+                            // Иконка источника: system/telegram/web
+                            const senderIcon = msg.sender_type === 'system' ? '🤖' : (msg.sender_type === 'telegram' ? '📱' : '🌐');
 
                             return `
                                 <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}">
@@ -12205,7 +12210,7 @@ HTML_TEMPLATE = '''
                                     </div>
                                     <div class="message-card-text">${escapeHtml(msg.message)}</div>
                                     <div class="message-card-actions">
-                                        ${!isContainer ? `
+                                        ${!isContainer && !isFinanceDistribution ? `
                                             <button class="message-btn message-btn-reply" onclick="openReplyModal(${msg.id}, '${escapeHtml(msg.message).replace(/'/g, "\\'")}', '${msg.doc_type}', ${msg.doc_id}, ${msg.telegram_chat_id || 0})">
                                                 💬 Ответить
                                             </button>
@@ -12213,7 +12218,7 @@ HTML_TEMPLATE = '''
                                         <button class="message-btn message-btn-open" onclick="openDocumentFromMessage('${msg.doc_type}', ${msg.doc_id})">
                                             ${openBtnText}
                                         </button>
-                                        ${!msg.is_read && !isOwn ? `
+                                        ${!msg.is_read && !isOwn && !isFinanceDistribution ? `
                                             <button class="message-btn message-btn-read" onclick="markMessageRead(${msg.id}, false, '${msg.msg_source || 'document'}')">
                                                 ✓ Просмотрено
                                             </button>
@@ -12301,7 +12306,16 @@ HTML_TEMPLATE = '''
 
         // Открыть документ из сообщения
         function openDocumentFromMessage(docType, docId) {
-            if (docType === 'receipt') {
+            if (docType === 'finance_distribution') {
+                // Переключиться на Финансы → ДДС, открыть форму редактирования записи
+                document.querySelector('[onclick*="finance"]')?.click();
+                setTimeout(() => {
+                    activateFinanceSubtab('finance-records');
+                    setTimeout(() => {
+                        editFinanceRecord(docId);
+                    }, 300);
+                }, 200);
+            } else if (docType === 'receipt') {
                 // Переключиться на вкладку Склад → Оприходование
                 document.querySelector('[onclick*="warehouse"]')?.click();
                 setTimeout(() => {
@@ -23317,12 +23331,14 @@ def get_all_document_messages():
                    'document' as msg_source
             FROM document_messages m
             LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
-            WHERE m.sender_type = 'telegram'
+            WHERE m.sender_type IN ('telegram', 'system')
         '''
         doc_params = []
 
         if user_role != 'admin':
             if user_telegram_chat_id:
+                # Для не-админов: показываем только свои Telegram-сообщения
+                # (system-уведомления без telegram_chat_id автоматически исключаются)
                 doc_query += ' AND m.telegram_chat_id = ?'
                 doc_params.append(user_telegram_chat_id)
             else:
@@ -23542,7 +23558,7 @@ def get_unread_messages_count():
         else:
             cursor.execute('''
                 SELECT COUNT(*) FROM document_messages
-                WHERE sender_type = 'telegram' AND is_read = 0
+                WHERE sender_type IN ('telegram', 'system') AND is_read = 0
             ''')
             count += cursor.fetchone()[0]
 
@@ -24086,6 +24102,82 @@ def get_warehouse_stock():
 # по контейнерам ВЭД. Используются в API добавления/обновления/удаления записей.
 # ============================================================================
 
+
+def _create_finance_distribution_notification(cursor, finance_record_id, amount, category_name, description, created_by, record_date):
+    """
+    Создать уведомление о необходимости распределения расхода по контейнерам.
+
+    Вставляет запись в document_messages (doc_type='finance_distribution')
+    и отправляет Telegram-уведомление всем админам.
+
+    Аргументы:
+        cursor: курсор SQLite (INSERT без COMMIT — коммит делает вызывающий код)
+        finance_record_id (int): ID финансовой записи
+        amount (float): сумма расхода
+        category_name (str): название категории
+        description (str): описание расхода
+        created_by (str): кто создал запись
+        record_date (str): дата записи (формат YYYY-MM-DD)
+    """
+    # Текст для карточки в Сообщениях (короткий)
+    message = f'Расход {amount:,.0f} ₽ — категория \"{category_name}\"'
+    if description:
+        message += f' ({description})'
+    message += ' — требуется распределение по контейнерам'
+
+    cursor.execute('''
+        INSERT INTO document_messages (doc_type, doc_id, message, sender_type, sender_name, is_read)
+        VALUES ('finance_distribution', ?, ?, 'system', 'Система', 0)
+    ''', (finance_record_id, message))
+
+    # Telegram-уведомление админам (не блокирует основной поток)
+    try:
+        amount_fmt = f'{amount:,.0f}'.replace(',', ' ')
+        tg_text = (
+            f'📦 <b>Требуется распределение по контейнерам</b>\n\n'
+            f'💰 Расход: {amount_fmt} ₽\n'
+            f'📂 Категория: {category_name}\n'
+        )
+        if description:
+            tg_text += f'📝 Описание: {description}\n'
+        tg_text += f'👤 Создал: {created_by}\n'
+        tg_text += f'📅 Дата: {record_date}\n\n'
+        tg_text += 'Откройте Финансы → ДДС для распределения.'
+        send_admin_notification(tg_text)
+    except Exception as e:
+        print(f'⚠️ Не удалось отправить Telegram-уведомление о распределении: {e}')
+
+
+def _delete_finance_distribution_notification(cursor, finance_record_id):
+    """
+    Удалить уведомление о распределении для данной финансовой записи.
+    Вызывается при удалении записи или при смене категории на не-контейнерную.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    cursor.execute('''
+        DELETE FROM document_messages
+        WHERE doc_type = 'finance_distribution' AND doc_id = ?
+    ''', (finance_record_id,))
+
+
+def _mark_finance_distribution_notification_read(cursor, finance_record_id):
+    """
+    Пометить уведомление как прочитанное (распределение выполнено).
+    Вызывается из _save_finance_distributions() при успешном сохранении.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    cursor.execute('''
+        UPDATE document_messages SET is_read = 1
+        WHERE doc_type = 'finance_distribution' AND doc_id = ? AND is_read = 0
+    ''', (finance_record_id,))
+
+
 def _save_finance_distributions(cursor, finance_record_id, distributions, expected_amount):
     """
     Сохранить распределения расхода по контейнерам.
@@ -24137,6 +24229,9 @@ def _save_finance_distributions(cursor, finance_record_id, distributions, expect
                 updated_at = CURRENT_TIMESTAMP
             WHERE doc_id = ? AND sku = ?
         ''', (amount, container_doc_id, sku))
+
+    # Распределение выполнено — помечаем уведомление как прочитанное
+    _mark_finance_distribution_notification_read(cursor, finance_record_id)
 
 
 def _rollback_finance_distributions(cursor, finance_record_id):
@@ -24582,13 +24677,14 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
         category_name = cat_row[0]
+        is_container_linked = cat_row[1] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -24607,6 +24703,13 @@ def api_finance_records_add():
         distributions = data.get('distributions', [])
         if distributions and record_type == 'expense':
             _save_finance_distributions(cursor, new_id, distributions, amount)
+
+        # Расходная категория привязана к контейнерам, но распределений нет — уведомляем
+        if record_type == 'expense' and is_container_linked and not distributions:
+            _create_finance_distribution_notification(
+                cursor, new_id, amount, category_name, description,
+                user_info.get('username', ''), record_date
+            )
 
         conn.commit()
         conn.close()
@@ -24674,13 +24777,14 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
         category_name = cat_row[0]
+        is_container_linked = cat_row[1] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -24703,7 +24807,19 @@ def api_finance_records_update():
         _rollback_finance_distributions(cursor, record_id)
         distributions = data.get('distributions', [])
         if distributions and record_type == 'expense':
+            # _save_finance_distributions уже помечает уведомление как прочитанное
             _save_finance_distributions(cursor, record_id, distributions, amount)
+        else:
+            # Удаляем старое уведомление (если было) — данные могли измениться
+            _delete_finance_distribution_notification(cursor, record_id)
+
+            # Если категория привязана к контейнерам и нет распределений — новое уведомление
+            if record_type == 'expense' and is_container_linked:
+                user_info = getattr(request, 'current_user', {})
+                _create_finance_distribution_notification(
+                    cursor, record_id, amount, category_name, description,
+                    user_info.get('username', ''), record_date
+                )
 
         conn.commit()
         conn.close()
@@ -24733,6 +24849,9 @@ def api_finance_records_delete():
 
         # Откатываем распределения по контейнерам перед удалением записи
         _rollback_finance_distributions(cursor, record_id)
+
+        # Удаляем уведомление о распределении (если есть)
+        _delete_finance_distribution_notification(cursor, record_id)
 
         cursor.execute('DELETE FROM finance_records WHERE id = ?', (record_id,))
 
@@ -25191,13 +25310,14 @@ def api_telegram_finance_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
         category_name = cat_row[0]
+        is_container_linked = cat_row[1] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -25222,8 +25342,17 @@ def api_telegram_finance_add():
         ''', (record_type, amount, account_id, account_name, category_id, category_name,
               description, created_by, telegram_chat_id, telegram_username, record_date))
 
-        conn.commit()
         new_id = cursor.lastrowid
+
+        # Telegram не поддерживает распределения — всегда уведомляем
+        # для расходных категорий, привязанных к контейнерам
+        if record_type == 'expense' and is_container_linked:
+            _create_finance_distribution_notification(
+                cursor, new_id, amount, category_name, description,
+                created_by, record_date
+            )
+
+        conn.commit()
         conn.close()
 
         return jsonify({'success': True, 'id': new_id})
