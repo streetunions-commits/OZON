@@ -1981,7 +1981,7 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     # Инициализируем данные финансовой записи
     user = update.effective_user
-    username = user.username or user.first_name or str(chat_id)
+    display_name = user.first_name or user.username or str(chat_id)
     context.user_data['finance'] = {
         'record_type': None,
         'amount': None,
@@ -1991,7 +1991,7 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'category_name': None,
         'description': None,
         'telegram_chat_id': chat_id,
-        'telegram_username': username
+        'telegram_username': display_name
     }
 
     keyboard = [
