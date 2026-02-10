@@ -3941,14 +3941,178 @@ HTML_TEMPLATE = '''
             background: rgba(102, 126, 234, 0.3);
         }
 
+        /* ============================================================================
+           МОБИЛЬНАЯ АДАПТАЦИЯ — ПЛАНШЕТЫ (до 1024px)
+           ============================================================================ */
+        @media (max-width: 1024px) {
+            .header {
+                padding: 10px 20px;
+            }
+
+            .tab-content {
+                padding: 16px 20px;
+            }
+
+            .table-header {
+                padding: 8px 16px;
+            }
+
+            .tab-button {
+                padding: 8px 16px;
+                font-size: 14px;
+            }
+        }
+
+        /* ============================================================================
+           МОБИЛЬНАЯ АДАПТАЦИЯ — ТЕЛЕФОНЫ (до 768px)
+           ============================================================================ */
         @media (max-width: 768px) {
+            /* --- Хедер --- */
+            .header {
+                padding: 8px 12px;
+            }
+
+            .header > div {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .refresh-btn {
+                padding: 6px 12px;
+                font-size: 13px;
+            }
+
+            .user-panel {
+                margin-left: 0;
+                gap: 8px;
+            }
+
+            .user-info {
+                font-size: 13px;
+            }
+
+            .user-info .role-badge {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+
+            .logout-btn {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+
+            /* --- Вкладки: горизонтальный скролл --- */
+            .tabs {
+                overflow-x: auto;
+                overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                white-space: nowrap;
+                flex-wrap: nowrap;
+            }
+
+            .tabs::-webkit-scrollbar {
+                display: none;
+            }
+
+            .tab-button {
+                padding: 8px 14px;
+                font-size: 13px;
+                flex-shrink: 0;
+                white-space: nowrap;
+            }
+
+            /* --- Подвкладки --- */
+            .sub-tabs,
+            .ved-subtabs,
+            .warehouse-subtabs {
+                overflow-x: auto;
+                overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                flex-wrap: nowrap;
+                padding: 0 12px;
+            }
+
+            .sub-tabs::-webkit-scrollbar,
+            .ved-subtabs::-webkit-scrollbar,
+            .warehouse-subtabs::-webkit-scrollbar {
+                display: none;
+            }
+
+            .sub-tab-button,
+            .ved-subtab-button,
+            .subtab-button {
+                padding: 10px 14px;
+                font-size: 13px;
+                flex-shrink: 0;
+                white-space: nowrap;
+            }
+
+            /* --- Контент вкладок --- */
+            .tab-content {
+                padding: 12px;
+            }
+
+            .ved-subtab-content,
+            .warehouse-subtab-content {
+                padding: 12px;
+            }
+
+            /* --- Хедер таблицы, фильтры --- */
             .table-header {
                 flex-direction: column;
-                gap: 15px;
+                gap: 10px;
+                padding: 8px 12px;
             }
 
             .search-box input {
                 width: 100%;
+            }
+
+            /* --- Фильтры по дате --- */
+            .date-filters-inline {
+                flex-wrap: wrap;
+                gap: 6px;
+                width: 100%;
+            }
+
+            .date-filter-input {
+                padding: 6px 8px;
+                font-size: 13px;
+                min-width: 0;
+                flex: 1;
+            }
+
+            .date-filter-reset {
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+
+            /* --- Кнопки периодов --- */
+            .table-controls {
+                gap: 4px;
+                padding: 8px 0;
+            }
+
+            .period-btn {
+                padding: 5px 8px;
+                font-size: 12px;
+            }
+
+            .toggle-col-btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+
+            /* --- Таблицы: горизонтальный скролл --- */
+            .table-wrapper,
+            .wh-table-wrapper,
+            .supplies-table-wrapper {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
             }
 
             table {
@@ -3956,7 +4120,420 @@ HTML_TEMPLATE = '''
             }
 
             th, td {
-                padding: 10px 15px;
+                padding: 8px 6px;
+                font-size: 12px;
+            }
+
+            /* --- FBO аккордеон --- */
+            .fbo-header th {
+                padding: 8px 6px;
+                font-size: 12px;
+            }
+
+            .fbo-row td {
+                padding: 8px 6px;
+                font-size: 13px;
+            }
+
+            .cluster-row td {
+                padding: 6px 6px 6px 24px;
+                font-size: 12px;
+            }
+
+            .cluster-row td:first-child {
+                padding-left: 24px;
+            }
+
+            /* --- Склад таблица --- */
+            .wh-table thead th {
+                padding: 8px 6px;
+                font-size: 12px;
+            }
+
+            .wh-table tbody td {
+                padding: 8px 6px;
+                font-size: 13px;
+            }
+
+            .wh-table tfoot td {
+                padding: 8px 6px;
+            }
+
+            /* --- Форма оприходования --- */
+            .receipt-form {
+                padding: 12px;
+                border-radius: 8px;
+            }
+
+            .receipt-form-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .receipt-form-field {
+                flex: 1 1 100% !important;
+            }
+
+            .receipt-form-actions {
+                flex-wrap: wrap;
+            }
+
+            .wh-save-receipt-btn {
+                padding: 12px 20px;
+                font-size: 14px;
+                width: 100%;
+                justify-content: center;
+            }
+
+            .wh-clear-btn {
+                padding: 12px 16px;
+                font-size: 13px;
+                width: 100%;
+                text-align: center;
+            }
+
+            .wh-add-btn {
+                padding: 8px 14px;
+                font-size: 13px;
+            }
+
+            .wh-toolbar {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            /* --- Поставки таблица --- */
+            .supplies-table {
+                font-size: 12px;
+            }
+
+            .supplies-table thead th {
+                padding: 6px 4px;
+                font-size: 11px;
+            }
+
+            .supplies-table tbody td {
+                padding: 4px;
+            }
+
+            .supply-input {
+                font-size: 12px;
+                padding: 3px 4px;
+            }
+
+            .supply-select {
+                font-size: 12px;
+                min-width: 120px;
+                padding: 3px 4px;
+            }
+
+            .supplies-filter-bar {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            /* --- Курсы валют --- */
+            .currency-rates-panel {
+                padding: 12px;
+            }
+
+            .currency-rates-row {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .currency-rate-card {
+                flex: 1 1 calc(50% - 4px);
+                min-width: 0;
+                width: auto;
+            }
+
+            /* --- Модальные окна --- */
+            .modal-box {
+                width: calc(100% - 32px);
+                max-width: 400px;
+                padding: 20px;
+            }
+
+            .login-box {
+                width: calc(100% - 32px);
+                max-width: 360px;
+                padding: 24px;
+            }
+
+            .login-box h2 {
+                font-size: 20px;
+            }
+
+            .login-box input {
+                padding: 12px;
+                font-size: 14px;
+            }
+
+            .login-box button {
+                padding: 12px;
+                font-size: 15px;
+            }
+
+            .supply-edit-confirm-box {
+                max-width: calc(100% - 32px);
+                padding: 20px;
+            }
+
+            .reply-modal-content {
+                width: calc(100% - 24px);
+                padding: 16px;
+            }
+
+            /* --- Сообщения --- */
+            .messages-tab {
+                padding: 12px;
+            }
+
+            .messages-header {
+                gap: 10px;
+            }
+
+            .messages-header h3 {
+                font-size: 17px;
+            }
+
+            .messages-filters {
+                width: 100%;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+
+            .message-card {
+                padding: 12px;
+            }
+
+            .message-card-header {
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .message-card-actions {
+                flex-wrap: wrap;
+            }
+
+            /* --- Пользователи --- */
+            .users-tab {
+                padding: 12px;
+            }
+
+            .users-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .users-table th,
+            .users-table td {
+                padding: 8px 6px;
+                font-size: 13px;
+            }
+
+            .users-table .actions {
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+
+            /* --- Чат в оприходовании --- */
+            .receipt-chat-section {
+                margin: 12px -12px -12px -12px;
+                padding: 12px;
+            }
+
+            .receipt-chat-input {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .receipt-chat-input input[type="text"] {
+                min-width: 0;
+                width: 100%;
+            }
+
+            /* --- Аккордеон склада --- */
+            .wh-accordion-content {
+                padding: 10px;
+            }
+
+            .wh-accordion-table thead th {
+                padding: 6px 4px;
+                font-size: 11px;
+            }
+
+            .wh-accordion-table tbody td {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+
+            .wh-accordion-table tfoot td {
+                padding: 6px 4px;
+                font-size: 12px;
+            }
+
+            /* --- Дропдаун назначений --- */
+            .destination-dropdown-wrapper {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .destination-dropdown {
+                right: 0;
+            }
+
+            /* --- Пустые состояния --- */
+            .empty-state {
+                padding: 30px 16px;
+            }
+
+            .wh-empty-state {
+                padding: 30px 16px;
+            }
+
+            /* --- Поиск товара --- */
+            .history-select {
+                max-width: 100%;
+            }
+
+            /* --- Скроллбар для таблиц: тонкий видимый индикатор на мобилке --- */
+            .table-wrapper::-webkit-scrollbar,
+            .wh-table-wrapper::-webkit-scrollbar,
+            .supplies-table-wrapper::-webkit-scrollbar {
+                height: 4px;
+            }
+
+            .table-wrapper::-webkit-scrollbar-thumb,
+            .wh-table-wrapper::-webkit-scrollbar-thumb,
+            .supplies-table-wrapper::-webkit-scrollbar-thumb {
+                background: rgba(0,0,0,0.2);
+                border-radius: 4px;
+            }
+        }
+
+        /* ============================================================================
+           МОБИЛЬНАЯ АДАПТАЦИЯ — МАЛЕНЬКИЕ ТЕЛЕФОНЫ (до 480px)
+           ============================================================================ */
+        @media (max-width: 480px) {
+            .header {
+                padding: 6px 8px;
+            }
+
+            .header > div {
+                gap: 6px;
+            }
+
+            .refresh-btn {
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+
+            .user-info .username {
+                font-size: 12px;
+            }
+
+            .user-info .role-badge {
+                font-size: 9px;
+                padding: 1px 5px;
+            }
+
+            .logout-btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+
+            .tab-button {
+                padding: 7px 10px;
+                font-size: 12px;
+            }
+
+            .sub-tab-button,
+            .ved-subtab-button,
+            .subtab-button {
+                padding: 8px 10px;
+                font-size: 12px;
+            }
+
+            .tab-content {
+                padding: 8px;
+            }
+
+            .ved-subtab-content,
+            .warehouse-subtab-content {
+                padding: 8px;
+            }
+
+            th, td {
+                padding: 6px 4px;
+                font-size: 11px;
+            }
+
+            .period-btn {
+                padding: 4px 6px;
+                font-size: 11px;
+            }
+
+            .modal-box {
+                width: calc(100% - 16px);
+                padding: 16px;
+            }
+
+            .login-box {
+                width: calc(100% - 16px);
+                padding: 20px;
+            }
+
+            .receipt-form {
+                padding: 8px;
+            }
+
+            .receipt-form-actions {
+                flex-direction: column;
+            }
+
+            .currency-rate-card {
+                flex: 1 1 100%;
+            }
+
+            .message-card {
+                padding: 10px;
+            }
+
+            .message-btn {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+
+            .wh-add-btn {
+                width: 100%;
+                text-align: center;
+                justify-content: center;
+            }
+
+            .add-user-btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            /* Дата-пикер — одна строка без переноса */
+            .date-filters-inline {
+                display: flex;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .date-filter-input {
+                flex: 0 0 auto;
+                width: auto;
+                min-width: 110px;
+            }
+
+            .date-separator {
+                flex: 0 0 auto;
             }
         }
 
@@ -4503,6 +5080,8 @@ HTML_TEMPLATE = '''
 
         .supplies-table-wrapper {
             position: relative;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .supplies-table {
@@ -4853,7 +5432,9 @@ HTML_TEMPLATE = '''
         .wh-table-wrapper {
             border: 1px solid #e9ecef;
             border-radius: 8px;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
         }
 
         .wh-table {
@@ -10097,7 +10678,7 @@ HTML_TEMPLATE = '''
         function renderFboTable(products) {
             const container = document.getElementById('fbo-content');
 
-            let html = '<table class="fbo-table">';
+            let html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table class="fbo-table">';
             html += '<thead class="fbo-header"><tr>';
             html += '<th>Товар</th>';
             html += '<th>Остаток FBO</th>';
@@ -10154,7 +10735,7 @@ HTML_TEMPLATE = '''
                 html += '</tbody>';
             });
 
-            html += '</tbody></table>';
+            html += '</tbody></table></div>';
             container.innerHTML = html;
         }
 
