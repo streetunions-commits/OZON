@@ -12740,7 +12740,7 @@ HTML_TEMPLATE = '''
                 const accordionRow = document.createElement('tr');
                 accordionRow.className = 'wh-stock-accordion';
                 accordionRow.id = 'wh-stock-accordion-' + sku;
-                accordionRow.innerHTML = '<td colspan="9" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка движений...</div></div></td>';
+                accordionRow.innerHTML = '<td colspan="8" class="wh-accordion-cell"><div class="wh-accordion-content" id="wh-accordion-content-' + sku + '"><div class="wh-accordion-loading">Загрузка движений...</div></div></td>';
                 tbody.appendChild(accordionRow);
 
                 totalReceived += item.total_received;
@@ -12751,7 +12751,7 @@ HTML_TEMPLATE = '''
                 totalValue += item.stock_balance > 0 && item.avg_purchase_price > 0 ? item.stock_balance * item.avg_purchase_price : 0;
             });
 
-            tfoot.innerHTML = '<tr><td colspan="2" style="text-align:right;font-weight:600;">Итого:</td>' +
+            tfoot.innerHTML = '<tr><td style="text-align:right;font-weight:600;">Итого:</td>' +
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalReceived) + '</td>' +
                 '<td style="text-align:center;font-weight:600;">' + formatNumberWithSpaces(totalShipped) + '</td>' +
                 '<td style="text-align:center;font-weight:600;' + (totalReserved > 0 ? 'color:#d97706;' : '') + '">' + (totalReserved > 0 ? formatNumberWithSpaces(totalReserved) : '—') + '</td>' +
