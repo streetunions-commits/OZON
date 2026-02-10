@@ -8234,11 +8234,9 @@ HTML_TEMPLATE = '''
                 <div id="finance-pendel" class="finance-subtab-content">
                     <!-- Фильтры по дате -->
                     <div class="pendel-filters">
-                        <label>С:</label>
-                        <input type="date" id="pendel-date-from">
-                        <label>По:</label>
-                        <input type="date" id="pendel-date-to">
-                        <button class="pendel-filter-btn apply" onclick="loadPendelData()">Применить</button>
+                        <input type="date" id="pendel-date-from" class="date-filter-input" onclick="this.showPicker()" onchange="loadPendelData()">
+                        <span class="date-separator">—</span>
+                        <input type="date" id="pendel-date-to" class="date-filter-input" onclick="this.showPicker()" onchange="loadPendelData()">
                         <button class="pendel-filter-btn reset" onclick="resetPendelFilters()">Сбросить</button>
                     </div>
                     <!-- Карточки итогов -->
