@@ -8265,8 +8265,8 @@ HTML_TEMPLATE = '''
                                     <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
                                     <th>Кол-во прихода<br>на склад</th>
-                                    <th title="Средняя стоимость логистики за единицу из ВЭД (Поступления)">Логистика<br>за ед., ₽</th>
-                                    <th title="Средняя себестоимость за единицу из ВЭД (Поступления)">Цена товара<br>единица, ₽</th>
+                                    <th title="Под чертой указана сумма на текущий момент" style="cursor: help;">Логистика<br>за ед., ₽</th>
+                                    <th title="Под чертой указана сумма на текущий момент" style="cursor: help;">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
                                 </tr>
                                 <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
@@ -8370,7 +8370,7 @@ HTML_TEMPLATE = '''
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 160px;">
                             <label>Сумма, ₽</label>
-                            <input type="number" id="finance-amount" class="wh-input" placeholder="0" min="0" step="0.01">
+                            <input type="number" id="finance-amount" class="wh-input" placeholder="0" min="0" step="0.01" oninput="updateFinanceDistributionTotals()">
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 240px;">
                             <label>Счёт / Источник</label>
@@ -10411,6 +10411,8 @@ HTML_TEMPLATE = '''
             const catInput = document.getElementById('finance-category-input');
             if (catInput) catInput.value = '';
             renderFinanceCategoryDropdown('');
+            // Скрываем контейнерную секцию при смене типа
+            resetFinanceContainerSection();
         }
 
         /**
@@ -10548,7 +10550,15 @@ HTML_TEMPLATE = '''
                 const amountFormatted = amount % 1 === 0
                     ? amount.toLocaleString('ru-RU')
                     : amount.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                tdAmount.textContent = amountFormatted + ' ₽';
+                tdAmount.innerHTML = amountFormatted + ' ₽';
+                // Добавляем иконку контейнера если есть распределения
+                if (rec.has_distributions) {
+                    const distIcon = document.createElement('span');
+                    distIcon.className = 'finance-record-dist-indicator';
+                    distIcon.textContent = ' 📦';
+                    distIcon.title = 'Распределено по контейнерам (нажмите на строку)';
+                    tdAmount.appendChild(distIcon);
+                }
                 tdAmount.style.fontWeight = '600';
                 tdAmount.style.whiteSpace = 'nowrap';
                 if (rec.record_type === 'income') {
@@ -10626,8 +10636,39 @@ HTML_TEMPLATE = '''
                 tdActions.appendChild(delBtn);
 
                 tr.appendChild(tdActions);
+
+                // Если есть распределения — делаем строку кликабельной
+                if (rec.has_distributions) {
+                    tr.className = 'finance-record-row-clickable';
+                    tr.onclick = (e) => {
+                        // Не открываем аккордеон при клике на кнопки
+                        if (e.target.closest('.action-btn') || e.target.closest('button')) return;
+                        toggleFinanceDistAccordion(rec.id);
+                    };
+                }
+
                 tbody.appendChild(tr);
+
+                // Добавляем скрытую строку аккордеона для распределения
+                if (rec.has_distributions) {
+                    const accordionTr = document.createElement('tr');
+                    accordionTr.className = 'finance-dist-accordion';
+                    accordionTr.id = `finance-dist-accordion-${rec.id}`;
+                    const accordionTd = document.createElement('td');
+                    accordionTd.colSpan = 10;
+                    accordionTd.className = 'finance-dist-accordion-cell';
+                    const accordionContent = document.createElement('div');
+                    accordionContent.className = 'finance-dist-accordion-content';
+                    accordionContent.id = `finance-dist-accordion-content-${rec.id}`;
+                    accordionContent.innerHTML = '<div class="finance-dist-accordion-loading">Загрузка...</div>';
+                    accordionTd.appendChild(accordionContent);
+                    accordionTr.appendChild(accordionTd);
+                    tbody.appendChild(accordionTr);
+                }
             });
+
+            // Очищаем кэш аккордеонов при перерисовке
+            financeDistAccordionCache = {};
         }
 
         /**
@@ -10651,6 +10692,9 @@ HTML_TEMPLATE = '''
             selectedFinanceCategoryId = null;
             currentFinanceEditId = null;
 
+            // Сбрасываем секцию контейнеров
+            resetFinanceContainerSection();
+
             if (editId) {
                 // Находим запись для редактирования
                 const rec = financeRecordsData.find(r => r.id === editId);
@@ -10664,6 +10708,14 @@ HTML_TEMPLATE = '''
                     selectedFinanceCategoryId = rec.category_id || null;
                     document.getElementById('finance-date').value = rec.record_date || today;
                     document.getElementById('finance-description').value = rec.description || '';
+
+                    // Проверяем, нужно ли показать контейнерную секцию
+                    checkFinanceContainerSection();
+
+                    // Если есть распределения — загружаем их
+                    if (rec.has_distributions) {
+                        loadFinanceDistributionsForEdit(editId);
+                    }
                 }
                 document.getElementById('finance-save-btn').textContent = 'Обновить';
             } else {
@@ -10683,6 +10735,7 @@ HTML_TEMPLATE = '''
             currentFinanceEditId = null;
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
+            resetFinanceContainerSection();
         }
 
         /**
@@ -10758,6 +10811,21 @@ HTML_TEMPLATE = '''
                 description: description,
                 record_date: recordDate
             };
+
+            // Собираем распределения по контейнерам (если секция видна и есть данные)
+            const containerSection = document.getElementById('finance-container-section');
+            if (containerSection && containerSection.style.display !== 'none') {
+                const distributions = collectFinanceDistributions();
+                if (distributions.length > 0) {
+                    // Валидация: сумма распределений == сумме записи
+                    const distTotal = distributions.reduce((sum, d) => sum + d.amount, 0);
+                    if (Math.abs(distTotal - amount) > 0.01) {
+                        alert(`Сумма распределений (${distTotal.toLocaleString('ru-RU')} ₽) не совпадает с суммой записи (${amount.toLocaleString('ru-RU')} ₽)`);
+                        return;
+                    }
+                    payload.distributions = distributions;
+                }
+            }
 
             try {
                 let url = '/api/finance/records/add';
@@ -11256,7 +11324,7 @@ HTML_TEMPLATE = '''
                 row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #f0f0f0;';
 
                 const name = document.createElement('span');
-                name.style.cssText = 'flex: 1; font-size: 14px; display: flex; align-items: center; gap: 8px;';
+                name.style.cssText = 'flex: 1; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;';
                 const nameText = document.createTextNode(cat.name);
                 name.appendChild(nameText);
                 const badge = document.createElement('span');
@@ -11264,6 +11332,31 @@ HTML_TEMPLATE = '''
                 badge.style.cssText = 'font-size: 11px; padding: 2px 6px; border-radius: 4px; ' +
                     (cat.record_type === 'income' ? 'background: #dcfce7; color: #16a34a;' : 'background: #fee2e2; color: #dc2626;');
                 name.appendChild(badge);
+                // Флаг привязки к контейнерам (только для расходных)
+                if (cat.record_type === 'expense') {
+                    const linkLabel = document.createElement('label');
+                    linkLabel.className = 'finance-category-container-link';
+                    const linkCb = document.createElement('input');
+                    linkCb.type = 'checkbox';
+                    linkCb.checked = !!cat.is_container_linked;
+                    linkCb.onchange = async () => {
+                        try {
+                            const resp = await authFetch('/api/finance/categories/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: cat.id, is_container_linked: linkCb.checked })
+                            });
+                            const result = await resp.json();
+                            if (result.success) {
+                                cat.is_container_linked = linkCb.checked ? 1 : 0;
+                                await loadFinanceCategories();
+                            }
+                        } catch(e) { console.error(e); }
+                    };
+                    linkLabel.appendChild(linkCb);
+                    linkLabel.appendChild(document.createTextNode(' Контейнеры'));
+                    name.appendChild(linkLabel);
+                }
                 row.appendChild(name);
 
                 const delBtn = document.createElement('button');
@@ -11390,6 +11483,459 @@ HTML_TEMPLATE = '''
             if (subtab === 'finance-pendel' && !pendelDataLoaded) {
                 loadPendelData();
             }
+        }
+
+        // ============================================================================
+        // РАСПРЕДЕЛЕНИЕ РАСХОДОВ ПО КОНТЕЙНЕРАМ
+        // ============================================================================
+        // Блок функций для привязки финансовых расходов к контейнерам ВЭД.
+        // Позволяет распределять сумму расхода по товарам и типам затрат
+        // (логистика РФ/КНР, терминальные расходы, пошлина) внутри контейнеров.
+        // ============================================================================
+
+        let financeContainersList = [];        // Кэш контейнеров для выпадающих списков
+        let financeContainerBlocks = [];       // Текущие блоки распределения [{blockId, containerId}]
+        let financeContainerBlockCounter = 0;  // Счётчик для уникальных ID блоков
+        let financeDistAccordionCache = {};    // Кэш данных аккордеона
+
+        /**
+         * Проверить, нужно ли показывать секцию привязки к контейнерам.
+         * Секция видна, когда выбрана расходная категория с флагом is_container_linked.
+         */
+        function checkFinanceContainerSection() {
+            const section = document.getElementById('finance-container-section');
+            if (!section) return;
+
+            const recordType = document.getElementById('finance-type')?.value;
+            if (recordType !== 'expense' || !selectedFinanceCategoryId) {
+                section.style.display = 'none';
+                return;
+            }
+
+            // Ищем категорию и проверяем флаг
+            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            if (cat && cat.is_container_linked) {
+                section.style.display = 'block';
+                // Загружаем список контейнеров если ещё не загружен
+                if (financeContainersList.length === 0) {
+                    loadFinanceContainersList();
+                }
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        /**
+         * Загрузить список контейнеров для выпадающих списков в форме распределения.
+         */
+        async function loadFinanceContainersList() {
+            try {
+                const resp = await authFetch('/api/ved/containers/list-for-finance');
+                const data = await resp.json();
+                if (data.success) {
+                    financeContainersList = data.containers || [];
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки контейнеров:', e);
+            }
+        }
+
+        /**
+         * Добавить новый блок контейнера в форму распределения.
+         * Каждый блок = один контейнер + таблица товаров с полями для 4 типов затрат.
+         */
+        function addFinanceContainerBlock() {
+            const blocksContainer = document.getElementById('finance-container-blocks');
+            if (!blocksContainer) return;
+
+            financeContainerBlockCounter++;
+            const blockId = financeContainerBlockCounter;
+
+            // Формируем опции для select контейнеров
+            let options = '<option value="">-- Выберите контейнер --</option>';
+            financeContainersList.forEach(c => {
+                // Не показываем контейнеры, уже добавленные в другие блоки
+                const alreadyUsed = financeContainerBlocks.some(b => b.containerId === c.id);
+                if (!alreadyUsed) {
+                    options += `<option value="${c.id}">${c.label}</option>`;
+                }
+            });
+
+            const block = document.createElement('div');
+            block.className = 'finance-container-block';
+            block.id = `finance-container-block-${blockId}`;
+            block.innerHTML = `
+                <div class="finance-container-block-header">
+                    <select class="wh-input" id="finance-container-select-${blockId}"
+                            onchange="onFinanceContainerSelect(${blockId})" style="flex: 1; max-width: 400px;">
+                        ${options}
+                    </select>
+                    <button type="button" class="finance-container-block-remove"
+                            onclick="removeFinanceContainerBlock(${blockId})" title="Убрать контейнер">✕</button>
+                </div>
+                <div id="finance-container-items-${blockId}"></div>
+            `;
+
+            blocksContainer.appendChild(block);
+            financeContainerBlocks.push({ blockId: blockId, containerId: null });
+
+            // Показываем индикатор остатка
+            updateFinanceDistributionTotals();
+        }
+
+        /**
+         * Удалить блок контейнера из формы распределения.
+         */
+        function removeFinanceContainerBlock(blockId) {
+            const block = document.getElementById(`finance-container-block-${blockId}`);
+            if (block) block.remove();
+            financeContainerBlocks = financeContainerBlocks.filter(b => b.blockId !== blockId);
+            updateFinanceDistributionTotals();
+        }
+
+        /**
+         * Обработчик выбора контейнера в блоке.
+         * Загружает товары контейнера и строит таблицу с полями для распределения.
+         */
+        function onFinanceContainerSelect(blockId) {
+            const select = document.getElementById(`finance-container-select-${blockId}`);
+            const containerId = select ? parseInt(select.value) : null;
+            const itemsContainer = document.getElementById(`finance-container-items-${blockId}`);
+            if (!itemsContainer) return;
+
+            // Обновляем containerId в массиве блоков
+            const blockData = financeContainerBlocks.find(b => b.blockId === blockId);
+            if (blockData) blockData.containerId = containerId;
+
+            if (!containerId) {
+                itemsContainer.innerHTML = '';
+                updateFinanceDistributionTotals();
+                return;
+            }
+
+            // Находим контейнер в кэше
+            const container = financeContainersList.find(c => c.id === containerId);
+            if (!container || !container.items || container.items.length === 0) {
+                itemsContainer.innerHTML = '<p style="color: #999; font-size: 13px; padding: 8px;">Нет товаров в контейнере</p>';
+                return;
+            }
+
+            // Строим таблицу товаров
+            let html = `
+                <table class="finance-dist-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">Товар</th>
+                            <th>Лог. РФ, ₽</th>
+                            <th>Лог. КНР, ₽</th>
+                            <th>Терминал, ₽</th>
+                            <th>Пошлина, ₽</th>
+                            <th>Итого</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            container.items.forEach(item => {
+                const sku = item.sku;
+                const name = item.offer_id || sku;
+                const prefix = `fd-${blockId}-${sku}`;
+                html += `
+                    <tr>
+                        <td title="SKU: ${sku}">${name} <span style="color:#999; font-size:11px;">(${item.quantity} шт.)</span></td>
+                        <td><input type="number" id="${prefix}-logrf" min="0" step="0.01" placeholder="0"
+                                   oninput="updateFinanceDistributionTotals()" data-block="${blockId}" data-sku="${sku}" data-type="logistics_rf"></td>
+                        <td><input type="number" id="${prefix}-logcn" min="0" step="0.01" placeholder="0"
+                                   oninput="updateFinanceDistributionTotals()" data-block="${blockId}" data-sku="${sku}" data-type="logistics_cn"></td>
+                        <td><input type="number" id="${prefix}-terminal" min="0" step="0.01" placeholder="0"
+                                   oninput="updateFinanceDistributionTotals()" data-block="${blockId}" data-sku="${sku}" data-type="terminal"></td>
+                        <td><input type="number" id="${prefix}-customs" min="0" step="0.01" placeholder="0"
+                                   oninput="updateFinanceDistributionTotals()" data-block="${blockId}" data-sku="${sku}" data-type="customs"></td>
+                        <td class="fd-row-total-${blockId}-${sku}" style="font-weight: 500;">0</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td style="font-weight: 600;">Итого:</td>
+                            <td id="fd-block-total-logrf-${blockId}">0</td>
+                            <td id="fd-block-total-logcn-${blockId}">0</td>
+                            <td id="fd-block-total-terminal-${blockId}">0</td>
+                            <td id="fd-block-total-customs-${blockId}">0</td>
+                            <td id="fd-block-total-all-${blockId}" style="font-weight: 700;">0</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+
+            itemsContainer.innerHTML = html;
+            updateFinanceDistributionTotals();
+        }
+
+        /**
+         * Пересчитать все итоги распределения: по строкам, по блокам, общий остаток.
+         */
+        function updateFinanceDistributionTotals() {
+            const amount = parseFloat(document.getElementById('finance-amount')?.value) || 0;
+            let grandTotal = 0;
+
+            financeContainerBlocks.forEach(block => {
+                const containerId = block.containerId;
+                if (!containerId) return;
+
+                const container = financeContainersList.find(c => c.id === containerId);
+                if (!container || !container.items) return;
+
+                let blockLogRf = 0, blockLogCn = 0, blockTerminal = 0, blockCustoms = 0;
+
+                container.items.forEach(item => {
+                    const prefix = `fd-${block.blockId}-${item.sku}`;
+                    const logrf = parseFloat(document.getElementById(`${prefix}-logrf`)?.value) || 0;
+                    const logcn = parseFloat(document.getElementById(`${prefix}-logcn`)?.value) || 0;
+                    const terminal = parseFloat(document.getElementById(`${prefix}-terminal`)?.value) || 0;
+                    const customs = parseFloat(document.getElementById(`${prefix}-customs`)?.value) || 0;
+                    const rowTotal = logrf + logcn + terminal + customs;
+
+                    // Обновляем итого строки
+                    const rowTotalEl = document.querySelector(`.fd-row-total-${block.blockId}-${item.sku}`);
+                    if (rowTotalEl) rowTotalEl.textContent = rowTotal ? rowTotal.toLocaleString('ru-RU') : '0';
+
+                    blockLogRf += logrf;
+                    blockLogCn += logcn;
+                    blockTerminal += terminal;
+                    blockCustoms += customs;
+                });
+
+                const blockTotal = blockLogRf + blockLogCn + blockTerminal + blockCustoms;
+                grandTotal += blockTotal;
+
+                // Обновляем итого блока
+                const fmt = v => v ? v.toLocaleString('ru-RU') : '0';
+                const el = id => document.getElementById(id);
+                if (el(`fd-block-total-logrf-${block.blockId}`)) el(`fd-block-total-logrf-${block.blockId}`).textContent = fmt(blockLogRf);
+                if (el(`fd-block-total-logcn-${block.blockId}`)) el(`fd-block-total-logcn-${block.blockId}`).textContent = fmt(blockLogCn);
+                if (el(`fd-block-total-terminal-${block.blockId}`)) el(`fd-block-total-terminal-${block.blockId}`).textContent = fmt(blockTerminal);
+                if (el(`fd-block-total-customs-${block.blockId}`)) el(`fd-block-total-customs-${block.blockId}`).textContent = fmt(blockCustoms);
+                if (el(`fd-block-total-all-${block.blockId}`)) el(`fd-block-total-all-${block.blockId}`).textContent = fmt(blockTotal);
+            });
+
+            // Обновляем индикатор остатка
+            const remaining = amount - grandTotal;
+            const remEl = document.getElementById('finance-dist-remaining');
+            const remAmountEl = document.getElementById('finance-dist-remaining-amount');
+            if (remEl && remAmountEl) {
+                if (amount > 0 && financeContainerBlocks.some(b => b.containerId)) {
+                    remEl.style.display = 'block';
+                    remAmountEl.textContent = remaining.toLocaleString('ru-RU') + ' ₽';
+                    remEl.className = 'finance-dist-remaining ' +
+                        (Math.abs(remaining) < 0.01 ? 'ok' : 'error');
+                } else {
+                    remEl.style.display = 'none';
+                }
+            }
+        }
+
+        /**
+         * Собрать данные распределения из формы для отправки на сервер.
+         * Возвращает массив: [{container_doc_id, sku, cost_type, amount}, ...]
+         */
+        function collectFinanceDistributions() {
+            const distributions = [];
+
+            financeContainerBlocks.forEach(block => {
+                const containerId = block.containerId;
+                if (!containerId) return;
+
+                const container = financeContainersList.find(c => c.id === containerId);
+                if (!container || !container.items) return;
+
+                container.items.forEach(item => {
+                    const prefix = `fd-${block.blockId}-${item.sku}`;
+                    const types = ['logistics_rf', 'logistics_cn', 'terminal', 'customs'];
+                    const suffixes = ['logrf', 'logcn', 'terminal', 'customs'];
+
+                    types.forEach((costType, idx) => {
+                        const val = parseFloat(document.getElementById(`${prefix}-${suffixes[idx]}`)?.value) || 0;
+                        if (val > 0) {
+                            distributions.push({
+                                container_doc_id: containerId,
+                                sku: item.sku,
+                                cost_type: costType,
+                                amount: val
+                            });
+                        }
+                    });
+                });
+            });
+
+            return distributions;
+        }
+
+        /**
+         * Сбросить секцию распределения по контейнерам.
+         */
+        function resetFinanceContainerSection() {
+            const blocksContainer = document.getElementById('finance-container-blocks');
+            if (blocksContainer) blocksContainer.innerHTML = '';
+            financeContainerBlocks = [];
+            financeContainerBlockCounter = 0;
+            const section = document.getElementById('finance-container-section');
+            if (section) section.style.display = 'none';
+            const remEl = document.getElementById('finance-dist-remaining');
+            if (remEl) remEl.style.display = 'none';
+        }
+
+        /**
+         * Загрузить существующие распределения в форму при редактировании записи.
+         */
+        async function loadFinanceDistributionsForEdit(recordId) {
+            try {
+                const resp = await authFetch(`/api/finance/records/${recordId}/distributions`);
+                const data = await resp.json();
+                if (!data.success || !data.distributions || data.distributions.length === 0) return;
+
+                // Загружаем контейнеры если ещё не загружены
+                if (financeContainersList.length === 0) {
+                    await loadFinanceContainersList();
+                }
+
+                // Группируем по container_doc_id
+                const grouped = {};
+                data.distributions.forEach(d => {
+                    if (!grouped[d.container_doc_id]) grouped[d.container_doc_id] = [];
+                    grouped[d.container_doc_id].push(d);
+                });
+
+                // Создаём блоки для каждого контейнера
+                for (const [docId, dists] of Object.entries(grouped)) {
+                    addFinanceContainerBlock();
+                    const blockId = financeContainerBlockCounter;
+                    const select = document.getElementById(`finance-container-select-${blockId}`);
+                    if (select) {
+                        select.value = docId;
+                        onFinanceContainerSelect(blockId);
+
+                        // Заполняем значения
+                        dists.forEach(d => {
+                            const suffixMap = {
+                                logistics_rf: 'logrf', logistics_cn: 'logcn',
+                                terminal: 'terminal', customs: 'customs'
+                            };
+                            const suffix = suffixMap[d.cost_type];
+                            if (suffix) {
+                                const input = document.getElementById(`fd-${blockId}-${d.sku}-${suffix}`);
+                                if (input) input.value = d.amount;
+                            }
+                        });
+                    }
+                }
+
+                updateFinanceDistributionTotals();
+            } catch (e) {
+                console.error('Ошибка загрузки распределений:', e);
+            }
+        }
+
+        /**
+         * Переключить аккордеон распределения в таблице записей.
+         * Загружает данные при первом раскрытии, кэширует результат.
+         */
+        async function toggleFinanceDistAccordion(recordId) {
+            const accordion = document.getElementById(`finance-dist-accordion-${recordId}`);
+            if (!accordion) return;
+
+            // Если уже открыт — закрываем
+            if (accordion.classList.contains('visible')) {
+                accordion.classList.remove('visible');
+                return;
+            }
+
+            // Закрываем все остальные аккордеоны
+            document.querySelectorAll('.finance-dist-accordion.visible').forEach(a => a.classList.remove('visible'));
+
+            // Показываем этот
+            accordion.classList.add('visible');
+
+            // Загружаем данные если не в кэше
+            const content = document.getElementById(`finance-dist-accordion-content-${recordId}`);
+            if (financeDistAccordionCache[recordId]) {
+                renderFinanceDistAccordionContent(recordId, financeDistAccordionCache[recordId]);
+                return;
+            }
+
+            // Показываем загрузку
+            if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Загрузка...</div>';
+
+            try {
+                const resp = await authFetch(`/api/finance/records/${recordId}/distributions`);
+                const data = await resp.json();
+                if (data.success) {
+                    financeDistAccordionCache[recordId] = data;
+                    renderFinanceDistAccordionContent(recordId, data);
+                }
+            } catch (e) {
+                if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Ошибка загрузки</div>';
+            }
+        }
+
+        /**
+         * Отрисовать содержимое аккордеона распределения.
+         */
+        function renderFinanceDistAccordionContent(recordId, data) {
+            const content = document.getElementById(`finance-dist-accordion-content-${recordId}`);
+            if (!content || !data.distributions || data.distributions.length === 0) {
+                if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Нет распределений</div>';
+                return;
+            }
+
+            // Группируем по контейнеру
+            const grouped = {};
+            data.distributions.forEach(d => {
+                if (!grouped[d.container_doc_id]) {
+                    grouped[d.container_doc_id] = { label: d.container_label, items: [] };
+                }
+                grouped[d.container_doc_id].items.push(d);
+            });
+
+            const costTypeNames = {
+                logistics_rf: 'Лог. РФ',
+                logistics_cn: 'Лог. КНР',
+                terminal: 'Терминал',
+                customs: 'Пошлина'
+            };
+
+            let html = '';
+            for (const [docId, group] of Object.entries(grouped)) {
+                html += `<div style="margin-bottom: 10px;">
+                    <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #333;">
+                        Контейнер ${group.label}
+                    </div>
+                    <table class="finance-dist-accordion-table">
+                        <thead><tr><th>Товар</th><th>Тип затрат</th><th style="text-align:right;">Сумма</th></tr></thead>
+                        <tbody>`;
+
+                let containerTotal = 0;
+                group.items.forEach(d => {
+                    containerTotal += d.amount;
+                    html += `<tr>
+                        <td>${d.offer_id || d.sku}</td>
+                        <td>${costTypeNames[d.cost_type] || d.cost_type}</td>
+                        <td style="text-align: right; font-weight: 500;">${d.amount.toLocaleString('ru-RU')} ₽</td>
+                    </tr>`;
+                });
+
+                html += `</tbody>
+                    <tfoot><tr>
+                        <td colspan="2" style="font-weight: 600;">Итого по контейнеру</td>
+                        <td style="text-align: right; font-weight: 700;">${containerTotal.toLocaleString('ru-RU')} ₽</td>
+                    </tr></tfoot>
+                    </table></div>`;
+            }
+
+            content.innerHTML = html;
         }
 
         /**
@@ -14746,10 +15292,10 @@ HTML_TEMPLATE = '''
                 <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedContainerTotals()"></td>
                 <td class="ved-container-supplier-sum" style="font-weight: 500;">0 ¥</td>
                 <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
-                <td><input type="number" class="wh-input ved-container-logrf" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
-                <td><input type="number" class="wh-input ved-container-logcn" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
-                <td><input type="number" class="wh-input ved-container-terminal" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
-                <td><input type="number" class="wh-input ved-container-customs" value="" min="0" step="0.01" placeholder="0" oninput="updateVedContainerTotals()"></td>
+                <td><span class="ved-container-cost-readonly ved-container-logrf" data-value="0">0</span></td>
+                <td><span class="ved-container-cost-readonly ved-container-logcn" data-value="0">0</span></td>
+                <td><span class="ved-container-cost-readonly ved-container-terminal" data-value="0">0</span></td>
+                <td><span class="ved-container-cost-readonly ved-container-customs" data-value="0">0</span></td>
                 <td class="ved-container-alllog" style="font-weight: 500;">0 ₽</td>
                 <td><button class="wh-remove-btn" onclick="removeVedContainerItemRow(${vedContainerItemCounter})">×</button></td>
             `;
@@ -14810,10 +15356,15 @@ HTML_TEMPLATE = '''
                 const qty = parseFloat(row.querySelector('.ved-container-qty')?.value) || 0;
                 const price = parseFloat(row.querySelector('.ved-container-price')?.value) || 0;
                 const supplierSum = qty * price;
-                const logRf = parseFloat(row.querySelector('.ved-container-logrf')?.value) || 0;
-                const logCn = parseFloat(row.querySelector('.ved-container-logcn')?.value) || 0;
-                const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
-                const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
+                // Логистические поля: span (read-only) или input (для старых контейнеров)
+                const logRfEl = row.querySelector('.ved-container-logrf');
+                const logCnEl = row.querySelector('.ved-container-logcn');
+                const terminalEl = row.querySelector('.ved-container-terminal');
+                const customsEl = row.querySelector('.ved-container-customs');
+                const logRf = parseFloat(logRfEl?.getAttribute('data-value') || logRfEl?.value) || 0;
+                const logCn = parseFloat(logCnEl?.getAttribute('data-value') || logCnEl?.value) || 0;
+                const terminal = parseFloat(terminalEl?.getAttribute('data-value') || terminalEl?.value) || 0;
+                const customs = parseFloat(customsEl?.getAttribute('data-value') || customsEl?.value) || 0;
 
                 // Вся логистика = Логистика РФ + Логистика КНР + Терминальные расходы + Пошлина и НДС
                 const allLog = logRf + logCn + terminal + customs;
@@ -14901,10 +15452,15 @@ HTML_TEMPLATE = '''
 
                 const qty = parseFloat(row.querySelector('.ved-container-qty')?.value) || 0;
                 const priceCny = parseFloat(row.querySelector('.ved-container-price')?.value) || 0;
-                const logRf = parseFloat(row.querySelector('.ved-container-logrf')?.value) || 0;
-                const logCn = parseFloat(row.querySelector('.ved-container-logcn')?.value) || 0;
-                const terminal = parseFloat(row.querySelector('.ved-container-terminal')?.value) || 0;
-                const customs = parseFloat(row.querySelector('.ved-container-customs')?.value) || 0;
+                // Логистические поля: span (read-only) или input (для старых контейнеров)
+                const logRfEl = row.querySelector('.ved-container-logrf');
+                const logCnEl = row.querySelector('.ved-container-logcn');
+                const terminalEl = row.querySelector('.ved-container-terminal');
+                const customsEl = row.querySelector('.ved-container-customs');
+                const logRf = parseFloat(logRfEl?.getAttribute('data-value') || logRfEl?.value) || 0;
+                const logCn = parseFloat(logCnEl?.getAttribute('data-value') || logCnEl?.value) || 0;
+                const terminal = parseFloat(terminalEl?.getAttribute('data-value') || terminalEl?.value) || 0;
+                const customs = parseFloat(customsEl?.getAttribute('data-value') || customsEl?.value) || 0;
 
                 // Валидация обязательных полей в строке
                 if (qty <= 0) {
@@ -15317,17 +15873,38 @@ HTML_TEMPLATE = '''
                     const priceInput = row.querySelector('.ved-container-price');
                     if (priceInput) priceInput.value = item.price_cny;
 
-                    const logRfInput = row.querySelector('.ved-container-logrf');
-                    if (logRfInput) logRfInput.value = item.logistics_rf || 0;
+                    // Логистические поля — span (read-only), заполняем data-value и текст
+                    const logRfEl = row.querySelector('.ved-container-logrf');
+                    if (logRfEl) {
+                        const v = item.logistics_rf || 0;
+                        logRfEl.setAttribute('data-value', v);
+                        logRfEl.textContent = v ? parseFloat(v).toLocaleString('ru-RU') : '0';
+                        if (v > 0) logRfEl.innerHTML += '<span class="ved-container-cost-finance-badge">из финансов</span>';
+                    }
 
-                    const logCnInput = row.querySelector('.ved-container-logcn');
-                    if (logCnInput) logCnInput.value = item.logistics_cn || 0;
+                    const logCnEl = row.querySelector('.ved-container-logcn');
+                    if (logCnEl) {
+                        const v = item.logistics_cn || 0;
+                        logCnEl.setAttribute('data-value', v);
+                        logCnEl.textContent = v ? parseFloat(v).toLocaleString('ru-RU') : '0';
+                        if (v > 0) logCnEl.innerHTML += '<span class="ved-container-cost-finance-badge">из финансов</span>';
+                    }
 
-                    const terminalInput = row.querySelector('.ved-container-terminal');
-                    if (terminalInput) terminalInput.value = item.terminal || 0;
+                    const terminalEl = row.querySelector('.ved-container-terminal');
+                    if (terminalEl) {
+                        const v = item.terminal || 0;
+                        terminalEl.setAttribute('data-value', v);
+                        terminalEl.textContent = v ? parseFloat(v).toLocaleString('ru-RU') : '0';
+                        if (v > 0) terminalEl.innerHTML += '<span class="ved-container-cost-finance-badge">из финансов</span>';
+                    }
 
-                    const customsInput = row.querySelector('.ved-container-customs');
-                    if (customsInput) customsInput.value = item.customs || 0;
+                    const customsEl = row.querySelector('.ved-container-customs');
+                    if (customsEl) {
+                        const v = item.customs || 0;
+                        customsEl.setAttribute('data-value', v);
+                        customsEl.textContent = v ? parseFloat(v).toLocaleString('ru-RU') : '0';
+                        if (v > 0) customsEl.innerHTML += '<span class="ved-container-cost-finance-badge">из финансов</span>';
+                    }
                 }
 
                 updateVedContainerTotals();
