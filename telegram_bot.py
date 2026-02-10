@@ -101,8 +101,9 @@ STATE_MSG_CONFIRM = 203             # Подтверждение перед от
 STATE_FIN_TYPE = 300               # Выбор типа: доход или расход
 STATE_FIN_AMOUNT = 301             # Ввод суммы
 STATE_FIN_ACCOUNT = 302            # Выбор счёта/источника
-STATE_FIN_DESCRIPTION = 303        # Ввод описания (на что)
-STATE_FIN_CONFIRM = 304            # Подтверждение перед сохранением
+STATE_FIN_CATEGORY = 303           # Выбор категории
+STATE_FIN_DESCRIPTION = 304        # Ввод описания (на что)
+STATE_FIN_CONFIRM = 305            # Подтверждение перед сохранением
 
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
@@ -221,6 +222,30 @@ def get_finance_accounts() -> list:
             return []
     except Exception as e:
         logger.error(f"Ошибка получения финансовых счетов: {e}")
+        return []
+
+
+def get_finance_categories() -> list:
+    """
+    Получить список финансовых категорий с сервера.
+
+    Возвращает:
+        Список категорий: [{'id': 1, 'name': 'Упаковка'}, ...]
+    """
+    try:
+        response = requests.get(
+            f'{API_BASE_URL}/api/telegram/finance/categories',
+            params={'token': TELEGRAM_BOT_SECRET},
+            timeout=10
+        )
+        data = response.json()
+        if data.get('success'):
+            return data.get('categories', [])
+        else:
+            logger.error(f"Ошибка API (финансовые категории): {data.get('error')}")
+            return []
+    except Exception as e:
+        logger.error(f"Ошибка получения финансовых категорий: {e}")
         return []
 
 
@@ -1962,6 +1987,8 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'amount': None,
         'account_id': None,
         'account_name': None,
+        'category_id': None,
+        'category_name': None,
         'description': None,
         'telegram_chat_id': chat_id,
         'telegram_username': username
@@ -2062,7 +2089,7 @@ async def finance_amount_entered(update: Update, context: ContextTypes.DEFAULT_T
 async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Обработка выбора счёта.
-    Запрашивает описание (на что потрачено / за что получено).
+    Загружает категории и показывает выбор.
     """
     query = update.callback_query
     await query.answer()
@@ -2075,6 +2102,36 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
     context.user_data['finance']['account_id'] = account_id
     context.user_data['finance']['account_name'] = account_name
 
+    # Загружаем список категорий с сервера
+    categories = get_finance_categories()
+    if not categories:
+        await query.edit_message_text(
+            "❌ Нет доступных категорий.\n\n"
+            "Сначала создайте категории в веб\\-интерфейсе "
+            "\\(вкладка Финансы → 🏷 Управление категориями\\)\\.",
+            parse_mode='MarkdownV2'
+        )
+        await query.message.reply_text(
+            "Выберите действие 👇",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    # Формируем inline-кнопки с категориями (по 2 в ряд)
+    keyboard = []
+    row = []
+    for cat in categories:
+        cat_name = cat['name'][:30]
+        row.append(InlineKeyboardButton(
+            cat['name'],
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
@@ -2083,6 +2140,38 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
         f"💰 *{escape_md(type_label)}*\n"
         f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
         f"🏦 Счёт: *{escape_md(account_name)}*\n\n"
+        "🏷 Выберите категорию:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_CATEGORY
+
+
+async def finance_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора категории.
+    Запрашивает описание (на что потрачено / за что получено).
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Парсим callback: fin_cat:id:name
+    parts = query.data.split(':', 2)
+    category_id = int(parts[1])
+    category_name = parts[2]
+
+    context.user_data['finance']['category_id'] = category_id
+    context.user_data['finance']['category_name'] = category_name
+
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"🏷 Категория: *{escape_md(category_name)}*\n\n"
         "📝 Введите описание (на что потрачено / за что получено):",
         parse_mode='Markdown'
     )
@@ -2112,11 +2201,16 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         ]
     ]
 
+    category_line = ""
+    if fin.get('category_name'):
+        category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
+
     await update.message.reply_text(
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
         f"Сумма: *{escape_md(formatted)} ₽*\n"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"{category_line}"
         f"Описание: {escape_md(description)}\n\n"
         "Всё верно?",
         parse_mode='Markdown',
@@ -2144,21 +2238,27 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return ConversationHandler.END
 
     fin = context.user_data['finance']
-    result = create_finance_record({
+    record_data = {
         'record_type': fin['record_type'],
         'amount': fin['amount'],
         'account_id': fin['account_id'],
         'description': fin['description'],
         'telegram_chat_id': fin['telegram_chat_id'],
         'telegram_username': fin['telegram_username']
-    })
+    }
+    if fin.get('category_id'):
+        record_data['category_id'] = fin['category_id']
+    result = create_finance_record(record_data)
 
     if result.get('success'):
         type_emoji = "📉" if fin['record_type'] == 'expense' else "📈"
         formatted = format_amount(fin['amount'])
+        cat_line = ""
+        if fin.get('category_name'):
+            cat_line = f"\n🏷 {escape_markdown(fin['category_name'])}"
         await query.edit_message_text(
             f"✅ *Запись сохранена\\!*\n\n"
-            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}\n"
+            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}{cat_line}\n"
             f"📝 {escape_markdown(fin['description'])}",
             parse_mode='MarkdownV2'
         )
@@ -2342,6 +2442,9 @@ def main():
             ],
             STATE_FIN_ACCOUNT: [
                 CallbackQueryHandler(finance_account_selected, pattern=r'^fin_acc:')
+            ],
+            STATE_FIN_CATEGORY: [
+                CallbackQueryHandler(finance_category_selected, pattern=r'^fin_cat:')
             ],
             STATE_FIN_DESCRIPTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
