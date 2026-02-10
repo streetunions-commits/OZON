@@ -995,6 +995,30 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_account ON finance_records(account_id)')
 
     # ============================================================================
+    # ФИНАНСЫ: справочник категорий
+    # ============================================================================
+    # Категории расходов/доходов (например: "Логистика", "Закупка товара", "Продажи").
+    # Пользователь создаёт категории сам через панель управления.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Миграция: добавляем колонки category_id и category_name в finance_records
+    if ensure_column(cursor, 'finance_records', 'category_id',
+                     "ALTER TABLE finance_records ADD COLUMN category_id INTEGER DEFAULT NULL"):
+        print("✅ Добавлена колонка category_id в finance_records")
+
+    if ensure_column(cursor, 'finance_records', 'category_name',
+                     "ALTER TABLE finance_records ADD COLUMN category_name TEXT DEFAULT ''"):
+        print("✅ Добавлена колонка category_name в finance_records")
+
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_category ON finance_records(category_id)')
+
+    # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
     # Сиротские отгрузки — записи в warehouse_shipments без связанного документа
@@ -7843,6 +7867,10 @@ HTML_TEMPLATE = '''
                             style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; font-size: 14px;">
                         🏦 Управление счетами
                     </button>
+                    <button class="wh-clear-btn admin-only" onclick="toggleFinanceCategoriesManager()"
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 10px 18px; font-size: 14px;">
+                        🏷 Управление категориями
+                    </button>
                 </div>
 
                 <!-- Панель управления счетами (скрыта по умолчанию) -->
@@ -7855,6 +7883,19 @@ HTML_TEMPLATE = '''
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <input type="text" id="finance-new-account-name" class="wh-input" placeholder="Название нового счёта" style="flex: 1; max-width: 300px;">
                         <button class="wh-save-receipt-btn" onclick="addFinanceAccountFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
+                    </div>
+                </div>
+
+                <!-- Панель управления категориями (скрыта по умолчанию) -->
+                <div class="finance-form" id="finance-categories-manager" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="margin: 0; color: #333;">🏷 Категории</h4>
+                        <button class="wh-clear-btn" onclick="toggleFinanceCategoriesManager()" style="padding: 4px 10px; font-size: 12px;">Закрыть</button>
+                    </div>
+                    <div id="finance-categories-list" style="margin-bottom: 12px;"></div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="text" id="finance-new-category-name" class="wh-input" placeholder="Название новой категории" style="flex: 1; max-width: 300px;">
+                        <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
 
@@ -7882,6 +7923,18 @@ HTML_TEMPLATE = '''
                                 <div class="destination-dropdown" id="finance-account-dropdown"></div>
                                 <button type="button" class="wh-add-btn-small admin-only"
                                         onclick="addNewFinanceAccount()" title="Добавить счёт">+</button>
+                            </div>
+                        </div>
+                        <div class="finance-form-field" style="flex: 0 0 220px;">
+                            <label>Категория</label>
+                            <div class="destination-dropdown-wrapper">
+                                <input type="text" id="finance-category-input" class="wh-input"
+                                       placeholder="Выберите или введите" autocomplete="off"
+                                       onclick="toggleFinanceCategoryDropdown()"
+                                       oninput="filterFinanceCategories()">
+                                <div class="destination-dropdown" id="finance-category-dropdown"></div>
+                                <button type="button" class="wh-add-btn-small admin-only"
+                                        onclick="addNewFinanceCategoryFromForm()" title="Добавить категорию">+</button>
                             </div>
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 160px;">
@@ -7916,6 +7969,12 @@ HTML_TEMPLATE = '''
                     </select>
                     <span class="finance-filter-sep">|</span>
 
+                    <label>Категория:</label>
+                    <select id="finance-filter-category" style="width: 180px;" onchange="loadFinanceRecords()">
+                        <option value="">Все категории</option>
+                    </select>
+                    <span class="finance-filter-sep">|</span>
+
                     <label>Период:</label>
                     <input type="date" id="finance-date-from" style="width: 140px;" onchange="loadFinanceRecords()">
                     <span style="color: #999;">—</span>
@@ -7943,6 +8002,7 @@ HTML_TEMPLATE = '''
                                 <th style="width: 100px;">Тип</th>
                                 <th style="width: 120px;">Сумма</th>
                                 <th>Счёт / Источник</th>
+                                <th>Категория</th>
                                 <th>Описание</th>
                                 <th style="width: 120px;">Создал</th>
                                 <th style="width: 100px;">Источник</th>
@@ -9742,9 +9802,11 @@ HTML_TEMPLATE = '''
         // Глобальные переменные модуля финансов
         let financeDataLoaded = false;       // Флаг первой загрузки
         let financeAccounts = [];            // Массив счетов [{id, name, is_default}, ...]
+        let financeCategories = [];          // Массив категорий [{id, name}, ...]
         let financeRecordsData = [];         // Массив загруженных записей
         let currentFinanceEditId = null;     // ID редактируемой записи (null = новая)
         let selectedFinanceAccountId = null; // ID выбранного счёта в форме
+        let selectedFinanceCategoryId = null; // ID выбранной категории в форме
 
         /**
          * Точка входа: загрузка модуля финансов.
@@ -9754,6 +9816,7 @@ HTML_TEMPLATE = '''
         function loadFinance() {
             if (!financeDataLoaded) {
                 loadFinanceAccounts();
+                loadFinanceCategories();
                 financeDataLoaded = true;
             }
             loadFinanceRecords();
@@ -9789,6 +9852,35 @@ HTML_TEMPLATE = '''
         }
 
         /**
+         * Загрузить список финансовых категорий.
+         * Заполняет массив financeCategories и обновляет фильтр-селект.
+         */
+        async function loadFinanceCategories() {
+            try {
+                const resp = await authFetch('/api/finance/categories');
+                const data = await resp.json();
+                if (data.success) {
+                    financeCategories = data.categories;
+                    // Заполняем выпадающий список в фильтрах
+                    const filterSelect = document.getElementById('finance-filter-category');
+                    if (filterSelect) {
+                        const currentVal = filterSelect.value;
+                        filterSelect.innerHTML = '<option value="">Все категории</option>';
+                        financeCategories.forEach(cat => {
+                            const opt = document.createElement('option');
+                            opt.value = cat.id;
+                            opt.textContent = cat.name;
+                            filterSelect.appendChild(opt);
+                        });
+                        filterSelect.value = currentVal;
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки категорий:', e);
+            }
+        }
+
+        /**
          * Загрузить список финансовых записей с учётом текущих фильтров.
          * Обновляет таблицу и сводку (доход, расход, баланс).
          */
@@ -9797,6 +9889,7 @@ HTML_TEMPLATE = '''
                 // Собираем параметры фильтрации
                 const recordType = document.getElementById('finance-filter-type')?.value || '';
                 const accountId = document.getElementById('finance-filter-account')?.value || '';
+                const categoryId = document.getElementById('finance-filter-category')?.value || '';
                 const dateFrom = document.getElementById('finance-date-from')?.value || '';
                 const dateTo = document.getElementById('finance-date-to')?.value || '';
                 const sortVal = document.getElementById('finance-sort')?.value || 'date:desc';
@@ -9805,6 +9898,7 @@ HTML_TEMPLATE = '''
                 const params = new URLSearchParams();
                 if (recordType) params.append('type', recordType);
                 if (accountId) params.append('account_id', accountId);
+                if (categoryId) params.append('category_id', categoryId);
                 if (dateFrom) params.append('date_from', dateFrom);
                 if (dateTo) params.append('date_to', dateTo);
                 params.append('sort_by', sortBy);
@@ -9936,6 +10030,11 @@ HTML_TEMPLATE = '''
                 tdAccount.textContent = rec.account_name || '—';
                 tr.appendChild(tdAccount);
 
+                // Категория
+                const tdCategory = document.createElement('td');
+                tdCategory.textContent = rec.category_name || '—';
+                tr.appendChild(tdCategory);
+
                 // Описание
                 const tdDesc = document.createElement('td');
                 tdDesc.textContent = rec.description || '—';
@@ -10010,8 +10109,10 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-type').value = 'expense';
             document.getElementById('finance-amount').value = '';
             document.getElementById('finance-account-input').value = '';
+            document.getElementById('finance-category-input').value = '';
             document.getElementById('finance-description').value = '';
             selectedFinanceAccountId = null;
+            selectedFinanceCategoryId = null;
             currentFinanceEditId = null;
 
             if (editId) {
@@ -10023,6 +10124,8 @@ HTML_TEMPLATE = '''
                     document.getElementById('finance-amount').value = rec.amount;
                     document.getElementById('finance-account-input').value = rec.account_name || '';
                     selectedFinanceAccountId = rec.account_id;
+                    document.getElementById('finance-category-input').value = rec.category_name || '';
+                    selectedFinanceCategoryId = rec.category_id || null;
                     document.getElementById('finance-date').value = rec.record_date || today;
                     document.getElementById('finance-description').value = rec.description || '';
                 }
@@ -10043,6 +10146,7 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-form').style.display = 'none';
             currentFinanceEditId = null;
             selectedFinanceAccountId = null;
+            selectedFinanceCategoryId = null;
         }
 
         /**
@@ -10053,6 +10157,7 @@ HTML_TEMPLATE = '''
             const recordType = document.getElementById('finance-type').value;
             const amountStr = document.getElementById('finance-amount').value;
             const accountInput = document.getElementById('finance-account-input').value.trim();
+            const categoryInput = document.getElementById('finance-category-input').value.trim();
             const recordDate = document.getElementById('finance-date').value;
             const description = document.getElementById('finance-description').value.trim();
 
@@ -10076,6 +10181,18 @@ HTML_TEMPLATE = '''
                 }
             }
 
+            if (!selectedFinanceCategoryId) {
+                // Пытаемся найти категорию по введённому названию
+                const foundCat = financeCategories.find(c => c.name.toLowerCase() === categoryInput.toLowerCase());
+                if (foundCat) {
+                    selectedFinanceCategoryId = foundCat.id;
+                } else {
+                    alert('Выберите категорию из списка или добавьте новую кнопкой "+"');
+                    document.getElementById('finance-category-input').focus();
+                    return;
+                }
+            }
+
             if (!recordDate) {
                 alert('Укажите дату');
                 document.getElementById('finance-date').focus();
@@ -10093,6 +10210,7 @@ HTML_TEMPLATE = '''
                 record_type: recordType,
                 amount: amount,
                 account_id: selectedFinanceAccountId,
+                category_id: selectedFinanceCategoryId,
                 description: description,
                 record_date: recordDate
             };
@@ -10160,6 +10278,7 @@ HTML_TEMPLATE = '''
         function resetFinanceFilters() {
             document.getElementById('finance-filter-type').value = '';
             document.getElementById('finance-filter-account').value = '';
+            document.getElementById('finance-filter-category').value = '';
             document.getElementById('finance-date-from').value = '';
             document.getElementById('finance-date-to').value = '';
             document.getElementById('finance-sort').value = 'date:desc';
@@ -10293,14 +10412,8 @@ HTML_TEMPLATE = '''
             }
         }
 
-        // Закрытие dropdown при клике вне его
-        document.addEventListener('click', function(e) {
-            const wrapper = document.querySelector('#finance-form .destination-dropdown-wrapper');
-            const dropdown = document.getElementById('finance-account-dropdown');
-            if (wrapper && dropdown && !wrapper.contains(e.target)) {
-                dropdown.classList.remove('show');
-            }
-        });
+        // Примечание: закрытие dropdown счетов обрабатывается общим обработчиком
+        // в секции категорий (закрывает все dropdown в #finance-form)
 
         // ============================================
         // Панель управления счетами (добавление/удаление)
@@ -10411,6 +10524,254 @@ HTML_TEMPLATE = '''
                 }
             } catch (e) {
                 console.error('Ошибка добавления счёта:', e);
+            }
+        }
+
+
+        // ============================================
+        // Dropdown управления категориями (в форме)
+        // ============================================
+        // Повторяет паттерн destination-dropdown из счетов.
+
+        /**
+         * Отрисовать элементы выпадающего списка категорий.
+         * Фильтрует по введённому тексту.
+         */
+        function renderFinanceCategoryDropdown(filter) {
+            const dropdown = document.getElementById('finance-category-dropdown');
+            if (!dropdown) return;
+
+            const filterLower = (filter || '').toLowerCase();
+            const filtered = filterLower
+                ? financeCategories.filter(c => c.name.toLowerCase().includes(filterLower))
+                : financeCategories;
+
+            dropdown.innerHTML = '';
+
+            filtered.forEach(cat => {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                if (selectedFinanceCategoryId === cat.id) {
+                    item.className += ' selected';
+                }
+                item.textContent = cat.name;
+                item.onclick = () => selectFinanceCategory(cat.name, cat.id);
+                dropdown.appendChild(item);
+            });
+
+            if (filtered.length === 0 && filter) {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                item.style.color = '#999';
+                item.style.fontSize = '13px';
+                item.textContent = 'Нажмите + чтобы добавить "' + filter + '"';
+                dropdown.appendChild(item);
+            }
+        }
+
+        /**
+         * Показать/скрыть dropdown категорий.
+         */
+        function toggleFinanceCategoryDropdown() {
+            const dropdown = document.getElementById('finance-category-dropdown');
+            const input = document.getElementById('finance-category-input');
+            if (!dropdown) return;
+
+            if (dropdown.classList.contains('show')) {
+                dropdown.classList.remove('show');
+            } else {
+                renderFinanceCategoryDropdown(input.value);
+                dropdown.classList.add('show');
+            }
+        }
+
+        /**
+         * Фильтровать dropdown категорий при вводе текста.
+         */
+        function filterFinanceCategories() {
+            const dropdown = document.getElementById('finance-category-dropdown');
+            const input = document.getElementById('finance-category-input');
+            if (!dropdown) return;
+
+            selectedFinanceCategoryId = null;
+            renderFinanceCategoryDropdown(input.value);
+            dropdown.classList.add('show');
+        }
+
+        /**
+         * Выбрать категорию из dropdown.
+         */
+        function selectFinanceCategory(name, id) {
+            const input = document.getElementById('finance-category-input');
+            const dropdown = document.getElementById('finance-category-dropdown');
+            input.value = name;
+            selectedFinanceCategoryId = id;
+            dropdown.classList.remove('show');
+        }
+
+        /**
+         * Добавить новую категорию через API (из формы).
+         * Введённое в input название добавляется в справочник.
+         */
+        async function addNewFinanceCategoryFromForm() {
+            const input = document.getElementById('finance-category-input');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название категории');
+                input.focus();
+                return;
+            }
+
+            // Проверяем, не существует ли уже
+            if (financeCategories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+                const existing = financeCategories.find(c => c.name.toLowerCase() === name.toLowerCase());
+                selectFinanceCategory(existing.name, existing.id);
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/finance/categories/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    financeCategories.push({ id: data.id, name: name });
+                    selectedFinanceCategoryId = data.id;
+                    renderFinanceCategoryDropdown('');
+                    loadFinanceCategories();
+                    alert('Категория "' + name + '" добавлена');
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка добавления категории:', e);
+            }
+        }
+
+        // Закрытие dropdown категорий при клике вне его
+        document.addEventListener('click', function(e) {
+            const wrappers = document.querySelectorAll('#finance-form .destination-dropdown-wrapper');
+            wrappers.forEach(function(wrapper) {
+                const dropdown = wrapper.querySelector('.destination-dropdown');
+                if (dropdown && !wrapper.contains(e.target)) {
+                    dropdown.classList.remove('show');
+                }
+            });
+        });
+
+        // ============================================
+        // Панель управления категориями (добавление/удаление)
+        // ============================================
+
+        /**
+         * Показать/скрыть панель управления категориями.
+         */
+        function toggleFinanceCategoriesManager() {
+            const panel = document.getElementById('finance-categories-manager');
+            if (panel.style.display === 'none') {
+                panel.style.display = 'block';
+                renderFinanceCategoriesList();
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        /**
+         * Отрисовать список категорий с кнопками удаления.
+         */
+        function renderFinanceCategoriesList() {
+            const container = document.getElementById('finance-categories-list');
+            if (!container) return;
+
+            if (financeCategories.length === 0) {
+                container.innerHTML = '<p style="color: #999; font-size: 13px;">Нет категорий</p>';
+                return;
+            }
+
+            container.innerHTML = '';
+            financeCategories.forEach(cat => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #f0f0f0;';
+
+                const name = document.createElement('span');
+                name.textContent = cat.name;
+                name.style.cssText = 'flex: 1; font-size: 14px;';
+                row.appendChild(name);
+
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '✕';
+                delBtn.title = 'Удалить категорию';
+                delBtn.style.cssText = 'background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #999; cursor: pointer; padding: 4px 8px; font-size: 13px; transition: all 0.2s;';
+                delBtn.onmouseenter = () => { delBtn.style.color = '#ef4444'; delBtn.style.borderColor = '#ef4444'; };
+                delBtn.onmouseleave = () => { delBtn.style.color = '#999'; delBtn.style.borderColor = '#e0e0e0'; };
+                delBtn.onclick = () => deleteFinanceCategory(cat.id, cat.name);
+                row.appendChild(delBtn);
+
+                container.appendChild(row);
+            });
+        }
+
+        /**
+         * Удалить финансовую категорию (с подтверждением ввода слова "удалить").
+         */
+        async function deleteFinanceCategory(id, name) {
+            const input = prompt('Для удаления категории "' + name + '" введите слово  удалить');
+            if (!input || input.trim().toLowerCase() !== 'удалить') return;
+
+            try {
+                const resp = await authFetch('/api/finance/categories/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    await loadFinanceCategories();
+                    renderFinanceCategoriesList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка удаления категории:', e);
+            }
+        }
+
+        /**
+         * Добавить категорию из панели управления.
+         */
+        async function addFinanceCategoryFromManager() {
+            const input = document.getElementById('finance-new-category-name');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название категории');
+                input.focus();
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/finance/categories/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    input.value = '';
+                    await loadFinanceCategories();
+                    renderFinanceCategoriesList();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка добавления категории:', e);
             }
         }
 
@@ -21818,6 +22179,104 @@ def api_finance_accounts_delete():
 
 
 # ============================================================================
+# API ФИНАНСЫ — СПРАВОЧНИК КАТЕГОРИЙ
+# ============================================================================
+# Эндпоинты для управления категориями доходов/расходов.
+# Категории создаются пользователем и являются обязательными при создании записи.
+# ============================================================================
+
+@app.route('/api/finance/categories')
+@require_auth(['admin', 'viewer'])
+def api_finance_categories():
+    """
+    Получить список всех категорий.
+    Возвращает: {'success': True, 'categories': [{'id': 1, 'name': 'Логистика'}, ...]}
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, created_at FROM finance_categories ORDER BY name ASC')
+        rows = cursor.fetchall()
+        categories = [{'id': r['id'], 'name': r['name'], 'created_at': r['created_at']} for r in rows]
+        conn.close()
+        return jsonify({'success': True, 'categories': categories})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/categories/add', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_categories_add():
+    """
+    Добавить новую категорию.
+    Payload: {'name': 'Логистика'}
+    """
+    try:
+        data = request.json
+        name = (data.get('name') or '').strip()
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Укажите название категории'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id FROM finance_categories WHERE LOWER(name) = LOWER(?)', (name,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': f'Категория "{name}" уже существует'}), 400
+
+        cursor.execute('INSERT INTO finance_categories (name) VALUES (?)', (name,))
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id, 'message': f'Категория "{name}" добавлена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/categories/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_categories_delete():
+    """
+    Удалить категорию.
+    Payload: {'id': 5}
+    Нельзя удалить категорию с привязанными записями.
+    """
+    try:
+        data = request.json
+        cat_id = data.get('id')
+
+        if not cat_id:
+            return jsonify({'success': False, 'error': 'Укажите ID категории'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (cat_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
+
+        cursor.execute('SELECT COUNT(*) FROM finance_records WHERE category_id = ?', (cat_id,))
+        count = cursor.fetchone()[0]
+        if count > 0:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Категория "{row[0]}" используется в {count} записях. Удаление невозможно.'}), 400
+
+        cursor.execute('DELETE FROM finance_categories WHERE id = ?', (cat_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Категория удалена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
 # API ФИНАНСЫ — ЗАПИСИ ДОХОДОВ И РАСХОДОВ
 # ============================================================================
 # CRUD-эндпоинты для финансовых записей.
@@ -21844,6 +22303,7 @@ def api_finance_records():
     try:
         record_type = request.args.get('type', '').strip()
         account_id = request.args.get('account_id', '').strip()
+        category_id = request.args.get('category_id', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
         sort_by = request.args.get('sort_by', 'date').strip()
@@ -21864,6 +22324,10 @@ def api_finance_records():
         if account_id:
             conditions.append('account_id = ?')
             params.append(int(account_id))
+
+        if category_id:
+            conditions.append('category_id = ?')
+            params.append(int(category_id))
 
         if date_from:
             conditions.append('record_date >= ?')
@@ -21939,6 +22403,7 @@ def api_finance_records_add():
         record_type = data.get('record_type', '')
         amount = data.get('amount', 0)
         account_id = data.get('account_id')
+        category_id = data.get('category_id')
         description = (data.get('description') or '').strip()
         record_date = data.get('record_date', '')
 
@@ -21956,6 +22421,9 @@ def api_finance_records_add():
         if not account_id:
             return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
 
+        if not category_id:
+            return jsonify({'success': False, 'error': 'Выберите категорию'}), 400
+
         if not record_date:
             record_date = get_snapshot_date()
 
@@ -21964,7 +22432,7 @@ def api_finance_records_add():
         if record_date > today:
             return jsonify({'success': False, 'error': 'Дата не может быть позже сегодняшней'}), 400
 
-        # Получаем название счёта
+        # Получаем название счёта и категории
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
@@ -21975,11 +22443,19 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
+        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cat_row = cursor.fetchone()
+        if not cat_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
+
+        category_name = cat_row[0]
+
         cursor.execute('''
             INSERT INTO finance_records
-            (record_type, amount, account_id, account_name, description, created_by, source, record_date)
-            VALUES (?, ?, ?, ?, ?, ?, 'web', ?)
-        ''', (record_type, amount, account_id, account_name, description, user_info.get('username', ''), record_date))
+            (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date))
 
         conn.commit()
         new_id = cursor.lastrowid
@@ -22008,6 +22484,7 @@ def api_finance_records_update():
         record_type = data.get('record_type', '')
         amount = data.get('amount', 0)
         account_id = data.get('account_id')
+        category_id = data.get('category_id')
         description = (data.get('description') or '').strip()
         record_date = data.get('record_date', '')
 
@@ -22024,6 +22501,9 @@ def api_finance_records_update():
         if not account_id:
             return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
 
+        if not category_id:
+            return jsonify({'success': False, 'error': 'Выберите категорию'}), 400
+
         if not record_date:
             record_date = get_snapshot_date()
 
@@ -22035,7 +22515,7 @@ def api_finance_records_update():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Получаем название счёта
+        # Получаем название счёта и категории
         cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
         acc_row = cursor.fetchone()
         if not acc_row:
@@ -22044,12 +22524,21 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
+        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cat_row = cursor.fetchone()
+        if not cat_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
+
+        category_name = cat_row[0]
+
         cursor.execute('''
             UPDATE finance_records
             SET record_type = ?, amount = ?, account_id = ?, account_name = ?,
+                category_id = ?, category_name = ?,
                 description = ?, record_date = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (record_type, amount, account_id, account_name, description, record_date, record_id))
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, record_date, record_id))
 
         if cursor.rowcount == 0:
             conn.close()
@@ -22126,6 +22615,32 @@ def api_telegram_finance_accounts():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/telegram/finance/categories')
+def api_telegram_finance_categories():
+    """
+    Получить список категорий для Telegram-бота.
+    Авторизация через секретный токен в параметрах запроса.
+    """
+    try:
+        token = request.args.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name FROM finance_categories ORDER BY name ASC')
+        rows = cursor.fetchall()
+        categories = [{'id': r['id'], 'name': r['name']} for r in rows]
+        conn.close()
+
+        return jsonify({'success': True, 'categories': categories})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/telegram/finance/add', methods=['POST'])
 def api_telegram_finance_add():
     """
@@ -22155,6 +22670,7 @@ def api_telegram_finance_add():
         record_type = data.get('record_type', '')
         amount = data.get('amount', 0)
         account_id = data.get('account_id')
+        category_id = data.get('category_id')
         description = (data.get('description') or '').strip()
         telegram_chat_id = data.get('telegram_chat_id')
         telegram_username = data.get('telegram_username', '')
@@ -22173,7 +22689,10 @@ def api_telegram_finance_add():
         if not account_id:
             return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
 
-        # Получаем название счёта
+        if not category_id:
+            return jsonify({'success': False, 'error': 'Выберите категорию'}), 400
+
+        # Получаем названия счёта и категории
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
@@ -22183,15 +22702,23 @@ def api_telegram_finance_add():
             return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
 
         account_name = acc_row[0]
+
+        cursor.execute('SELECT name FROM finance_categories WHERE id = ?', (category_id,))
+        cat_row = cursor.fetchone()
+        if not cat_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
+
+        category_name = cat_row[0]
         record_date = get_snapshot_date()
 
         cursor.execute('''
             INSERT INTO finance_records
-            (record_type, amount, account_id, account_name, description,
-             created_by, source, telegram_chat_id, telegram_username, record_date)
-            VALUES (?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?)
-        ''', (record_type, amount, account_id, account_name, description,
-              telegram_username, telegram_chat_id, telegram_username, record_date))
+            (record_type, amount, account_id, account_name, category_id, category_name,
+             description, created_by, source, telegram_chat_id, telegram_username, record_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?)
+        ''', (record_type, amount, account_id, account_name, category_id, category_name,
+              description, telegram_username, telegram_chat_id, telegram_username, record_date))
 
         conn.commit()
         new_id = cursor.lastrowid
