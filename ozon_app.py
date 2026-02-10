@@ -1028,6 +1028,38 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_category ON finance_records(category_id)')
 
     # ============================================================================
+    # ТАБЛИЦА: finance_container_distributions
+    # ============================================================================
+    # Связь между финансовыми расходами и контейнерами ВЭД.
+    # Каждая запись = часть суммы расхода, распределённая на конкретный товар
+    # в конкретном контейнере по определённому типу затрат.
+    # Привязка по sku (не по container_item_id), потому что при пересохранении
+    # контейнера позиции удаляются и создаются заново — ID меняются, SKU стабильны.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_container_distributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finance_record_id INTEGER NOT NULL,
+            container_doc_id INTEGER NOT NULL,
+            sku TEXT NOT NULL,
+            cost_type TEXT NOT NULL CHECK(cost_type IN ('logistics_rf', 'logistics_cn', 'terminal', 'customs')),
+            amount REAL NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (finance_record_id) REFERENCES finance_records(id) ON DELETE CASCADE,
+            FOREIGN KEY (container_doc_id) REFERENCES ved_container_docs(id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fcd_finance_record ON finance_container_distributions(finance_record_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fcd_container_doc ON finance_container_distributions(container_doc_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fcd_sku ON finance_container_distributions(sku)')
+
+    # Миграция: добавляем колонку is_container_linked в finance_categories
+    # Флаг означает, что при выборе этой категории расхода пользователь может
+    # привязать расход к контейнерам ВЭД и распределить по товарам.
+    if ensure_column(cursor, 'finance_categories', 'is_container_linked',
+                     "ALTER TABLE finance_categories ADD COLUMN is_container_linked INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка is_container_linked в finance_categories")
+
+    # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
     # Сиротские отгрузки — записи в warehouse_shipments без связанного документа
@@ -4563,6 +4595,29 @@ HTML_TEMPLATE = '''
                 min-width: auto;
                 width: 100%;
             }
+            /* Контейнерные блоки распределения */
+            #finance-container-section { padding: 12px; }
+            .finance-container-block-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+            .finance-container-block-header select {
+                max-width: 100%;
+                width: 100%;
+            }
+            .finance-dist-table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .finance-dist-table input[type="number"] {
+                width: 65px;
+                font-size: 12px;
+            }
+            .finance-dist-accordion-content { padding: 10px 12px; }
+            .finance-dist-accordion-table { font-size: 12px; }
+            .finance-dist-accordion-table thead th,
+            .finance-dist-accordion-table tbody td { padding: 8px 8px; }
 
             /* --- Сообщения --- */
             .messages-tab {
@@ -5931,6 +5986,193 @@ HTML_TEMPLATE = '''
         .pendel-accordion-table tbody tr:last-child td { border-bottom: none; }
         .pendel-accordion-loading { text-align: center; padding: 20px; color: #888; font-size: 13px; }
         .pendel-empty { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
+
+        /* ====== Стили для распределения расходов по контейнерам ====== */
+        #finance-container-section {
+            margin-top: 16px;
+            padding: 16px;
+            background: #f8f9ff;
+            border: 1px solid #e0e5f5;
+            border-radius: 12px;
+        }
+        .finance-container-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .finance-container-section-header h4 {
+            margin: 0;
+            font-size: 15px;
+            color: #333;
+            font-weight: 600;
+        }
+        .finance-dist-remaining {
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            background: #e3f2fd;
+            color: #1565c0;
+            font-weight: 500;
+        }
+        .finance-dist-remaining.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .finance-dist-remaining.ok {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .finance-container-block {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 12px;
+            position: relative;
+        }
+        .finance-container-block-header {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .finance-container-block-header select {
+            flex: 1;
+            max-width: 400px;
+        }
+        .finance-container-block-remove {
+            background: none;
+            border: none;
+            color: #e53935;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+        .finance-container-block-remove:hover {
+            background: #ffebee;
+        }
+        .finance-dist-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .finance-dist-table thead th {
+            background: #f5f5f5;
+            padding: 8px 10px;
+            font-weight: 500;
+            font-size: 12px;
+            text-align: center;
+            white-space: nowrap;
+            color: #555;
+        }
+        .finance-dist-table thead th:first-child {
+            text-align: left;
+        }
+        .finance-dist-table tbody td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #f0f0f0;
+            text-align: center;
+        }
+        .finance-dist-table tbody td:first-child {
+            text-align: left;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .finance-dist-table tfoot td {
+            padding: 8px 10px;
+            font-weight: 600;
+            border-top: 2px solid #e0e0e0;
+            text-align: center;
+            font-size: 13px;
+        }
+        .finance-dist-table tfoot td:first-child {
+            text-align: left;
+        }
+        .finance-dist-table input[type="number"] {
+            width: 85px;
+            padding: 4px 6px;
+            text-align: center;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .finance-dist-table input[type="number"]:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .finance-add-container-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .finance-add-container-btn:hover {
+            background: #5a6fd6;
+        }
+
+        /* Аккордеон распределения в таблице записей */
+        .finance-dist-accordion { display: none; }
+        .finance-dist-accordion.visible { display: table-row; }
+        .finance-dist-accordion-cell { padding: 0 !important; background: #f0f4ff; border-bottom: 2px solid #667eea; }
+        .finance-dist-accordion-content { padding: 16px 20px; }
+        .finance-dist-accordion-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .finance-dist-accordion-table thead th { background: #f1f3f5; color: #555; padding: 10px 12px; font-weight: 500; font-size: 12px; text-align: left; }
+        .finance-dist-accordion-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; text-align: left; }
+        .finance-dist-accordion-table tbody tr:hover { background: #f8f9fa; }
+        .finance-dist-accordion-loading { text-align: center; padding: 20px; color: #888; font-size: 13px; }
+        .finance-record-dist-indicator {
+            display: inline-block;
+            margin-left: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .finance-record-row-clickable { cursor: pointer; }
+        .finance-record-row-clickable:hover { background: #f8f9ff; }
+
+        /* Read-only поля логистики в контейнере */
+        .ved-container-cost-readonly {
+            background: #f3f4f6;
+            color: #666;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+            cursor: default;
+            min-width: 70px;
+            display: inline-block;
+        }
+        .ved-container-cost-finance-badge {
+            display: block;
+            font-size: 10px;
+            color: #667eea;
+            margin-top: 2px;
+        }
+
+        /* Чекбокс привязки к контейнерам в панели категорий */
+        .finance-category-container-link {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+        .finance-category-container-link input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
 
         .wh-section-header {
             margin-bottom: 20px;
@@ -8108,6 +8350,10 @@ HTML_TEMPLATE = '''
                             <option value="expense">📉 Расход</option>
                             <option value="income">📈 Доход</option>
                         </select>
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-category-container-linked">
+                            Привязка к контейнерам
+                        </label>
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
@@ -8160,6 +8406,18 @@ HTML_TEMPLATE = '''
                                    placeholder="Например: Закупка упаковки">
                         </div>
                     </div>
+                    <!-- Секция распределения по контейнерам (видна при контейнерных категориях) -->
+                    <div id="finance-container-section" style="display: none;">
+                        <div class="finance-container-section-header">
+                            <h4>Распределение по контейнерам</h4>
+                            <button type="button" class="finance-add-container-btn" onclick="addFinanceContainerBlock()">+ Контейнер</button>
+                        </div>
+                        <div id="finance-dist-remaining" class="finance-dist-remaining" style="display: none;">
+                            Осталось распределить: <strong id="finance-dist-remaining-amount">0 ₽</strong>
+                        </div>
+                        <div id="finance-container-blocks"></div>
+                    </div>
+
                     <div class="finance-form-actions">
                         <button class="wh-save-receipt-btn" id="finance-save-btn" onclick="saveFinanceRecord()">Сохранить</button>
                         <button class="wh-clear-btn" onclick="cancelFinanceForm()">Отмена</button>
@@ -10900,6 +11158,8 @@ HTML_TEMPLATE = '''
             input.value = name;
             selectedFinanceCategoryId = id;
             dropdown.classList.remove('show');
+            // Проверяем, нужно ли показать секцию контейнеров
+            checkFinanceContainerSection();
         }
 
         /**
@@ -11063,12 +11323,18 @@ HTML_TEMPLATE = '''
                 const resp = await authFetch('/api/finance/categories/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name, record_type: catType })
+                    body: JSON.stringify({
+                        name: name,
+                        record_type: catType,
+                        is_container_linked: document.getElementById('finance-new-category-container-linked')?.checked ? true : false
+                    })
                 });
                 const data = await resp.json();
 
                 if (data.success) {
                     input.value = '';
+                    const cb = document.getElementById('finance-new-category-container-linked');
+                    if (cb) cb.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -16157,6 +16423,14 @@ HTML_TEMPLATE = '''
             // Сохраняем значение для расчётов (0 если контейнер не завершён)
             logisticsSpan.dataset.value = isContainerCompleted ? containerLogistics : 0;
             tdLogistics.appendChild(logisticsSpan);
+            // Для незавершённых контейнеров — показываем текущую логистику синим мелким шрифтом
+            if (!isContainerCompleted && data && data.container_doc_id && containerLogistics > 0) {
+                const logisticsHint = document.createElement('div');
+                logisticsHint.style.cssText = 'color: #2196F3; font-size: 11px; margin-top: 2px;';
+                logisticsHint.textContent = formatNumberWithSpaces(Math.round(containerLogistics));
+                logisticsHint.title = 'Текущая логистика за ед. (контейнер не завершён)';
+                tdLogistics.appendChild(logisticsHint);
+            }
             row.appendChild(tdLogistics);
 
             // 6. Цена товара единица в рублях (из контейнера, только для завершённых)
@@ -16181,6 +16455,14 @@ HTML_TEMPLATE = '''
             // Сохраняем значение для расчётов (0 если контейнер не завершён)
             priceSpan.dataset.value = isContainerCompleted ? containerPriceRub : 0;
             tdPrice.appendChild(priceSpan);
+            // Для незавершённых контейнеров — показываем текущую цену синим мелким шрифтом
+            if (!isContainerCompleted && data && data.container_doc_id && containerPriceRub > 0) {
+                const priceHint = document.createElement('div');
+                priceHint.style.cssText = 'color: #2196F3; font-size: 11px; margin-top: 2px;';
+                priceHint.textContent = formatNumberWithSpaces(Math.round(containerPriceRub));
+                priceHint.title = 'Текущая цена за ед. (контейнер не завершён)';
+                tdPrice.appendChild(priceHint);
+            }
             row.appendChild(tdPrice);
 
             // 7. Себестоимость товара +6% = (логистика + цена) * 1.06 (только для завершённых)
@@ -20962,6 +21244,39 @@ def save_ved_container():
             ))
             item_id = cursor.lastrowid
 
+            # Подтягиваем суммы из финансовых распределений (finance_container_distributions)
+            # При пересоздании позиций — распределения привязаны по sku, а не по item_id
+            cursor.execute('''
+                SELECT cost_type, SUM(amount) as total
+                FROM finance_container_distributions
+                WHERE container_doc_id = ? AND sku = ?
+                GROUP BY cost_type
+            ''', (doc_id, str(sku)))
+            for fd_row in cursor.fetchall():
+                fd_cost_type = fd_row['cost_type']
+                fd_amount = fd_row['total'] or 0
+                if fd_cost_type in ('logistics_rf', 'logistics_cn', 'terminal', 'customs') and fd_amount > 0:
+                    cursor.execute(f'''
+                        UPDATE ved_container_items
+                        SET {fd_cost_type} = COALESCE({fd_cost_type}, 0) + ?
+                        WHERE id = ?
+                    ''', (fd_amount, item_id))
+                    # Обновляем локальные переменные для правильного подсчёта логистики
+                    if fd_cost_type == 'logistics_rf':
+                        logistics_rf += fd_amount
+                    elif fd_cost_type == 'logistics_cn':
+                        logistics_cn += fd_amount
+                    elif fd_cost_type == 'terminal':
+                        terminal += fd_amount
+                    elif fd_cost_type == 'customs':
+                        customs += fd_amount
+
+            # Пересчитываем итоги с учётом финансовых распределений
+            total_logistics_rf += logistics_rf - (item.get('logistics_rf', 0) or 0)
+            total_logistics_cn += logistics_cn - (item.get('logistics_cn', 0) or 0)
+            total_terminal += terminal - (item.get('terminal', 0) or 0)
+            total_customs += customs - (item.get('customs', 0) or 0)
+
             # Рассчитываем логистику за единицу для данной позиции
             total_item_logistics = logistics_rf + logistics_cn + terminal + customs
             logistics_per_unit = total_item_logistics / quantity if quantity > 0 else 0
@@ -21016,6 +21331,17 @@ def delete_ved_container():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Проверяем: есть ли финансовые распределения на этот контейнер
+        cursor.execute('SELECT COUNT(*) as cnt FROM finance_container_distributions WHERE container_doc_id = ?', (doc_id,))
+        fcd_count = cursor.fetchone()['cnt']
+        if fcd_count > 0:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': f'К этому контейнеру привязаны {fcd_count} финансовых распределений. '
+                         'Сначала удалите или отвяжите расходы в Финансах.'
+            }), 400
 
         # Перед удалением поставок — откатываем распределения приходов
         cursor.execute('SELECT id FROM supplies WHERE container_doc_id = ?', (doc_id,))
@@ -23144,6 +23470,103 @@ def get_warehouse_stock():
 
 
 # ============================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ — РАСПРЕДЕЛЕНИЕ РАСХОДОВ ПО КОНТЕЙНЕРАМ
+# ============================================================================
+# Функции для сохранения и отката распределений финансовых расходов
+# по контейнерам ВЭД. Используются в API добавления/обновления/удаления записей.
+# ============================================================================
+
+def _save_finance_distributions(cursor, finance_record_id, distributions, expected_amount):
+    """
+    Сохранить распределения расхода по контейнерам.
+    Вставляет записи в finance_container_distributions и обновляет
+    соответствующие поля (logistics_rf/cn, terminal, customs) в ved_container_items.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+        distributions (list): список dict {container_doc_id, sku, cost_type, amount}
+        expected_amount (float): ожидаемая общая сумма (для валидации)
+    """
+    if not distributions:
+        return
+
+    # Валидация: сумма распределений должна совпадать с суммой записи
+    total_dist = sum(float(d.get('amount', 0)) for d in distributions)
+    if abs(total_dist - expected_amount) > 0.01:
+        raise ValueError(
+            f'Сумма распределений ({total_dist:.2f}) не совпадает с суммой записи ({expected_amount:.2f})'
+        )
+
+    valid_cost_types = ('logistics_rf', 'logistics_cn', 'terminal', 'customs')
+
+    for dist in distributions:
+        container_doc_id = dist.get('container_doc_id')
+        sku = str(dist.get('sku', ''))
+        cost_type = dist.get('cost_type', '')
+        amount = float(dist.get('amount', 0))
+
+        if amount <= 0:
+            continue
+
+        if cost_type not in valid_cost_types:
+            raise ValueError(f'Неверный тип затрат: {cost_type}')
+
+        # Вставляем запись распределения
+        cursor.execute('''
+            INSERT INTO finance_container_distributions
+            (finance_record_id, container_doc_id, sku, cost_type, amount)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (finance_record_id, container_doc_id, sku, cost_type, amount))
+
+        # Обновляем соответствующее поле в позиции контейнера
+        # cost_type уже проверен — безопасно использовать в SQL
+        cursor.execute(f'''
+            UPDATE ved_container_items
+            SET {cost_type} = COALESCE({cost_type}, 0) + ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE doc_id = ? AND sku = ?
+        ''', (amount, container_doc_id, sku))
+
+
+def _rollback_finance_distributions(cursor, finance_record_id):
+    """
+    Откатить (вычесть) все распределения для данной финансовой записи
+    из полей ved_container_items, затем удалить записи распределений.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    # Получаем все распределения для этой записи
+    cursor.execute('''
+        SELECT container_doc_id, sku, cost_type, amount
+        FROM finance_container_distributions
+        WHERE finance_record_id = ?
+    ''', (finance_record_id,))
+    old_dists = cursor.fetchall()
+
+    # Вычитаем суммы из соответствующих полей контейнерных позиций
+    for dist in old_dists:
+        cost_type = dist['cost_type'] if hasattr(dist, '__getitem__') and isinstance(dist, sqlite3.Row) else dist[2]
+        container_doc_id = dist['container_doc_id'] if hasattr(dist, '__getitem__') and isinstance(dist, sqlite3.Row) else dist[0]
+        sku = dist['sku'] if hasattr(dist, '__getitem__') and isinstance(dist, sqlite3.Row) else dist[1]
+        amount = dist['amount'] if hasattr(dist, '__getitem__') and isinstance(dist, sqlite3.Row) else dist[3]
+
+        if cost_type in ('logistics_rf', 'logistics_cn', 'terminal', 'customs'):
+            cursor.execute(f'''
+                UPDATE ved_container_items
+                SET {cost_type} = MAX(COALESCE({cost_type}, 0) - ?, 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE doc_id = ? AND sku = ?
+            ''', (amount, container_doc_id, sku))
+
+    # Удаляем записи распределений
+    cursor.execute('DELETE FROM finance_container_distributions WHERE finance_record_id = ?',
+                   (finance_record_id,))
+
+
+# ============================================================================
 # API ФИНАНСЫ — СПРАВОЧНИК СЧЕТОВ
 # ============================================================================
 # Эндпоинты для управления финансовыми счетами/источниками средств.
@@ -23269,12 +23692,15 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'record_type': r['record_type'], 'created_at': r['created_at']} for r in rows]
+        categories = [{
+            'id': r['id'], 'name': r['name'], 'record_type': r['record_type'],
+            'is_container_linked': r['is_container_linked'] or 0, 'created_at': r['created_at']
+        } for r in rows]
         conn.close()
         return jsonify({'success': True, 'categories': categories})
     except Exception as e:
@@ -23309,7 +23735,11 @@ def api_finance_categories_add():
             conn.close()
             return jsonify({'success': False, 'error': f'Категория "{name}" для {type_label} уже существует'}), 400
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type) VALUES (?, ?)', (name, record_type))
+        # Флаг привязки к контейнерам (только для расходных категорий)
+        is_container_linked = 1 if (data.get('is_container_linked') and record_type == 'expense') else 0
+
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked) VALUES (?, ?, ?)',
+                       (name, record_type, is_container_linked))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -23435,6 +23865,23 @@ def api_finance_records():
         rows = cursor.fetchall()
         records = [dict(r) for r in rows]
 
+        # Проверяем наличие распределений по контейнерам для каждой записи
+        record_ids = [r['id'] for r in records]
+        dist_counts = {}
+        if record_ids:
+            placeholders = ','.join('?' * len(record_ids))
+            cursor.execute(f'''
+                SELECT finance_record_id, COUNT(*) as cnt
+                FROM finance_container_distributions
+                WHERE finance_record_id IN ({placeholders})
+                GROUP BY finance_record_id
+            ''', record_ids)
+            for row in cursor.fetchall():
+                dist_counts[row['finance_record_id']] = row['cnt']
+
+        for rec in records:
+            rec['has_distributions'] = dist_counts.get(rec['id'], 0) > 0
+
         # Рассчитываем сводку с теми же фильтрами
         summary_query = f'''
             SELECT
@@ -23544,8 +23991,14 @@ def api_finance_records_add():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
         ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date))
 
-        conn.commit()
         new_id = cursor.lastrowid
+
+        # Обработка распределений по контейнерам (если переданы)
+        distributions = data.get('distributions', [])
+        if distributions and record_type == 'expense':
+            _save_finance_distributions(cursor, new_id, distributions, amount)
+
+        conn.commit()
         conn.close()
 
         return jsonify({'success': True, 'id': new_id, 'message': 'Запись добавлена'})
@@ -23636,6 +24089,12 @@ def api_finance_records_update():
             conn.close()
             return jsonify({'success': False, 'error': 'Запись не найдена'}), 404
 
+        # Обработка распределений: откатить старые, применить новые
+        _rollback_finance_distributions(cursor, record_id)
+        distributions = data.get('distributions', [])
+        if distributions and record_type == 'expense':
+            _save_finance_distributions(cursor, record_id, distributions, amount)
+
         conn.commit()
         conn.close()
 
@@ -23659,7 +24118,12 @@ def api_finance_records_delete():
             return jsonify({'success': False, 'error': 'Укажите ID записи'}), 400
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Откатываем распределения по контейнерам перед удалением записи
+        _rollback_finance_distributions(cursor, record_id)
+
         cursor.execute('DELETE FROM finance_records WHERE id = ?', (record_id,))
 
         if cursor.rowcount == 0:
@@ -23810,6 +24274,183 @@ def api_finance_pendel_details():
         return jsonify({'transactions': transactions})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# API ФИНАНСЫ — РАСПРЕДЕЛЕНИЕ ПО КОНТЕЙНЕРАМ
+# ============================================================================
+# Эндпоинты для привязки расходов к контейнерам ВЭД.
+# Позволяют распределять сумму расхода по товарам внутри контейнеров
+# по 4 типам затрат: логистика РФ, логистика КНР, терминал, пошлина.
+# ============================================================================
+
+@app.route('/api/ved/containers/list-for-finance')
+@require_auth(['admin', 'viewer'])
+def api_ved_containers_list_for_finance():
+    """
+    Упрощённый список контейнеров с позициями для выпадающего списка
+    в форме расходов. Возвращает контейнеры с товарами (SKU и название).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем все контейнеры (последние сверху)
+        cursor.execute('''
+            SELECT id, container_date, supplier
+            FROM ved_container_docs
+            ORDER BY container_date DESC, id DESC
+        ''')
+        docs = cursor.fetchall()
+
+        containers = []
+        for doc in docs:
+            doc_id = doc['id']
+            # Формируем читаемую метку
+            date_str = doc['container_date'] or ''
+            if date_str:
+                parts = date_str.split('-')
+                if len(parts) == 3:
+                    date_str = f"{parts[2]}.{parts[1]}.{parts[0]}"
+            supplier = doc['supplier'] or ''
+            label = f"#{doc_id} — {date_str}"
+            if supplier:
+                label += f", {supplier}"
+
+            # Получаем позиции контейнера
+            cursor.execute('''
+                SELECT i.sku, i.quantity, p.offer_id
+                FROM ved_container_items i
+                LEFT JOIN products p ON p.sku = i.sku
+                WHERE i.doc_id = ?
+                ORDER BY i.id
+            ''', (doc_id,))
+            items = []
+            for item in cursor.fetchall():
+                items.append({
+                    'sku': str(item['sku']),
+                    'offer_id': item['offer_id'] or str(item['sku']),
+                    'quantity': item['quantity'] or 0
+                })
+
+            containers.append({
+                'id': doc_id,
+                'label': label,
+                'container_date': doc['container_date'],
+                'supplier': supplier,
+                'items': items
+            })
+
+        conn.close()
+        return jsonify({'success': True, 'containers': containers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/records/<int:record_id>/distributions')
+@require_auth(['admin', 'viewer'])
+def api_finance_record_distributions(record_id):
+    """
+    Получить распределение расхода по контейнерам.
+    Используется для отображения аккордеона в таблице финансовых записей.
+    Возвращает список распределений с информацией о контейнере и товаре.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT
+                fcd.id,
+                fcd.container_doc_id,
+                fcd.sku,
+                fcd.cost_type,
+                fcd.amount,
+                d.container_date,
+                d.supplier,
+                p.offer_id
+            FROM finance_container_distributions fcd
+            LEFT JOIN ved_container_docs d ON d.id = fcd.container_doc_id
+            LEFT JOIN products p ON p.sku = fcd.sku
+            WHERE fcd.finance_record_id = ?
+            ORDER BY fcd.container_doc_id, fcd.sku, fcd.cost_type
+        ''', (record_id,))
+
+        rows = cursor.fetchall()
+        distributions = []
+        total_distributed = 0
+
+        for row in rows:
+            date_str = row['container_date'] or ''
+            if date_str:
+                parts = date_str.split('-')
+                if len(parts) == 3:
+                    date_str = f"{parts[2]}.{parts[1]}.{parts[0]}"
+            supplier = row['supplier'] or ''
+            container_label = f"#{row['container_doc_id']} — {date_str}"
+            if supplier:
+                container_label += f", {supplier}"
+
+            amount = row['amount'] or 0
+            total_distributed += amount
+
+            distributions.append({
+                'id': row['id'],
+                'container_doc_id': row['container_doc_id'],
+                'container_label': container_label,
+                'sku': row['sku'],
+                'offer_id': row['offer_id'] or row['sku'],
+                'cost_type': row['cost_type'],
+                'amount': amount
+            })
+
+        conn.close()
+        return jsonify({
+            'success': True,
+            'distributions': distributions,
+            'total_distributed': round(total_distributed, 2)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/categories/update', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_categories_update():
+    """
+    Обновить категорию (в частности, флаг is_container_linked).
+    Payload: {'id': 5, 'is_container_linked': true}
+    """
+    try:
+        data = request.json
+        cat_id = data.get('id')
+
+        if not cat_id:
+            return jsonify({'success': False, 'error': 'Укажите ID категории'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, record_type FROM finance_categories WHERE id = ?', (cat_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
+
+        # is_container_linked имеет смысл только для расходных категорий
+        is_container_linked = 1 if (data.get('is_container_linked') and row['record_type'] == 'expense') else 0
+
+        cursor.execute('UPDATE finance_categories SET is_container_linked = ? WHERE id = ?',
+                       (is_container_linked, cat_id))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Категория обновлена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 # ============================================================================
