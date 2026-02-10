@@ -8463,6 +8463,7 @@ HTML_TEMPLATE = '''
                     <label>Период:</label>
                     <select id="finance-period" style="width: 180px;" onchange="applyFinancePeriod(); loadFinanceRecords()">
                         <option value="month">Текущий месяц</option>
+                        <option value="prev_month">Прошлый месяц</option>
                         <option value="3months">Последние 3 месяца</option>
                         <option value="6months">Последние 6 месяцев</option>
                         <option value="year">Последний год</option>
@@ -10488,8 +10489,14 @@ HTML_TEMPLATE = '''
             const todayStr = yyyy + '-' + mm + '-' + dd;
 
             let fromStr = '';
+            let toStr = todayStr;
             if (period === 'month') {
                 fromStr = yyyy + '-' + mm + '-01';
+            } else if (period === 'prev_month') {
+                const prev = new Date(yyyy, today.getMonth() - 1, 1);
+                const lastDay = new Date(prev.getFullYear(), prev.getMonth() + 1, 0);
+                fromStr = prev.getFullYear() + '-' + String(prev.getMonth() + 1).padStart(2, '0') + '-01';
+                toStr = lastDay.getFullYear() + '-' + String(lastDay.getMonth() + 1).padStart(2, '0') + '-' + String(lastDay.getDate()).padStart(2, '0');
             } else if (period === '3months') {
                 const d = new Date(yyyy, today.getMonth() - 2, 1);
                 fromStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
@@ -10503,7 +10510,7 @@ HTML_TEMPLATE = '''
             }
 
             if (fromInput) fromInput.value = fromStr;
-            if (toInput) toInput.value = (period === 'all') ? '' : todayStr;
+            if (toInput) toInput.value = (period === 'all') ? '' : toStr;
         }
 
         /**
