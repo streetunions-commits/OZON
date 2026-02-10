@@ -1002,10 +1002,19 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS finance_categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            name TEXT NOT NULL,
+            record_type TEXT NOT NULL DEFAULT 'expense',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(name, record_type)
         )
     ''')
+
+    # Миграция: добавляем колонку record_type в finance_categories
+    if ensure_column(cursor, 'finance_categories', 'record_type',
+                     "ALTER TABLE finance_categories ADD COLUMN record_type TEXT NOT NULL DEFAULT 'expense'"):
+        print("✅ Добавлена колонка record_type в finance_categories")
+        # Создаём уникальный индекс на пару (name, record_type)
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_categories_name_type ON finance_categories(LOWER(name), record_type)')
 
     # Миграция: добавляем колонки category_id и category_name в finance_records
     if ensure_column(cursor, 'finance_records', 'category_id',
@@ -4630,6 +4639,27 @@ HTML_TEMPLATE = '''
                 font-size: 12px;
             }
 
+            /* --- Аккордеон распределений приходов (мобильная версия) --- */
+            .wh-receipt-accordion-content {
+                padding: 8px 10px;
+            }
+
+            .wh-dist-product-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+                font-size: 12px;
+            }
+
+            .wh-receipt-accordion .wh-accordion-table {
+                font-size: 11px;
+            }
+
+            .wh-receipt-accordion .wh-accordion-table thead th,
+            .wh-receipt-accordion .wh-accordion-table tbody td {
+                padding: 4px 6px;
+            }
+
             /* --- Дропдаун назначений --- */
             .destination-dropdown-wrapper {
                 flex-direction: row;
@@ -5333,6 +5363,105 @@ HTML_TEMPLATE = '''
         .wh-accordion-more-btn:disabled {
             background: #ccc;
             cursor: not-allowed;
+        }
+
+        /* ============================================================ */
+        /* АККОРДЕОН ДЛЯ ИСТОРИИ ПРИХОДОВ (РАСПРЕДЕЛЕНИЯ ПО ПОСТАВКАМ) */
+        /* ============================================================ */
+
+        .wh-receipt-row {
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .wh-receipt-row:hover {
+            background: #f0f4ff;
+        }
+
+        .wh-receipt-row .wh-receipt-arrow {
+            display: inline-block;
+            transition: transform 0.2s;
+            margin-right: 6px;
+            font-size: 12px;
+            color: #999;
+        }
+
+        .wh-receipt-row.expanded {
+            background: #e8f0fe;
+        }
+
+        .wh-receipt-row.expanded .wh-receipt-arrow {
+            transform: rotate(90deg);
+        }
+
+        /* Бледно-красная подсветка для строк с нераспределёнными товарами */
+        .wh-receipt-row.has-undistributed {
+            background: #fff5f5;
+        }
+
+        .wh-receipt-row.has-undistributed:hover {
+            background: #fee2e2;
+        }
+
+        .wh-receipt-row.has-undistributed.expanded {
+            background: #fecaca;
+        }
+
+        .wh-receipt-accordion {
+            display: none;
+        }
+
+        .wh-receipt-accordion.visible {
+            display: table-row;
+        }
+
+        .wh-receipt-accordion-cell {
+            padding: 0 !important;
+            background: #fafbfc;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .wh-receipt-accordion-content {
+            padding: 16px 20px;
+        }
+
+        /* Блок одного товара в аккордеоне распределений */
+        .wh-dist-product-block {
+            margin-bottom: 16px;
+        }
+
+        .wh-dist-product-block:last-child {
+            margin-bottom: 0;
+        }
+
+        .wh-dist-product-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* Бейдж «полностью распределено» (зелёный) */
+        .wh-dist-badge-full {
+            background: #dcfce7;
+            color: #16a34a;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        /* Бейдж «частично распределено» (красный) */
+        .wh-dist-badge-partial {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
         }
 
         /* ============================================================ */
@@ -11168,22 +11297,34 @@ HTML_TEMPLATE = '''
         // Хранилище всех приходов для фильтрации
         let allReceiptDocs = [];
 
+        // Кэш загруженных распределений для аккордеона истории приходов
+        let receiptDistCache = {};
+
         // Отрисовать таблицу истории приходов
         function renderReceiptHistory(docs) {
             const tbody = document.getElementById('wh-receipt-history-tbody');
             tbody.innerHTML = '';
+            receiptDistCache = {};  // Очищаем кэш распределений при перерисовке
 
             docs.forEach(doc => {
                 const row = document.createElement('tr');
+                row.className = 'wh-receipt-row';
+                row.id = 'wh-receipt-row-' + doc.id;
                 // Сохраняем дату для фильтрации (формат YYYY-MM-DD)
                 row.dataset.date = doc.receipt_date || '';
+                row.onclick = function() { toggleReceiptAccordion(doc.id); };
 
-                // № прихода
+                // Бледно-красная подсветка если есть нераспределённые товары
+                if (doc.has_undistributed) {
+                    row.classList.add('has-undistributed');
+                }
+
+                // № прихода (со стрелкой аккордеона)
                 const tdNum = document.createElement('td');
                 tdNum.style.textAlign = 'center';
                 tdNum.style.fontWeight = '600';
                 tdNum.style.color = '#667eea';
-                tdNum.textContent = doc.id;
+                tdNum.innerHTML = '<span class="wh-receipt-arrow">&#9654;</span>' + doc.id;
                 row.appendChild(tdNum);
 
                 // Дата прихода (только дата, без времени)
@@ -11269,26 +11410,180 @@ HTML_TEMPLATE = '''
                 const tdActions = document.createElement('td');
                 tdActions.style.whiteSpace = 'nowrap';
 
-                // Кнопка редактирования
+                // Кнопка редактирования (stopPropagation чтобы не тогглить аккордеон)
                 const editBtn = document.createElement('button');
                 editBtn.className = 'wh-edit-btn';
                 editBtn.textContent = '✏️';
                 editBtn.title = 'Редактировать';
-                editBtn.onclick = () => editReceiptDoc(doc.id);
+                editBtn.onclick = (e) => { e.stopPropagation(); editReceiptDoc(doc.id); };
                 tdActions.appendChild(editBtn);
 
-                // Кнопка удаления
+                // Кнопка удаления (stopPropagation чтобы не тогглить аккордеон)
                 const delBtn = document.createElement('button');
                 delBtn.className = 'wh-delete-btn';
                 delBtn.textContent = '✕';
                 delBtn.title = 'Удалить';
-                delBtn.onclick = () => deleteReceiptDoc(doc.id);
+                delBtn.onclick = (e) => { e.stopPropagation(); deleteReceiptDoc(doc.id); };
                 tdActions.appendChild(delBtn);
 
                 row.appendChild(tdActions);
 
                 tbody.appendChild(row);
+
+                // Строка-аккордеон с распределениями по поставкам (скрыта по умолчанию)
+                const accordionRow = document.createElement('tr');
+                accordionRow.className = 'wh-receipt-accordion';
+                accordionRow.id = 'wh-receipt-accordion-' + doc.id;
+                accordionRow.innerHTML = '<td colspan="11" class="wh-receipt-accordion-cell">' +
+                    '<div class="wh-receipt-accordion-content" id="wh-receipt-dist-content-' + doc.id + '">' +
+                    '<div class="wh-accordion-loading">Загрузка распределений...</div>' +
+                    '</div></td>';
+                tbody.appendChild(accordionRow);
             });
+        }
+
+        /**
+         * Переключить аккордеон распределений для документа прихода.
+         * Загружает данные с сервера при первом открытии, кэширует результат.
+         */
+        async function toggleReceiptAccordion(docId) {
+            const row = document.getElementById('wh-receipt-row-' + docId);
+            const accordion = document.getElementById('wh-receipt-accordion-' + docId);
+            const content = document.getElementById('wh-receipt-dist-content-' + docId);
+
+            if (!row || !accordion) return;
+
+            const isExpanded = row.classList.contains('expanded');
+
+            // Закрываем все другие аккордеоны приходов
+            document.querySelectorAll('.wh-receipt-row.expanded').forEach(r => {
+                r.classList.remove('expanded');
+            });
+            document.querySelectorAll('.wh-receipt-accordion.visible').forEach(a => {
+                a.classList.remove('visible');
+            });
+
+            if (isExpanded) {
+                return;
+            }
+
+            // Открываем текущий
+            row.classList.add('expanded');
+            accordion.classList.add('visible');
+
+            // Если данные уже загружены — используем кэш
+            if (receiptDistCache[docId]) {
+                renderReceiptDistContent(docId, receiptDistCache[docId]);
+                return;
+            }
+
+            // Загружаем данные с сервера
+            content.innerHTML = '<div class="wh-accordion-loading">Загрузка распределений...</div>';
+
+            try {
+                const response = await authFetch('/api/warehouse/receipt-docs/' + docId + '/distributions');
+                const data = await response.json();
+
+                if (data.success) {
+                    receiptDistCache[docId] = data.items;
+                    renderReceiptDistContent(docId, data.items);
+                } else {
+                    content.innerHTML = '<div class="wh-accordion-empty">Ошибка загрузки: ' + (data.error || 'неизвестная') + '</div>';
+                }
+            } catch (err) {
+                content.innerHTML = '<div class="wh-accordion-empty">Ошибка: ' + err.message + '</div>';
+            }
+        }
+
+        /**
+         * Отрисовать содержимое аккордеона с распределениями по поставкам.
+         * Для каждого товара (SKU) в приходе показывает:
+         * - Заголовок с названием товара и статусом распределения
+         * - Таблицу распределений: поставка, дата выхода, контейнер, кол-во, себестоимость
+         */
+        function renderReceiptDistContent(docId, items) {
+            const content = document.getElementById('wh-receipt-dist-content-' + docId);
+            if (!content) return;
+
+            if (!items || items.length === 0) {
+                content.innerHTML = '<div class="wh-accordion-empty">Нет данных о распределении</div>';
+                return;
+            }
+
+            let html = '';
+
+            items.forEach(item => {
+                const displayName = item.offer_id ? item.offer_id : (item.product_name || 'SKU ' + item.sku);
+                const isFullyDistributed = item.undistributed <= 0;
+                const badgeClass = isFullyDistributed ? 'wh-dist-badge-full' : 'wh-dist-badge-partial';
+                const badgeText = isFullyDistributed
+                    ? '\u2713 Распределено: ' + item.total_distributed + '/' + item.receipt_qty
+                    : '\u26A0 Распределено: ' + item.total_distributed + '/' + item.receipt_qty +
+                      ' (не распр: ' + item.undistributed + ')';
+
+                html += '<div class="wh-dist-product-block">';
+                html += '<div class="wh-dist-product-header">';
+                html += '<span>' + displayName + ' (SKU: ' + item.sku + ')</span>';
+                html += '<span class="' + badgeClass + '">' + badgeText + '</span>';
+                html += '</div>';
+
+                if (item.distributions && item.distributions.length > 0) {
+                    html += '<table class="wh-accordion-table" style="font-size: 12px;">';
+                    html += '<thead><tr>';
+                    html += '<th style="padding: 6px 8px;">Поставка</th>';
+                    html += '<th style="padding: 6px 8px;">Дата выхода</th>';
+                    html += '<th style="padding: 6px 8px;">Контейнер</th>';
+                    html += '<th style="padding: 6px 8px;">Кол-во</th>';
+                    html += '<th style="padding: 6px 8px;">Себест. +6%</th>';
+                    html += '<th style="padding: 6px 8px;">Сумма</th>';
+                    html += '</tr></thead>';
+                    html += '<tbody>';
+
+                    let totalDistQty = 0;
+                    let totalDistSum = 0;
+
+                    item.distributions.forEach(d => {
+                        let exitDate = '\u2014';
+                        if (d.exit_factory_date) {
+                            try {
+                                const dt = new Date(d.exit_factory_date);
+                                exitDate = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            } catch(e) { exitDate = d.exit_factory_date; }
+                        }
+
+                        const containerInfo = d.container_doc_id
+                            ? ('Конт. #' + d.container_doc_id + (d.container_supplier ? ' (' + d.container_supplier + ')' : ''))
+                            : '\u2014';
+                        const lineSum = d.quantity * d.cost_plus_6;
+                        totalDistQty += d.quantity;
+                        totalDistSum += lineSum;
+
+                        html += '<tr>';
+                        html += '<td style="color: #667eea; font-weight: 600; padding: 4px 8px;">ID ' + d.supply_id + '</td>';
+                        html += '<td style="padding: 4px 8px;">' + exitDate + '</td>';
+                        html += '<td style="padding: 4px 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + containerInfo + '">' + containerInfo + '</td>';
+                        html += '<td style="color: #16a34a; font-weight: 600; padding: 4px 8px;">' + d.quantity + '</td>';
+                        html += '<td style="padding: 4px 8px;">' + formatNumberWithSpaces(Math.round(d.cost_plus_6)) + ' \u20BD</td>';
+                        html += '<td style="padding: 4px 8px; font-weight: 500;">' + formatNumberWithSpaces(Math.round(lineSum)) + ' \u20BD</td>';
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody>';
+                    html += '<tfoot><tr>';
+                    html += '<td colspan="3" style="padding: 6px 8px; text-align: right;"><strong>Итого распред.:</strong></td>';
+                    html += '<td style="color: #16a34a; font-weight: 700; padding: 6px 8px;">' + totalDistQty + '</td>';
+                    html += '<td></td>';
+                    html += '<td style="font-weight: 700; padding: 6px 8px;">' + formatNumberWithSpaces(Math.round(totalDistSum)) + ' \u20BD</td>';
+                    html += '</tr></tfoot>';
+                    html += '</table>';
+                } else {
+                    html += '<div class="wh-accordion-empty" style="padding: 8px; font-size: 12px; font-style: italic;">Нет распределений по поставкам</div>';
+                }
+
+                html += '</div>';
+            });
+
+            content.innerHTML = html;
         }
 
         // Открыть приход для редактирования
@@ -22578,16 +22873,24 @@ def api_finance_accounts_delete():
 @require_auth(['admin', 'viewer'])
 def api_finance_categories():
     """
-    Получить список всех категорий.
-    Возвращает: {'success': True, 'categories': [{'id': 1, 'name': 'Логистика'}, ...]}
+    Получить список категорий.
+    Query-параметр type (income/expense) — фильтрация по типу.
+    Возвращает: {'success': True, 'categories': [{'id': 1, 'name': 'Логистика', 'record_type': 'expense'}, ...]}
     """
     try:
+        record_type = request.args.get('type', '').strip()
+
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, created_at FROM finance_categories ORDER BY name ASC')
+
+        if record_type in ('income', 'expense'):
+            cursor.execute('SELECT id, name, record_type, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+        else:
+            cursor.execute('SELECT id, name, record_type, created_at FROM finance_categories ORDER BY name ASC')
+
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'created_at': r['created_at']} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'record_type': r['record_type'], 'created_at': r['created_at']} for r in rows]
         conn.close()
         return jsonify({'success': True, 'categories': categories})
     except Exception as e:
