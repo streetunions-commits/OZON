@@ -8465,9 +8465,17 @@ HTML_TEMPLATE = '''
                     <span class="finance-filter-sep">|</span>
 
                     <label>Период:</label>
-                    <input type="date" id="finance-date-from" style="width: 140px;" onchange="loadFinanceRecords()">
-                    <span style="color: #999;">—</span>
-                    <input type="date" id="finance-date-to" style="width: 140px;" onchange="loadFinanceRecords()">
+                    <select id="finance-period" style="width: 180px;" onchange="applyFinancePeriod(); loadFinanceRecords()">
+                        <option value="month">Текущий месяц</option>
+                        <option value="3months">Последние 3 месяца</option>
+                        <option value="6months">Последние 6 месяцев</option>
+                        <option value="year">Последний год</option>
+                        <option value="all">Вся история</option>
+                        <option value="custom">Свой период...</option>
+                    </select>
+                    <input type="date" id="finance-date-from" style="width: 140px; display: none;" onchange="loadFinanceRecords()">
+                    <span id="finance-date-sep" style="color: #999; display: none;">—</span>
+                    <input type="date" id="finance-date-to" style="width: 140px; display: none;" onchange="loadFinanceRecords()">
                     <span class="finance-filter-sep">|</span>
 
                     <label>Сортировка:</label>
@@ -10356,11 +10364,9 @@ HTML_TEMPLATE = '''
             if (!financeDataLoaded) {
                 loadFinanceAccounts();
                 loadFinanceCategories();
-                // Устанавливаем даты по умолчанию: начало текущего месяца — сегодня
-                const today = new Date();
-                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-                document.getElementById('finance-date-from').value = firstDay.toISOString().slice(0, 10);
-                document.getElementById('finance-date-to').value = today.toISOString().slice(0, 10);
+                // По умолчанию: текущий месяц (dropdown "month")
+                document.getElementById('finance-period').value = 'month';
+                applyFinancePeriod();
                 financeDataLoaded = true;
             }
             loadFinanceRecords();
@@ -10465,6 +10471,51 @@ HTML_TEMPLATE = '''
             renderFinanceCategoryDropdown('');
             // Скрываем контейнерную секцию при смене типа
             resetFinanceContainerSection();
+        }
+
+        /**
+         * Применить выбранный период из dropdown к скрытым полям дат.
+         * Вызывается при смене dropdown "Период" (finance-period).
+         * При выборе "custom" показывает поля ввода дат для ручного выбора.
+         */
+        function applyFinancePeriod() {
+            const period = document.getElementById('finance-period')?.value || 'month';
+            const fromInput = document.getElementById('finance-date-from');
+            const toInput = document.getElementById('finance-date-to');
+            const dateSep = document.getElementById('finance-date-sep');
+
+            // Показываем/скрываем поля ввода дат
+            const isCustom = (period === 'custom');
+            if (fromInput) fromInput.style.display = isCustom ? '' : 'none';
+            if (toInput) toInput.style.display = isCustom ? '' : 'none';
+            if (dateSep) dateSep.style.display = isCustom ? '' : 'none';
+
+            if (isCustom) return; // Пользователь введёт даты вручную
+
+            // Рассчитываем диапазон дат по выбранному периоду
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            const todayStr = yyyy + '-' + mm + '-' + dd;
+
+            let fromStr = '';
+            if (period === 'month') {
+                fromStr = yyyy + '-' + mm + '-01';
+            } else if (period === '3months') {
+                const d = new Date(yyyy, today.getMonth() - 2, 1);
+                fromStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
+            } else if (period === '6months') {
+                const d = new Date(yyyy, today.getMonth() - 5, 1);
+                fromStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01';
+            } else if (period === 'year') {
+                fromStr = yyyy + '-01-01';
+            } else if (period === 'all') {
+                fromStr = ''; // Без ограничений
+            }
+
+            if (fromInput) fromInput.value = fromStr;
+            if (toInput) toInput.value = (period === 'all') ? '' : todayStr;
         }
 
         /**
@@ -10949,11 +11000,9 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-filter-type').value = '';
             document.getElementById('finance-filter-account').value = '';
             document.getElementById('finance-filter-category').value = '';
-            // Сбрасываем даты на текущий месяц
-            const today = new Date();
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            document.getElementById('finance-date-from').value = firstDay.toISOString().slice(0, 10);
-            document.getElementById('finance-date-to').value = today.toISOString().slice(0, 10);
+            // Сбрасываем период на текущий месяц
+            document.getElementById('finance-period').value = 'month';
+            applyFinancePeriod();
             document.getElementById('finance-sort').value = 'date:desc';
             // Обновляем категории (показываем все, т.к. тип сброшен)
             updateFinanceCategoryFilter();
