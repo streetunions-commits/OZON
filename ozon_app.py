@@ -5513,6 +5513,13 @@ HTML_TEMPLATE = '''
             flex: 0 0 150px;
         }
 
+        /* Поставки: все 8 карточек сводных данных в одну горизонтальную линию */
+        .supplies-stats-row .currency-rate-card {
+            flex: 1 1 0;
+            width: auto;
+            min-width: 110px;
+        }
+
         .currency-label {
             font-size: 11px;
             color: #555;
@@ -7955,8 +7962,8 @@ HTML_TEMPLATE = '''
                 </div>
                 <!-- Статистика поставок (сворачиваемая) -->
                 <div class="currency-rates-panel" id="supplies-stats-panel">
-                    <!-- Стоимость товара в пути -->
-                    <div class="currency-rates-row" style="flex-wrap: wrap;">
+                    <!-- Все 8 карточек в одну горизонтальную линию -->
+                    <div class="currency-rates-row supplies-stats-row" style="flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
                             <span class="currency-label">Товар в пути</span>
                             <div><span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">шт.</span></div>
@@ -7976,8 +7983,6 @@ HTML_TEMPLATE = '''
                             <div><span class="currency-value" id="logistics-in-transit" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">₽</span></div>
                             <div style="font-size:11px;color:#92400e;margin-top:4px;border-top:1px solid #f59e0b;padding-top:3px;" id="logistics-in-transit-no6">без наценки +6%: —</div>
                         </div>
-                    </div>
-                    <div class="currency-rates-row" style="margin-top: 8px; flex-wrap: wrap;">
                         <div class="currency-rate-card" style="background:#eff6ff; border-color:#3b82f6;">
                             <span class="currency-label">План не доставлен</span>
                             <div><span class="currency-value" id="plan-not-delivered-qty" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">шт.</span></div>
