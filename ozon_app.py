@@ -7813,6 +7813,7 @@ HTML_TEMPLATE = '''
                             <thead>
                                 <tr id="ved-receipts-summary" style="background-color: #e8f4fd; font-weight: 600;">
                                     <th style="text-align: center;">—</th>
+                                    <th style="text-align: center;">—</th>
                                     <th style="text-align: center;">Итого:</th>
                                     <th id="ved-receipts-total-qty" style="text-align: center;">-</th>
                                     <th id="ved-receipts-avg-price" style="text-align: center;">-</th>
@@ -7820,6 +7821,7 @@ HTML_TEMPLATE = '''
                                     <th id="ved-receipts-avg-log" style="text-align: center;">-</th>
                                 </tr>
                                 <tr>
+                                    <th style="text-align: center; width: 50px;">№</th>
                                     <th style="cursor: pointer; text-align: center;" onclick="sortVedReceiptsByDate()">Дата выхода <span id="ved-receipts-sort-icon">↑</span></th>
                                     <th style="text-align: center;">Артикул</th>
                                     <th style="text-align: center;">Кол-во</th>
@@ -14275,6 +14277,7 @@ HTML_TEMPLATE = '''
                 sumQtyLog += qty * logisticsPerUnit;
 
                 row.innerHTML = `
+                    <td style="text-align: center; font-weight: 600; color: #555;">${item.container_id || '-'}</td>
                     <td style="text-align: center;">${dateFormatted}</td>
                     <td style="text-align: center;">${item.article || '-'}</td>
                     <td style="text-align: center;">${formatVedNumber(qty)}</td>
