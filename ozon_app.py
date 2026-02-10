@@ -16581,17 +16581,21 @@ def api_container_messages_send():
     try:
         # Определяем формат запроса: multipart (с файлами) или JSON (только текст)
         files = []
-        if request.content_type and 'multipart/form-data' in request.content_type:
+        content_type = request.content_type or ''
+        print(f"📨 container-messages/send: content_type={content_type}")
+        if 'multipart/form-data' in content_type:
             container_id = request.form.get('container_id', type=int)
             recipient_ids_raw = request.form.get('recipient_ids', '')
             recipient_ids = [int(x) for x in recipient_ids_raw.split(',') if x.strip()]
             message = request.form.get('message', '').strip()
             files = request.files.getlist('files')
+            print(f"📨 MULTIPART: container_id={container_id}, files_count={len(files)}, filenames={[f.filename for f in files]}")
         else:
             data = request.json or {}
             container_id = data.get('container_id')
             recipient_ids = data.get('recipient_ids', [])
             message = data.get('message', '').strip()
+            print(f"📨 JSON: container_id={container_id}, message='{message[:50]}...'")
 
         if not container_id:
             return jsonify({'success': False, 'error': 'Укажите container_id'}), 400
@@ -16631,6 +16635,9 @@ def api_container_messages_send():
         saved_files = []
         if files:
             saved_files = save_message_files(cursor, message_id, container_id, files)
+            print(f"📎 Сохранено файлов: {len(saved_files)} для сообщения #{message_id}")
+        else:
+            print(f"📎 Файлов нет, только текст для сообщения #{message_id}")
 
         # Помечаем как прочитанные только сообщения ОТ тех пользователей, которым мы отвечаем
         # Например: отвечаем Малышеву → сообщения ОТ Малышева становятся прочитанными
@@ -19185,6 +19192,269 @@ def get_products_for_telegram():
         return jsonify({'success': True, 'products': products})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'products': []})
+
+
+@app.route('/api/telegram/containers')
+def get_containers_for_telegram():
+    """
+    Получить список контейнеров ВЭД для выбора в Telegram боте.
+    Авторизация через секретный токен в параметрах.
+
+    Возвращает пагинированный список контейнеров с агрегированными данными:
+    - id, container_date, supplier, items_count, total_qty, total_sum_cny
+
+    Параметры:
+        token: TELEGRAM_BOT_SECRET
+        page: номер страницы (по умолчанию 0)
+        page_size: контейнеров на странице (по умолчанию 6)
+    """
+    try:
+        token = request.args.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        page = request.args.get('page', 0, type=int)
+        page_size = request.args.get('page_size', 6, type=int)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Подсчёт общего количества контейнеров
+        cursor.execute('SELECT COUNT(*) FROM ved_container_docs')
+        total = cursor.fetchone()[0]
+
+        # Запрос контейнеров с агрегацией (паттерн из get_ved_containers)
+        cursor.execute('''
+            SELECT
+                d.id,
+                d.container_date,
+                d.supplier,
+                COALESCE(d.is_completed, 0) as is_completed,
+                COUNT(i.id) as items_count,
+                COALESCE(SUM(i.quantity), 0) as total_qty,
+                COALESCE(SUM(i.quantity * i.price_cny), 0) as total_sum_cny
+            FROM ved_container_docs d
+            LEFT JOIN ved_container_items i ON i.doc_id = d.id
+            GROUP BY d.id
+            ORDER BY d.is_completed ASC, d.container_date DESC, d.created_at DESC
+            LIMIT ? OFFSET ?
+        ''', (page_size, page * page_size))
+
+        containers = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'containers': containers,
+            'total': total,
+            'page': page,
+            'page_size': page_size
+        })
+
+    except Exception as e:
+        print(f"❌ Ошибка get_containers_for_telegram: {e}")
+        return jsonify({'success': False, 'error': str(e), 'containers': []})
+
+
+@app.route('/api/telegram/users')
+def get_users_for_telegram():
+    """
+    Получить список пользователей для выбора получателей в Telegram боте.
+    Авторизация через секретный токен в параметрах.
+
+    Возвращает пользователей с привязанным Telegram (у кого telegram_chat_id != NULL).
+
+    Параметры:
+        token: TELEGRAM_BOT_SECRET
+        exclude_chat_id: исключить пользователя с этим chat_id (отправитель не видит себя)
+    """
+    try:
+        token = request.args.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        exclude_chat_id = request.args.get('exclude_chat_id', '')
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        if exclude_chat_id:
+            cursor.execute('''
+                SELECT id, username, display_name, telegram_chat_id
+                FROM users
+                WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+                AND telegram_chat_id != ?
+                ORDER BY display_name, username
+            ''', (str(exclude_chat_id),))
+        else:
+            cursor.execute('''
+                SELECT id, username, display_name, telegram_chat_id
+                FROM users
+                WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+                ORDER BY display_name, username
+            ''')
+
+        users = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'users': users})
+
+    except Exception as e:
+        print(f"❌ Ошибка get_users_for_telegram: {e}")
+        return jsonify({'success': False, 'error': str(e), 'users': []})
+
+
+@app.route('/api/telegram/send-container-message', methods=['POST'])
+def send_container_message_from_telegram():
+    """
+    Отправить сообщение в контейнер ВЭД из Telegram бота.
+    Поддерживает JSON (только текст) и multipart/form-data (текст + файлы).
+
+    В отличие от /api/container-messages/receive (только ответ без получателей),
+    этот эндпоинт позволяет инициировать сообщение с выбором получателей.
+
+    JSON payload:
+        token: TELEGRAM_BOT_SECRET
+        chat_id: Telegram chat_id отправителя
+        container_id: ID контейнера
+        recipient_ids: массив ID пользователей-получателей
+        message: текст сообщения
+        sender_name: имя отправителя (@username или имя)
+
+    Логика:
+        1. Найти отправителя по chat_id
+        2. Сохранить сообщение в container_messages с recipient_ids
+        3. Сохранить файлы (если есть)
+        4. Пометить прочитанными сообщения от получателей
+        5. Отправить уведомления получателям в Telegram
+    """
+    try:
+        # Определяем формат запроса: multipart (с файлами) или JSON
+        files = []
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            token = request.form.get('token', '')
+            chat_id = request.form.get('chat_id')
+            container_id = request.form.get('container_id', type=int)
+            recipient_ids_raw = request.form.get('recipient_ids', '')
+            recipient_ids = [int(x) for x in recipient_ids_raw.split(',') if x.strip()]
+            message = request.form.get('message', '').strip()
+            sender_name = request.form.get('sender_name', 'Telegram')
+            files = request.files.getlist('files')
+        else:
+            data = request.json or {}
+            token = data.get('token', '')
+            chat_id = data.get('chat_id')
+            container_id = data.get('container_id')
+            recipient_ids = data.get('recipient_ids', [])
+            message = data.get('message', '').strip()
+            sender_name = data.get('sender_name', 'Telegram')
+
+        # Проверяем токен
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        if not container_id:
+            return jsonify({'success': False, 'error': 'Укажите container_id'}), 400
+        if not recipient_ids:
+            return jsonify({'success': False, 'error': 'Укажите получателей'}), 400
+        if not message and not files:
+            return jsonify({'success': False, 'error': 'Введите сообщение или прикрепите файл'}), 400
+        if not chat_id:
+            return jsonify({'success': False, 'error': 'Укажите chat_id'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Находим отправителя по telegram chat_id
+        cursor.execute('SELECT id, username, display_name FROM users WHERE telegram_chat_id = ?', (str(chat_id),))
+        user = cursor.fetchone()
+        sender_id = user['id'] if user else 0
+        sender_display = (user['display_name'] or user['username']) if user else sender_name
+
+        # Проверяем, что контейнер существует
+        cursor.execute('SELECT supplier, container_date FROM ved_container_docs WHERE id = ?', (container_id,))
+        container = cursor.fetchone()
+        if not container:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Контейнер не найден'}), 404
+
+        # Сохраняем сообщение с recipient_ids и sender_type='telegram'
+        cursor.execute('''
+            INSERT INTO container_messages (container_id, message, sender_id, sender_name, recipient_ids, sender_type)
+            VALUES (?, ?, ?, ?, ?, 'telegram')
+        ''', (container_id, message, sender_id, sender_display, ','.join(map(str, recipient_ids))))
+        message_id = cursor.lastrowid
+
+        # Сохраняем прикрепленные файлы (если есть)
+        saved_files = []
+        if files:
+            saved_files = save_message_files(cursor, message_id, container_id, files)
+
+        # Помечаем как прочитанные сообщения ОТ тех пользователей, которым мы отвечаем
+        # (тот же паттерн, что и в api_container_messages_send)
+        if recipient_ids:
+            placeholders = ','.join('?' * len(recipient_ids))
+            cursor.execute(f'''
+                UPDATE container_messages
+                SET is_read = 1
+                WHERE container_id = ?
+                AND sender_id IN ({placeholders})
+                AND (recipient_ids LIKE ? OR recipient_ids IS NULL OR recipient_ids = '')
+            ''', (container_id, *recipient_ids, f'%{sender_id}%'))
+        conn.commit()
+
+        # Отправляем уведомления получателям в Telegram
+        telegram_message_ids = []
+        site_url = os.environ.get('SITE_URL', 'https://moscowseller.ru')
+
+        for recipient_id in recipient_ids:
+            cursor.execute('SELECT telegram_chat_id, username FROM users WHERE id = ?', (recipient_id,))
+            recipient = cursor.fetchone()
+            if recipient and recipient['telegram_chat_id']:
+                recipient_chat_id = recipient['telegram_chat_id']
+                # Не отправляем уведомление самому себе
+                if str(recipient_chat_id) == str(chat_id):
+                    continue
+
+                # Формируем текст уведомления
+                tg_text = f"📦 *Контейнер #{container_id}*\n"
+                tg_text += f"📅 {container['container_date']} | {container['supplier']}\n\n"
+                tg_text += f"💬 *Сообщение от {sender_display}:*\n{message}\n\n"
+                container_url = f"{site_url}/#ved:ved-containers:{container_id}"
+                tg_text += f"🔗 [Открыть контейнер]({container_url})"
+
+                try:
+                    tg_msg_id = send_telegram_container_message(recipient_chat_id, tg_text, container_id, message_id)
+                    if tg_msg_id:
+                        telegram_message_ids.append(str(tg_msg_id))
+                    # Отправляем файлы, если есть
+                    if saved_files:
+                        send_telegram_container_files(recipient_chat_id, saved_files)
+                except Exception as tg_err:
+                    print(f"⚠️ Ошибка отправки в Telegram (chat_id={recipient_chat_id}): {tg_err}")
+
+        # Сохраняем ID сообщений Telegram
+        if telegram_message_ids:
+            cursor.execute('UPDATE container_messages SET telegram_message_ids = ? WHERE id = ?',
+                          (','.join(telegram_message_ids), message_id))
+            conn.commit()
+
+        conn.close()
+        return jsonify({'success': True, 'message_id': message_id})
+
+    except Exception as e:
+        print(f"❌ Ошибка send_container_message_from_telegram: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ============================================================================
