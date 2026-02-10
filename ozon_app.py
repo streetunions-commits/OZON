@@ -8472,15 +8472,7 @@ HTML_TEMPLATE = '''
                     <input type="date" id="finance-date-from" style="width: 140px; display: none;" onchange="loadFinanceRecords()">
                     <span id="finance-date-sep" style="color: #999; display: none;">—</span>
                     <input type="date" id="finance-date-to" style="width: 140px; display: none;" onchange="loadFinanceRecords()">
-                    <span class="finance-filter-sep">|</span>
 
-                    <label>Сортировка:</label>
-                    <select id="finance-sort" style="width: 200px;" onchange="loadFinanceRecords()">
-                        <option value="date:desc">По дате (новые сверху)</option>
-                        <option value="date:asc">По дате (старые сверху)</option>
-                        <option value="amount:desc">По сумме (больше)</option>
-                        <option value="amount:asc">По сумме (меньше)</option>
-                    </select>
 
                     <button class="wh-clear-btn" onclick="resetFinanceFilters()" style="padding: 6px 14px; font-size: 12px;">Сбросить</button>
                 </div>
@@ -10526,8 +10518,6 @@ HTML_TEMPLATE = '''
                 const categoryId = document.getElementById('finance-filter-category')?.value || '';
                 const dateFrom = document.getElementById('finance-date-from')?.value || '';
                 const dateTo = document.getElementById('finance-date-to')?.value || '';
-                const sortVal = document.getElementById('finance-sort')?.value || 'date:desc';
-                const [sortBy, sortDir] = sortVal.split(':');
 
                 const params = new URLSearchParams();
                 if (recordType) params.append('type', recordType);
@@ -10535,8 +10525,8 @@ HTML_TEMPLATE = '''
                 if (categoryId) params.append('category_id', categoryId);
                 if (dateFrom) params.append('date_from', dateFrom);
                 if (dateTo) params.append('date_to', dateTo);
-                params.append('sort_by', sortBy);
-                params.append('sort_dir', sortDir);
+                params.append('sort_by', 'date');
+                params.append('sort_dir', 'desc');
 
                 const resp = await authFetch('/api/finance/records?' + params.toString());
                 const data = await resp.json();
@@ -10999,7 +10989,6 @@ HTML_TEMPLATE = '''
             // Сбрасываем период на текущий месяц
             document.getElementById('finance-period').value = 'month';
             applyFinancePeriod();
-            document.getElementById('finance-sort').value = 'date:desc';
             // Обновляем категории (показываем все, т.к. тип сброшен)
             updateFinanceCategoryFilter();
             loadFinanceRecords();
