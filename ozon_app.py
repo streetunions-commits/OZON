@@ -19410,7 +19410,10 @@ def get_receipt_docs():
                 COALESCE(SUM(r.quantity), 0) as total_qty,
                 COALESCE(SUM(r.quantity * r.purchase_price), 0) as total_sum,
                 COALESCE(SUM(r.quantity * r.calculated_cost), 0) as total_calculated_cost,
-                GROUP_CONCAT(DISTINCT r.sku) as item_skus
+                GROUP_CONCAT(DISTINCT r.sku) as item_skus,
+                CASE WHEN COALESCE(SUM(r.quantity), 0) > COALESCE(
+                    (SELECT SUM(srd.quantity) FROM supply_receipt_distributions srd WHERE srd.receipt_doc_id = d.id), 0
+                ) THEN 1 ELSE 0 END as has_undistributed
             FROM warehouse_receipt_docs d
             LEFT JOIN warehouse_receipts r ON r.doc_id = d.id
             GROUP BY d.id
@@ -19474,6 +19477,96 @@ def get_receipt_doc(doc_id):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/warehouse/receipt-docs/<int:doc_id>/distributions')
+@require_auth(['admin', 'viewer'])
+def get_receipt_doc_distributions(doc_id):
+    """
+    Получить детали распределения прихода по поставкам.
+
+    Для каждой позиции прихода (товара/SKU) возвращает:
+    - Количество в приходе (receipt_qty)
+    - Сколько распределено по поставкам (total_distributed)
+    - Сколько осталось нераспределённым (undistributed)
+    - Массив распределений: по какой поставке, кол-во, себестоимость, дата выхода, контейнер
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем все позиции прихода с их распределениями по поставкам
+        cursor.execute('''
+            SELECT
+                r.id as receipt_item_id,
+                r.sku,
+                r.quantity as receipt_qty,
+                COALESCE(p.name, 'SKU ' || r.sku) as product_name,
+                COALESCE(p.offer_id, '') as offer_id,
+                d.supply_id,
+                d.quantity as dist_qty,
+                d.cost_plus_6,
+                s.exit_factory_date,
+                s.container_doc_id,
+                COALESCE(cd.supplier, '') as container_supplier
+            FROM warehouse_receipts r
+            LEFT JOIN products p ON p.sku = r.sku
+            LEFT JOIN supply_receipt_distributions d ON d.receipt_item_id = r.id
+            LEFT JOIN supplies s ON s.id = d.supply_id
+            LEFT JOIN ved_container_docs cd ON cd.id = s.container_doc_id
+            WHERE r.doc_id = ?
+            ORDER BY r.sku ASC, s.exit_factory_date ASC
+        ''', (doc_id,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Группируем по позиции прихода (receipt_item_id)
+        items_map = {}
+        for row in rows:
+            item_id = row['receipt_item_id']
+            if item_id not in items_map:
+                items_map[item_id] = {
+                    'receipt_item_id': item_id,
+                    'sku': row['sku'],
+                    'product_name': row['product_name'],
+                    'offer_id': row['offer_id'],
+                    'receipt_qty': row['receipt_qty'],
+                    'total_distributed': 0,
+                    'undistributed': row['receipt_qty'],
+                    'distributions': []
+                }
+
+            # Если есть распределение (supply_id не NULL — значит LEFT JOIN нашёл строку)
+            if row['supply_id'] is not None:
+                dist_qty = row['dist_qty'] or 0
+                items_map[item_id]['distributions'].append({
+                    'supply_id': row['supply_id'],
+                    'quantity': dist_qty,
+                    'cost_plus_6': round(row['cost_plus_6'] or 0, 2),
+                    'exit_factory_date': row['exit_factory_date'] or '',
+                    'container_doc_id': row['container_doc_id'],
+                    'container_supplier': row['container_supplier'] or ''
+                })
+                items_map[item_id]['total_distributed'] += dist_qty
+
+        # Вычисляем нераспределённый остаток для каждой позиции
+        items = []
+        has_undistributed = False
+        for item in items_map.values():
+            item['undistributed'] = item['receipt_qty'] - item['total_distributed']
+            if item['undistributed'] > 0:
+                has_undistributed = True
+            items.append(item)
+
+        return jsonify({
+            'success': True,
+            'items': items,
+            'has_undistributed': has_undistributed
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'items': []})
 
 
 @app.route('/api/warehouse/receipts/save-doc', methods=['POST'])
@@ -19908,6 +20001,74 @@ def _redistribute_receipt_docs(cursor, doc_ids):
                 ''', (dist['quantity'], dist['supply_id']))
 
 
+def _auto_distribute_on_container_completed(cursor, container_doc_id):
+    """
+    Автоматическое дораспределение приходов при завершении контейнера.
+
+    Когда контейнер помечается как "завершён", появляются новые строки поставок
+    с доступными остатками. Эта функция находит все приходы, у которых есть
+    нераспределённые единицы для SKU из этого контейнера, и дораспределяет их.
+
+    Логика:
+    1. Получаем список SKU из завершаемого контейнера
+    2. Для каждого SKU находим приходы, где распределено меньше, чем оприходовано
+    3. Для каждого такого прихода — полностью откатываем и перераспределяем
+       (чтобы корректно пересчитать средневзвешенную себестоимость)
+
+    Аргументы:
+        cursor: курсор SQLite (conn.row_factory должен быть sqlite3.Row)
+        container_doc_id (int): ID завершаемого контейнера ВЭД
+    """
+    # Получаем SKU из этого контейнера
+    cursor.execute('''
+        SELECT DISTINCT sku FROM supplies WHERE container_doc_id = ?
+    ''', (container_doc_id,))
+    container_skus = [row['sku'] for row in cursor.fetchall()]
+
+    if not container_skus:
+        return
+
+    # Для каждого SKU находим приходы с нераспределёнными остатками
+    affected_doc_ids = set()
+
+    for sku in container_skus:
+        # Находим все позиции приходов для этого SKU
+        cursor.execute('''
+            SELECT r.id as receipt_item_id, r.doc_id, r.quantity as receipt_qty,
+                   COALESCE(
+                       (SELECT SUM(d.quantity) FROM supply_receipt_distributions d
+                        WHERE d.receipt_item_id = r.id), 0
+                   ) as distributed_qty
+            FROM warehouse_receipts r
+            WHERE r.sku = ?
+        ''', (sku,))
+        for row in cursor.fetchall():
+            # Если распределено меньше, чем оприходовано — есть нераспределённый остаток
+            if row['distributed_qty'] < row['receipt_qty']:
+                affected_doc_ids.add(row['doc_id'])
+
+    if not affected_doc_ids:
+        return
+
+    affected_doc_ids = list(affected_doc_ids)
+
+    # Полностью откатываем и перераспределяем затронутые приходы
+    # (нужен полный откат, чтобы пересчитать средневзвешенную себестоимость)
+    for doc_id in affected_doc_ids:
+        cursor.execute('''
+            SELECT supply_id, quantity FROM supply_receipt_distributions
+            WHERE receipt_doc_id = ?
+        ''', (doc_id,))
+        for dist in cursor.fetchall():
+            cursor.execute('''
+                UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) - ?
+                WHERE id = ?
+            ''', (dist['quantity'], dist['supply_id']))
+        cursor.execute('DELETE FROM supply_receipt_distributions WHERE receipt_doc_id = ?', (doc_id,))
+
+    _redistribute_receipt_docs(cursor, affected_doc_ids)
+
+
 # ============================================================================
 # API ВЭД (КОНТЕЙНЕРЫ)
 # ============================================================================
@@ -20220,6 +20381,7 @@ def toggle_ved_container_completed():
             return jsonify({'success': False, 'error': 'Не указан ID контейнера'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
         if is_completed:
@@ -20231,13 +20393,26 @@ def toggle_ved_container_completed():
                 SET is_completed = 1, cny_rate = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (current_cny_rate, doc_id))
+
+            # Автоматически дораспределяем приходы с нераспределёнными остатками
+            # для SKU из этого контейнера
+            _auto_distribute_on_container_completed(cursor, doc_id)
         else:
-            # При снятии завершения — только меняем флаг, курс остаётся сохранённым
+            # При снятии завершения — откатываем распределения для поставок этого контейнера,
+            # т.к. они больше не считаются "завершёнными"
+            cursor.execute('SELECT id FROM supplies WHERE container_doc_id = ?', (doc_id,))
+            supply_ids = [row['id'] for row in cursor.fetchall()]
+            affected_doc_ids = _rollback_receipt_distributions_for_supplies(cursor, supply_ids)
+
             cursor.execute('''
                 UPDATE ved_container_docs
                 SET is_completed = 0, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (doc_id,))
+
+            # Перераспределяем затронутые приходы (уже без поставок этого контейнера)
+            if affected_doc_ids:
+                _redistribute_receipt_docs(cursor, affected_doc_ids)
 
         conn.commit()
         conn.close()
