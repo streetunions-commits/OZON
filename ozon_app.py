@@ -5287,14 +5287,14 @@ HTML_TEMPLATE = '''
         }
 
         .wh-accordion-content {
-            padding: 16px 20px;
+            padding: 10px 14px;
         }
 
         .wh-accordion-header {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: #333;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -12882,21 +12882,19 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            let html = '<div style="display: flex; gap: 16px; flex-wrap: wrap;">';
+            let html = '<div style="display: flex; gap: 12px; align-items: flex-start;">';
 
             // ========== ОПРИХОДОВАНИЯ ==========
-            html += '<div style="flex: 0 1 auto;">';
-            html += '<div class="wh-accordion-header" style="padding: 6px 0; font-size: 13px;">';
-            html += '<span>📥 Оприходования (' + data.receiptsTotal + ')</span>';
-            html += '</div>';
+            html += '<div style="flex: 1; min-width: 0;">';
+            html += '<div style="padding: 4px 0; font-size: 12px; font-weight: 600; color: #333;">📥 Приход (' + data.receiptsTotal + ')</div>';
 
             if (hasReceipts) {
-                html += '<table class="wh-accordion-table" style="font-size: 12px;">';
+                html += '<table class="wh-accordion-table" style="font-size: 11px; width: 100%;">';
                 html += '<thead><tr>';
-                html += '<th style="width: 30px; padding: 6px 4px;">№</th>';
-                html += '<th style="padding: 6px 8px;">Дата</th>';
-                html += '<th style="padding: 6px 8px;">Кол-во</th>';
-                html += '<th style="padding: 6px 8px;">Цена</th>';
+                html += '<th style="padding: 4px 3px; width: 24px;">№</th>';
+                html += '<th style="padding: 4px 3px;">Дата</th>';
+                html += '<th style="padding: 4px 3px;">Кол</th>';
+                html += '<th style="padding: 4px 3px;">Цена</th>';
                 html += '</tr></thead>';
                 html += '<tbody>';
 
@@ -12909,44 +12907,42 @@ HTML_TEMPLATE = '''
                     totalReceiptQty += qty;
 
                     html += '<tr>';
-                    html += '<td style="color: #667eea; font-weight: 600; text-align: center; padding: 4px;">' + docNum + '</td>';
-                    html += '<td style="padding: 4px 8px;">' + (date || '—') + '</td>';
-                    html += '<td style="color: #16a34a; font-weight: 600; padding: 4px 8px;">+' + qty + '</td>';
-                    html += '<td style="padding: 4px 8px;">' + price + '</td>';
+                    html += '<td style="color: #667eea; font-weight: 600; text-align: center; padding: 3px 2px;">' + docNum + '</td>';
+                    html += '<td style="padding: 3px; white-space: nowrap;">' + (date || '—') + '</td>';
+                    html += '<td style="color: #16a34a; font-weight: 600; padding: 3px;">+' + qty + '</td>';
+                    html += '<td style="padding: 3px; white-space: nowrap;">' + price + '</td>';
                     html += '</tr>';
                 });
 
                 html += '</tbody>';
                 html += '<tfoot><tr>';
-                html += '<td style="padding: 4px;"></td>';
-                html += '<td style="padding: 4px 8px;"><strong>Итого</strong></td>';
-                html += '<td style="color: #16a34a; padding: 4px 8px;"><strong>+' + totalReceiptQty + '</strong></td>';
+                html += '<td style="padding: 3px;"></td>';
+                html += '<td style="padding: 3px;"><strong>Итого</strong></td>';
+                html += '<td style="color: #16a34a; padding: 3px;"><strong>+' + totalReceiptQty + '</strong></td>';
                 html += '<td></td>';
                 html += '</tr></tfoot>';
                 html += '</table>';
 
                 if (data.hasMoreReceipts) {
-                    html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreReceipts(' + sku + ');">Ещё 10 оприходований</button>';
+                    html += '<button class="wh-accordion-more-btn" style="font-size:11px; padding:5px 12px; margin-top:8px;" onclick="event.stopPropagation(); loadMoreReceipts(' + sku + ');">Ещё 10</button>';
                 }
             } else {
-                html += '<div class="wh-accordion-empty">Нет оприходований</div>';
+                html += '<div class="wh-accordion-empty" style="padding:10px; font-size:12px;">Нет оприходований</div>';
             }
             html += '</div>';
 
             // ========== ОТГРУЗКИ ==========
-            html += '<div style="flex: 0 1 auto;">';
-            html += '<div class="wh-accordion-header" style="padding: 6px 0; font-size: 13px;">';
-            html += '<span>📤 Отгрузки (' + data.shipmentsTotal + ')</span>';
-            html += '</div>';
+            html += '<div style="flex: 1; min-width: 0;">';
+            html += '<div style="padding: 4px 0; font-size: 12px; font-weight: 600; color: #333;">📤 Отгрузки (' + data.shipmentsTotal + ')</div>';
 
             if (hasShipments) {
-                html += '<table class="wh-accordion-table" style="font-size: 12px;">';
+                html += '<table class="wh-accordion-table" style="font-size: 11px; width: 100%;">';
                 html += '<thead><tr>';
-                html += '<th style="width: 30px; padding: 6px 4px;">№</th>';
-                html += '<th style="padding: 6px 8px;">Дата</th>';
-                html += '<th style="padding: 6px 8px;">Кол-во</th>';
-                html += '<th style="padding: 6px 8px;">Куда</th>';
-                html += '<th style="padding: 6px 8px;">Статус</th>';
+                html += '<th style="padding: 4px 3px; width: 24px;">№</th>';
+                html += '<th style="padding: 4px 3px;">Дата</th>';
+                html += '<th style="padding: 4px 3px;">Кол</th>';
+                html += '<th style="padding: 4px 3px;">Куда</th>';
+                html += '<th style="padding: 4px 3px; width: 20px;"></th>';
                 html += '</tr></thead>';
                 html += '<tbody>';
 
@@ -12958,33 +12954,33 @@ HTML_TEMPLATE = '''
                     const dest = s.destination || s.doc_destination || '—';
                     const isCompleted = s.is_completed !== 0;
                     const statusBadge = isCompleted
-                        ? '<span style="background: #dcfce7; color: #16a34a; padding: 1px 4px; border-radius: 3px; font-size: 10px;">✓</span>'
-                        : '<span style="background: #fef9c3; color: #ca8a04; padding: 1px 4px; border-radius: 3px; font-size: 10px;">◷</span>';
+                        ? '<span style="color: #16a34a; font-size: 10px;">✓</span>'
+                        : '<span style="color: #ca8a04; font-size: 10px;">◷</span>';
                     totalShipmentQty += qty;
 
                     html += '<tr>';
-                    html += '<td style="color: #667eea; font-weight: 600; text-align: center; padding: 4px;">' + docNum + '</td>';
-                    html += '<td style="padding: 4px 8px;">' + (date || '—') + '</td>';
-                    html += '<td style="color: #dc2626; font-weight: 600; padding: 4px 8px;">−' + qty + '</td>';
-                    html += '<td style="padding: 4px 8px; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + dest + '">' + dest + '</td>';
-                    html += '<td style="padding: 4px 8px; text-align: center;">' + statusBadge + '</td>';
+                    html += '<td style="color: #667eea; font-weight: 600; text-align: center; padding: 3px 2px;">' + docNum + '</td>';
+                    html += '<td style="padding: 3px; white-space: nowrap;">' + (date || '—') + '</td>';
+                    html += '<td style="color: #dc2626; font-weight: 600; padding: 3px;">−' + qty + '</td>';
+                    html += '<td style="padding: 3px; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + dest + '">' + dest + '</td>';
+                    html += '<td style="padding: 3px; text-align: center;">' + statusBadge + '</td>';
                     html += '</tr>';
                 });
 
                 html += '</tbody>';
                 html += '<tfoot><tr>';
-                html += '<td style="padding: 4px;"></td>';
-                html += '<td style="padding: 4px 8px;"><strong>Итого</strong></td>';
-                html += '<td style="color: #dc2626; padding: 4px 8px;"><strong>−' + totalShipmentQty + '</strong></td>';
+                html += '<td style="padding: 3px;"></td>';
+                html += '<td style="padding: 3px;"><strong>Итого</strong></td>';
+                html += '<td style="color: #dc2626; padding: 3px;"><strong>−' + totalShipmentQty + '</strong></td>';
                 html += '<td colspan="2"></td>';
                 html += '</tr></tfoot>';
                 html += '</table>';
 
                 if (data.hasMoreShipments) {
-                    html += '<button class="wh-accordion-more-btn" onclick="event.stopPropagation(); loadMoreShipments(' + sku + ');">Ещё 10 отгрузок</button>';
+                    html += '<button class="wh-accordion-more-btn" style="font-size:11px; padding:5px 12px; margin-top:8px;" onclick="event.stopPropagation(); loadMoreShipments(' + sku + ');">Ещё 10</button>';
                 }
             } else {
-                html += '<div class="wh-accordion-empty">Нет отгрузок</div>';
+                html += '<div class="wh-accordion-empty" style="padding:10px; font-size:12px;">Нет отгрузок</div>';
             }
             html += '</div>';
 
