@@ -5568,11 +5568,22 @@ HTML_TEMPLATE = '''
             flex: 0 0 150px;
         }
 
-        /* Поставки: все 8 карточек сводных данных в одну горизонтальную линию */
+        /* Поставки: все 9 карточек сводных данных в одну горизонтальную линию */
         .supplies-stats-row .currency-rate-card {
             flex: 1 1 0;
             width: auto;
-            min-width: 110px;
+            min-width: 90px;
+            padding: 6px 8px;
+        }
+
+        .supplies-stats-row .currency-value {
+            font-size: 14px;
+        }
+
+        .supplies-stats-row .currency-label {
+            font-size: 10px;
+            min-height: 22px;
+            margin-bottom: 2px;
         }
 
         .currency-label {
@@ -8204,8 +8215,8 @@ HTML_TEMPLATE = '''
                 </div>
                 <!-- Статистика поставок (сворачиваемая) -->
                 <div class="currency-rates-panel" id="supplies-stats-panel">
-                    <!-- Все 8 карточек в одну горизонтальную линию -->
-                    <div class="currency-rates-row supplies-stats-row" style="flex-wrap: wrap;">
+                    <!-- Все 9 карточек в одну горизонтальную линию -->
+                    <div class="currency-rates-row supplies-stats-row" style="flex-wrap: wrap; gap: 6px;">
                         <div class="currency-rate-card" style="background:#fffbeb; border-color:#f59e0b;">
                             <span class="currency-label">Товар в пути</span>
                             <div><span class="currency-value" id="goods-in-transit-qty" style="color:#d97706;">—</span><span class="currency-rub" style="color:#92400e;">шт.</span></div>
@@ -8244,6 +8255,10 @@ HTML_TEMPLATE = '''
                             <div><span class="currency-value" id="logistics-plan" style="color:#2563eb;">—</span><span class="currency-rub" style="color:#1e40af;">₽</span></div>
                             <div style="font-size:11px;color:#1e40af;margin-top:4px;border-top:1px solid #3b82f6;padding-top:3px;" id="logistics-plan-no6">без наценки +6%: —</div>
                         </div>
+                        <div class="currency-rate-card" style="background:#f0fdf4; border-color:#22c55e;">
+                            <span class="currency-label">Уже оплаченная логистика</span>
+                            <div><span class="currency-value" id="paid-logistics-total" style="color:#16a34a;">—</span><span class="currency-rub" style="color:#15803d;">₽</span></div>
+                        </div>
                     </div>
                 </div>
 
@@ -8265,8 +8280,8 @@ HTML_TEMPLATE = '''
                                     <th class="sortable-date" data-col="1" onclick="sortSuppliesByDate(1)">Дата выхода<br>с фабрики <span class="sort-arrow"></span></th>
                                     <th>Кол-во выхода<br>с фабрики</th>
                                     <th>Кол-во прихода<br>на склад</th>
-                                    <th title="Под чертой указана сумма на текущий момент" style="cursor: help;">Логистика<br>за ед., ₽</th>
-                                    <th title="Под чертой указана сумма на текущий момент" style="cursor: help;">Цена товара<br>единица, ₽</th>
+                                    <th title="Средняя стоимость из незакрытых контейнеров. Под чертой указана сумма на текущий момент" style="cursor: help;">Логистика<br>за ед., ₽</th>
+                                    <th title="Средняя стоимость из незакрытых контейнеров. Под чертой указана сумма на текущий момент" style="cursor: help;">Цена товара<br>единица, ₽</th>
                                     <th>Себестоимость<br>товара +6%, ₽</th>
                                 </tr>
                                 <tr class="supplies-totals-row" id="supplies-tfoot-row"></tr>
@@ -16971,6 +16986,11 @@ HTML_TEMPLATE = '''
             // Проверяем, завершён ли контейнер (данные показываем только для завершённых)
             const isContainerCompleted = data && (data.container_is_completed === 1 || data.container_is_completed === true);
 
+            // Сохраняем данные в data-атрибуты для расчёта сводных карточек
+            row.dataset.containerCompleted = isContainerCompleted ? '1' : '0';
+            row.dataset.logisticsCost = data ? (data.logistics_cost_per_unit || 0) : 0;
+            row.dataset.exitFactoryQty = data ? (data.exit_factory_qty || 0) : 0;
+
             // Данные из конкретного контейнера (не усреднённые!)
             // logistics_cost_per_unit - уже рассчитано при создании поставки из контейнера
             // price_cny * adjusted_rate - цена в рублях (с учётом процента наценки)
@@ -18050,6 +18070,19 @@ HTML_TEMPLATE = '''
             fillNo6(document.getElementById('plan-cost-no6'), totalPlanCostFullNo6);
             fillNo6(document.getElementById('plan-cost-no-log-no6'), totalPlanCostNoLogNo6);
             fillNo6(document.getElementById('logistics-plan-no6'), totalPlanLogistics);
+
+            // 9-я карточка: Уже оплаченная логистика (для незавершённых контейнеров)
+            // Суммируем: logistics_cost_per_unit × exit_factory_qty по каждому товару из незавершённых контейнеров
+            let totalPaidLogistics = 0;
+            rows.forEach(row => {
+                const completed = row.dataset.containerCompleted === '1';
+                if (!completed) {
+                    const logCost = parseFloat(row.dataset.logisticsCost) || 0;
+                    const exitQty = parseFloat(row.dataset.exitFactoryQty) || 0;
+                    totalPaidLogistics += logCost * exitQty;
+                }
+            });
+            fillVal(document.getElementById('paid-logistics-total'), totalPaidLogistics);
         }
 
         // ============================================================
