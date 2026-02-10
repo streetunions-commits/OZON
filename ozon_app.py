@@ -8398,8 +8398,6 @@ HTML_TEMPLATE = '''
                                        onclick="toggleFinanceAccountDropdown()"
                                        oninput="filterFinanceAccounts()">
                                 <div class="destination-dropdown" id="finance-account-dropdown"></div>
-                                <button type="button" class="wh-add-btn-small admin-only"
-                                        onclick="addNewFinanceAccount()" title="Добавить счёт">+</button>
                             </div>
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 220px;">
@@ -8410,8 +8408,6 @@ HTML_TEMPLATE = '''
                                        onclick="toggleFinanceCategoryDropdown()"
                                        oninput="filterFinanceCategories()">
                                 <div class="destination-dropdown" id="finance-category-dropdown"></div>
-                                <button type="button" class="wh-add-btn-small admin-only"
-                                        onclick="addNewFinanceCategoryFromForm()" title="Добавить категорию">+</button>
                             </div>
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 160px;">
@@ -10867,7 +10863,7 @@ HTML_TEMPLATE = '''
                 if (found) {
                     selectedFinanceAccountId = found.id;
                 } else {
-                    alert('Выберите счёт из списка или добавьте новый кнопкой "+"');
+                    alert('Выберите счёт из списка. Новые счета добавляются в разделе «Управление счетами»');
                     document.getElementById('finance-account-input').focus();
                     return;
                 }
@@ -10879,7 +10875,7 @@ HTML_TEMPLATE = '''
                 if (foundCat) {
                     selectedFinanceCategoryId = foundCat.id;
                 } else {
-                    alert('Выберите категорию из списка или добавьте новую кнопкой "+"');
+                    alert('Выберите категорию из списка. Новые категории добавляются в разделе «Управление категориями»');
                     document.getElementById('finance-category-input').focus();
                     return;
                 }
@@ -11088,52 +11084,6 @@ HTML_TEMPLATE = '''
             input.value = name;
             selectedFinanceAccountId = id;
             dropdown.classList.remove('show');
-        }
-
-        /**
-         * Добавить новый финансовый счёт через API.
-         * Введённое в input название добавляется в справочник.
-         */
-        async function addNewFinanceAccount() {
-            const input = document.getElementById('finance-account-input');
-            const name = (input.value || '').trim();
-
-            if (!name) {
-                alert('Введите название счёта');
-                input.focus();
-                return;
-            }
-
-            // Проверяем, не существует ли уже
-            if (financeAccounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
-                // Если уже есть — просто выбираем его
-                const existing = financeAccounts.find(a => a.name.toLowerCase() === name.toLowerCase());
-                selectFinanceAccount(existing.name, existing.id);
-                return;
-            }
-
-            try {
-                const resp = await authFetch('/api/finance/accounts/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
-                });
-                const data = await resp.json();
-
-                if (data.success) {
-                    // Добавляем в локальный массив и выбираем
-                    financeAccounts.push({ id: data.id, name: name, is_default: false });
-                    selectedFinanceAccountId = data.id;
-                    renderFinanceAccountDropdown('');
-                    // Обновляем фильтр
-                    loadFinanceAccounts();
-                    alert('Счёт "' + name + '" добавлен');
-                } else {
-                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
-                }
-            } catch (e) {
-                console.error('Ошибка добавления счёта:', e);
-            }
         }
 
         // Примечание: закрытие dropdown счетов обрабатывается общим обработчиком
@@ -11346,46 +11296,6 @@ HTML_TEMPLATE = '''
          * Добавить новую категорию через API (из формы).
          * Введённое в input название добавляется в справочник.
          */
-        async function addNewFinanceCategoryFromForm() {
-            const input = document.getElementById('finance-category-input');
-            const name = (input.value || '').trim();
-            const currentType = document.getElementById('finance-type')?.value || 'expense';
-
-            if (!name) {
-                alert('Введите название категории');
-                input.focus();
-                return;
-            }
-
-            // Проверяем, не существует ли уже категория с таким именем И типом
-            if (financeCategories.some(c => c.name.toLowerCase() === name.toLowerCase() && c.record_type === currentType)) {
-                const existing = financeCategories.find(c => c.name.toLowerCase() === name.toLowerCase() && c.record_type === currentType);
-                selectFinanceCategory(existing.name, existing.id);
-                return;
-            }
-
-            try {
-                const resp = await authFetch('/api/finance/categories/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name, record_type: currentType })
-                });
-                const data = await resp.json();
-
-                if (data.success) {
-                    financeCategories.push({ id: data.id, name: name, record_type: currentType });
-                    selectedFinanceCategoryId = data.id;
-                    renderFinanceCategoryDropdown('');
-                    loadFinanceCategories();
-                    alert('Категория "' + name + '" добавлена');
-                } else {
-                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
-                }
-            } catch (e) {
-                console.error('Ошибка добавления категории:', e);
-            }
-        }
-
         // Закрытие dropdown категорий при клике вне его
         document.addEventListener('click', function(e) {
             const wrappers = document.querySelectorAll('#finance-form .destination-dropdown-wrapper');
