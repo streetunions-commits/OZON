@@ -19144,8 +19144,18 @@ def delete_supply():
         supply_id = data.get('id')
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Перед удалением — откатываем распределения приходов для этой поставки
+        affected_receipt_doc_ids = _rollback_receipt_distributions_for_supplies(cursor, [supply_id])
+
         cursor.execute('DELETE FROM supplies WHERE id = ?', (supply_id,))
+
+        # Перераспределяем затронутые приходы по оставшимся поставкам
+        if affected_receipt_doc_ids:
+            _redistribute_receipt_docs(cursor, affected_receipt_doc_ids)
+
         conn.commit()
         conn.close()
 
@@ -19730,6 +19740,166 @@ def delete_receipt_doc():
 
 
 # ============================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ: ОТКАТ И ПЕРЕРАСПРЕДЕЛЕНИЕ ПРИХОДОВ
+# ============================================================================
+# При удалении/пересоздании строк поставок (supplies) нужно откатить
+# распределения приходов, которые ссылаются на эти поставки, а затем
+# перераспределить приходы по новым строкам поставок.
+# Без этого данные arrival_warehouse_qty теряются (баг: supply удалена,
+# а supply_receipt_distributions ссылается на несуществующий supply_id).
+# ============================================================================
+
+
+def _rollback_receipt_distributions_for_supplies(cursor, supply_ids):
+    """
+    Откатить распределения приходов, связанные с указанными строками поставок.
+
+    Для каждого затронутого документа прихода:
+    1. Уменьшаем arrival_warehouse_qty в поставках на распределённое кол-во
+    2. Удаляем записи из supply_receipt_distributions
+
+    Аргументы:
+        cursor: курсор SQLite (conn.row_factory должен быть sqlite3.Row)
+        supply_ids (list[int]): ID строк поставок, которые будут удалены
+
+    Возвращает:
+        list[int]: ID документов приходов, которые нужно перераспределить
+    """
+    if not supply_ids:
+        return []
+
+    placeholders = ','.join('?' * len(supply_ids))
+
+    # Находим все документы приходов, затронутые удалением этих поставок
+    cursor.execute(f'''
+        SELECT DISTINCT receipt_doc_id FROM supply_receipt_distributions
+        WHERE supply_id IN ({placeholders})
+    ''', supply_ids)
+    affected_doc_ids = [row['receipt_doc_id'] for row in cursor.fetchall()]
+
+    if not affected_doc_ids:
+        return []
+
+    # Для каждого затронутого прихода откатываем ВСЕ его распределения
+    # (не только для удаляемых поставок), чтобы потом перераспределить целиком
+    for doc_id in affected_doc_ids:
+        cursor.execute('''
+            SELECT supply_id, quantity FROM supply_receipt_distributions
+            WHERE receipt_doc_id = ?
+        ''', (doc_id,))
+        for dist in cursor.fetchall():
+            cursor.execute('''
+                UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) - ?
+                WHERE id = ?
+            ''', (dist['quantity'], dist['supply_id']))
+
+        cursor.execute('DELETE FROM supply_receipt_distributions WHERE receipt_doc_id = ?', (doc_id,))
+
+    return affected_doc_ids
+
+
+def _redistribute_receipt_docs(cursor, doc_ids):
+    """
+    Перераспределить приходы по текущим строкам поставок.
+
+    Для каждого документа прихода:
+    1. Получаем все позиции (SKU + кол-во)
+    2. Для каждой позиции находим завершённые поставки с доступным остатком
+    3. Распределяем по FIFO (сначала ранние поставки)
+    4. Рассчитываем средневзвешенную себестоимость +6%
+    5. Обновляем warehouse_receipts.calculated_cost
+    6. Записываем распределения в supply_receipt_distributions
+    7. Обновляем arrival_warehouse_qty в поставках
+
+    Аргументы:
+        cursor: курсор SQLite (conn.row_factory должен быть sqlite3.Row)
+        doc_ids (list[int]): ID документов приходов для перераспределения
+    """
+    for doc_id in doc_ids:
+        # Получаем позиции прихода
+        cursor.execute('''
+            SELECT id, sku, receipt_date, quantity, purchase_price
+            FROM warehouse_receipts WHERE doc_id = ?
+        ''', (doc_id,))
+        receipt_items = cursor.fetchall()
+
+        for item in receipt_items:
+            receipt_item_id = item['id']
+            sku = item['sku']
+            receipt_qty = item['quantity']
+            receipt_date = item['receipt_date'] or ''
+            manual_price = item['purchase_price'] or 0
+
+            # Находим строки поставок для этого SKU (только завершённые контейнеры)
+            cursor.execute('''
+                SELECT s.id, s.exit_factory_qty, COALESCE(s.arrival_warehouse_qty, 0) as arrival_qty,
+                       s.logistics_cost_per_unit, s.price_cny,
+                       COALESCE(d.cny_rate, 0) as cny_rate,
+                       COALESCE(d.cny_percent, 0) as cny_percent
+                FROM supplies s
+                LEFT JOIN ved_container_docs d ON s.container_doc_id = d.id
+                WHERE s.sku = ? AND COALESCE(d.is_completed, 0) = 1
+                ORDER BY s.exit_factory_date ASC, s.id ASC
+            ''', (sku,))
+            supply_rows = cursor.fetchall()
+
+            # Распределяем приход по строкам поставок
+            remaining_qty = receipt_qty
+            distributions = []
+
+            for supply in supply_rows:
+                if remaining_qty <= 0:
+                    break
+                available = supply['exit_factory_qty'] - supply['arrival_qty']
+                if available <= 0:
+                    continue
+
+                to_distribute = min(remaining_qty, available)
+
+                # Рассчитываем себестоимость +6%
+                logistics = supply['logistics_cost_per_unit'] or 0
+                price_cny = supply['price_cny'] or 0
+                cny_rate = supply['cny_rate'] or 0
+                cny_percent = supply['cny_percent'] or 0
+                adjusted_rate = cny_rate * (1 + cny_percent / 100)
+                price_rub = price_cny * adjusted_rate
+                cost_plus_6 = (logistics + price_rub) * 1.06
+
+                distributions.append({
+                    'supply_id': supply['id'],
+                    'quantity': to_distribute,
+                    'cost_plus_6': cost_plus_6
+                })
+                remaining_qty -= to_distribute
+
+            # Рассчитываем средневзвешенную себестоимость
+            total_qty = sum(d['quantity'] for d in distributions)
+            if total_qty > 0:
+                weighted_cost = sum(d['quantity'] * d['cost_plus_6'] for d in distributions) / total_qty
+            else:
+                weighted_cost = manual_price
+
+            # Обновляем рассчитанную себестоимость в позиции прихода
+            cursor.execute('''
+                UPDATE warehouse_receipts SET calculated_cost = ? WHERE id = ?
+            ''', (weighted_cost, receipt_item_id))
+
+            # Сохраняем распределения и обновляем поставки
+            for dist in distributions:
+                cursor.execute('''
+                    INSERT INTO supply_receipt_distributions
+                    (supply_id, receipt_item_id, receipt_doc_id, quantity, cost_plus_6, receipt_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (dist['supply_id'], receipt_item_id, doc_id, dist['quantity'], dist['cost_plus_6'], receipt_date))
+
+                cursor.execute('''
+                    UPDATE supplies SET arrival_warehouse_qty = COALESCE(arrival_warehouse_qty, 0) + ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (dist['quantity'], dist['supply_id']))
+
+
+# ============================================================================
 # API ВЭД (КОНТЕЙНЕРЫ)
 # ============================================================================
 
@@ -19875,7 +20045,11 @@ def save_ved_container():
         username = get_user_display_name(user_id)
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # ID затронутых приходов, которые нужно перераспределить после пересоздания поставок
+        affected_receipt_doc_ids = []
 
         if doc_id:
             # Редактирование существующего документа
@@ -19885,6 +20059,12 @@ def save_ved_container():
                     updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (container_date, supplier, comment, important, cny_rate, cny_percent, username, doc_id))
+
+            # Перед удалением поставок — откатываем распределения приходов,
+            # которые ссылаются на эти поставки (иначе arrival_warehouse_qty потеряется)
+            cursor.execute('SELECT id FROM supplies WHERE container_doc_id = ?', (doc_id,))
+            old_supply_ids = [row['id'] for row in cursor.fetchall()]
+            affected_receipt_doc_ids = _rollback_receipt_distributions_for_supplies(cursor, old_supply_ids)
 
             # Удаляем старые позиции и связанные записи в supplies
             cursor.execute('DELETE FROM ved_container_items WHERE doc_id = ?', (doc_id,))
@@ -19959,6 +20139,10 @@ def save_ved_container():
                 UPDATE ved_container_docs SET is_completed = 0 WHERE id = ?
             ''', (doc_id,))
 
+        # После пересоздания поставок — перераспределяем затронутые приходы
+        if affected_receipt_doc_ids:
+            _redistribute_receipt_docs(cursor, affected_receipt_doc_ids)
+
         conn.commit()
         conn.close()
 
@@ -19981,7 +20165,13 @@ def delete_ved_container():
             return jsonify({'success': False, 'error': 'Не указан ID контейнера'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Перед удалением поставок — откатываем распределения приходов
+        cursor.execute('SELECT id FROM supplies WHERE container_doc_id = ?', (doc_id,))
+        old_supply_ids = [row['id'] for row in cursor.fetchall()]
+        affected_receipt_doc_ids = _rollback_receipt_distributions_for_supplies(cursor, old_supply_ids)
 
         # Удаляем связанные записи в supplies
         cursor.execute('DELETE FROM supplies WHERE container_doc_id = ?', (doc_id,))
@@ -19991,6 +20181,10 @@ def delete_ved_container():
 
         # Удаляем шапку
         cursor.execute('DELETE FROM ved_container_docs WHERE id = ?', (doc_id,))
+
+        # Перераспределяем затронутые приходы по оставшимся поставкам
+        if affected_receipt_doc_ids:
+            _redistribute_receipt_docs(cursor, affected_receipt_doc_ids)
 
         conn.commit()
         conn.close()
