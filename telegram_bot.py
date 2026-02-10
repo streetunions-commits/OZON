@@ -97,6 +97,13 @@ STATE_MSG_RECIPIENTS = 201          # Выбор получателей (мул�
 STATE_MSG_TEXT = 202                # Ввод текста сообщения / прикрепление файла
 STATE_MSG_CONFIRM = 203             # Подтверждение перед отправкой
 
+# Состояния для финансового модуля (300-399)
+STATE_FIN_TYPE = 300               # Выбор типа: доход или расход
+STATE_FIN_AMOUNT = 301             # Ввод суммы
+STATE_FIN_ACCOUNT = 302            # Выбор счёта/источника
+STATE_FIN_DESCRIPTION = 303        # Ввод описания (на что)
+STATE_FIN_CONFIRM = 304            # Подтверждение перед сохранением
+
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
 
@@ -193,6 +200,63 @@ def create_receipt(receipt_data: dict) -> dict:
         return {'success': False, 'error': str(e)}
 
 
+def get_finance_accounts() -> list:
+    """
+    Получить список финансовых счетов с сервера.
+
+    Возвращает:
+        Список счетов: [{'id': 1, 'name': 'ООО'}, ...]
+    """
+    try:
+        response = requests.get(
+            f'{API_BASE_URL}/api/telegram/finance/accounts',
+            params={'token': TELEGRAM_BOT_SECRET},
+            timeout=10
+        )
+        data = response.json()
+        if data.get('success'):
+            return data.get('accounts', [])
+        else:
+            logger.error(f"Ошибка API (финансовые счета): {data.get('error')}")
+            return []
+    except Exception as e:
+        logger.error(f"Ошибка получения финансовых счетов: {e}")
+        return []
+
+
+def create_finance_record(record_data: dict) -> dict:
+    """
+    Создать финансовую запись на сервере.
+
+    Аргументы:
+        record_data: Данные записи (record_type, amount, account_id, description, telegram_chat_id, telegram_username)
+
+    Возвращает:
+        {'success': True, 'id': 123} или {'success': False, 'error': 'текст'}
+    """
+    try:
+        record_data['token'] = TELEGRAM_BOT_SECRET
+        response = requests.post(
+            f'{API_BASE_URL}/api/telegram/finance/add',
+            json=record_data,
+            timeout=10
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка создания финансовой записи: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def format_amount(amount: float) -> str:
+    """
+    Форматирует число с пробелами между разрядами.
+    Пример: 15000.50 → '15 000.50', 5000 → '5 000'
+    """
+    if amount == int(amount):
+        return f"{int(amount):,}".replace(',', ' ')
+    return f"{amount:,.2f}".replace(',', ' ')
+
+
 def send_reply_to_server(chat_id: int, message: str, reply_to_message_id: int, sender_name: str) -> dict:
     """
     Отправить ответ пользователя на сервер.
@@ -283,6 +347,7 @@ def get_main_menu():
     """
     keyboard = [
         ["📦 Новый приход"],
+        ["💰 Финансы"],
         ["✉️ Сообщение", "📊 Остатки"],
         ["❓ Помощь"]
     ]
@@ -1872,6 +1937,256 @@ async def msg_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ============================================================================
+# ФИНАНСЫ — ДИАЛОГ ДОБАВЛЕНИЯ ДОХОДОВ/РАСХОДОВ
+# ============================================================================
+# Пошаговый диалог: Тип → Сумма → Счёт → Описание → Подтверждение.
+# Данные сохраняются в context.user_data['finance'] и отправляются на API.
+# ============================================================================
+
+
+async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Начало диалога финансов.
+    Показывает выбор типа записи: Расход или Доход.
+    """
+    chat_id = update.effective_chat.id
+    if not is_authorized(chat_id):
+        await update.message.reply_text("⛔ У вас нет доступа к этому боту.")
+        return ConversationHandler.END
+
+    # Инициализируем данные финансовой записи
+    user = update.effective_user
+    username = user.username or user.first_name or str(chat_id)
+    context.user_data['finance'] = {
+        'record_type': None,
+        'amount': None,
+        'account_id': None,
+        'account_name': None,
+        'description': None,
+        'telegram_chat_id': chat_id,
+        'telegram_username': username
+    }
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📉 Расход", callback_data="fin_type:expense"),
+            InlineKeyboardButton("📈 Доход", callback_data="fin_type:income")
+        ]
+    ]
+    await update.message.reply_text(
+        "💰 *ФИНАНСЫ*\n\nВыберите тип записи:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_TYPE
+
+
+async def finance_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора типа (расход/доход).
+    Запрашивает ввод суммы.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    record_type = query.data.split(':')[1]  # 'expense' или 'income'
+    context.user_data['finance']['record_type'] = record_type
+
+    type_label = "📉 РАСХОД" if record_type == 'expense' else "📈 ДОХОД"
+    await query.edit_message_text(
+        f"💰 *{type_label}*\n\n"
+        "💵 Введите сумму (в рублях):",
+        parse_mode='Markdown'
+    )
+    return STATE_FIN_AMOUNT
+
+
+async def finance_amount_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка введённой суммы.
+    Валидирует число, загружает список счетов и показывает выбор.
+    """
+    text = update.message.text.strip().replace(',', '.').replace(' ', '')
+    try:
+        amount = float(text)
+        if amount <= 0:
+            raise ValueError("Сумма должна быть больше 0")
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Введите корректную сумму (число больше 0).\n"
+            "Примеры: 5000, 15000.50, 1500"
+        )
+        return STATE_FIN_AMOUNT
+
+    context.user_data['finance']['amount'] = amount
+
+    # Загружаем список счетов с сервера
+    accounts = get_finance_accounts()
+    if not accounts:
+        await update.message.reply_text(
+            "❌ Не удалось загрузить список счетов. Попробуйте позже.",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    # Формируем inline-кнопки со счетами (по 2 в ряд)
+    keyboard = []
+    row = []
+    for acc in accounts:
+        # Ограничиваем длину callback_data: fin_acc:id:name (до 64 байт)
+        acc_name = acc['name'][:30]
+        row.append(InlineKeyboardButton(
+            acc['name'],
+            callback_data=f"fin_acc:{acc['id']}:{acc_name}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    formatted = format_amount(amount)
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+
+    await update.message.reply_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n\n"
+        "🏦 Выберите счёт / источник:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_ACCOUNT
+
+
+async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора счёта.
+    Запрашивает описание (на что потрачено / за что получено).
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Парсим callback: fin_acc:id:name
+    parts = query.data.split(':', 2)
+    account_id = int(parts[1])
+    account_name = parts[2]
+
+    context.user_data['finance']['account_id'] = account_id
+    context.user_data['finance']['account_name'] = account_name
+
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(account_name)}*\n\n"
+        "📝 Введите описание (на что потрачено / за что получено):",
+        parse_mode='Markdown'
+    )
+    return STATE_FIN_DESCRIPTION
+
+
+async def finance_description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка введённого описания.
+    Показывает итоговую сводку для подтверждения.
+    """
+    description = update.message.text.strip()
+    if not description:
+        await update.message.reply_text("❌ Введите описание:")
+        return STATE_FIN_DESCRIPTION
+
+    context.user_data['finance']['description'] = description
+    fin = context.user_data['finance']
+
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes"),
+            InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")
+        ]
+    ]
+
+    await update.message.reply_text(
+        f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
+        f"Тип: {escape_md(type_label)}\n"
+        f"Сумма: *{escape_md(formatted)} ₽*\n"
+        f"Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"Описание: {escape_md(description)}\n\n"
+        "Всё верно?",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_CONFIRM
+
+
+async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка подтверждения или отмены.
+    При подтверждении — отправляет данные на API.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data.split(':')[1]
+
+    if action == 'no':
+        await query.edit_message_text("❌ Операция отменена.")
+        await query.message.reply_text(
+            "Выберите действие 👇",
+            reply_markup=get_main_menu()
+        )
+        return ConversationHandler.END
+
+    fin = context.user_data['finance']
+    result = create_finance_record({
+        'record_type': fin['record_type'],
+        'amount': fin['amount'],
+        'account_id': fin['account_id'],
+        'description': fin['description'],
+        'telegram_chat_id': fin['telegram_chat_id'],
+        'telegram_username': fin['telegram_username']
+    })
+
+    if result.get('success'):
+        type_emoji = "📉" if fin['record_type'] == 'expense' else "📈"
+        formatted = format_amount(fin['amount'])
+        await query.edit_message_text(
+            f"✅ *Запись сохранена\\!*\n\n"
+            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}\n"
+            f"📝 {escape_markdown(fin['description'])}",
+            parse_mode='MarkdownV2'
+        )
+    else:
+        error_msg = result.get('error', 'Неизвестная ошибка')
+        await query.edit_message_text(
+            f"❌ Ошибка сохранения: {error_msg}"
+        )
+
+    await query.message.reply_text(
+        "Выберите действие 👇",
+        reply_markup=get_main_menu()
+    )
+    return ConversationHandler.END
+
+
+async def finance_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Отмена диалога финансов через /cancel.
+    """
+    await update.message.reply_text(
+        "❌ Финансовая операция отменена.",
+        reply_markup=get_main_menu()
+    )
+    return ConversationHandler.END
+
+
+# ============================================================================
 # ЗАПУСК БОТА
 # ============================================================================
 
@@ -2013,12 +2328,43 @@ def main():
         ]
     )
 
+    # Обработчик диалога финансов (доход/расход)
+    finance_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r'^💰 Финансы$'), finance_start)
+        ],
+        states={
+            STATE_FIN_TYPE: [
+                CallbackQueryHandler(finance_type_selected, pattern=r'^fin_type:')
+            ],
+            STATE_FIN_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, finance_amount_entered)
+            ],
+            STATE_FIN_ACCOUNT: [
+                CallbackQueryHandler(finance_account_selected, pattern=r'^fin_acc:')
+            ],
+            STATE_FIN_DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
+            ],
+            STATE_FIN_CONFIRM: [
+                CallbackQueryHandler(finance_confirm, pattern=r'^fin_confirm:')
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', finance_cancel),
+            CommandHandler('stop', finance_cancel),
+            # Позволяем перезапустить флоу
+            MessageHandler(filters.Regex(r'^💰 Финансы$'), finance_start),
+        ]
+    )
+
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(container_reply_handler)  # Обработчик ответов на контейнеры
     application.add_handler(send_message_handler)  # Отправка сообщений в контейнер
+    application.add_handler(finance_handler)  # Финансы: доход/расход
     application.add_handler(receipt_handler)
 
     # Обработчик кнопок главного меню (должен быть после receipt_handler)

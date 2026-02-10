@@ -933,6 +933,68 @@ def init_database():
         print("⚠️  ВАЖНО: Смените пароли после первого входа!")
 
     # ============================================================================
+    # ФИНАНСЫ: справочник счетов/источников
+    # ============================================================================
+    # Таблица для хранения финансовых счетов/источников средств
+    # (ООО, Наличные, Карта Tinkoff и т.д.)
+    # Пользователь может создавать новые через dropdown в UI или они предзаполнены.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            is_default INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Предзаполнение дефолтных счетов при первом запуске
+    cursor.execute('SELECT COUNT(*) FROM finance_accounts')
+    if cursor.fetchone()[0] == 0:
+        default_accounts = [
+            ('ООО', 1),
+            ('Наличные', 1),
+            ('Карта Tinkoff', 1),
+            ('Карта Сбербанк', 1),
+        ]
+        cursor.executemany(
+            'INSERT INTO finance_accounts (name, is_default) VALUES (?, ?)',
+            default_accounts
+        )
+        print("✅ Созданы дефолтные финансовые счета: ООО, Наличные, Карта Tinkoff, Карта Сбербанк")
+
+    # ============================================================================
+    # ФИНАНСЫ: записи доходов и расходов
+    # ============================================================================
+    # Основная таблица для хранения всех финансовых операций.
+    # record_type: 'income' (доход) или 'expense' (расход)
+    # account_name хранится денормализованно, чтобы при переименовании счёта
+    # исторические записи сохраняли оригинальное название.
+    # source: 'web' (из веб-интерфейса) или 'telegram' (из Telegram-бота)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            record_type TEXT NOT NULL CHECK(record_type IN ('income', 'expense')),
+            amount REAL NOT NULL,
+            account_id INTEGER NOT NULL,
+            account_name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            created_by TEXT DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'web' CHECK(source IN ('web', 'telegram')),
+            telegram_chat_id INTEGER,
+            telegram_username TEXT DEFAULT '',
+            record_date DATE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+        )
+    ''')
+
+    # Индексы для быстрой фильтрации и сортировки
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_date ON finance_records(record_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_type ON finance_records(record_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_records_account ON finance_records(account_id)')
+
+    # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
     # Сиротские отгрузки — записи в warehouse_shipments без связанного документа
@@ -4420,6 +4482,40 @@ HTML_TEMPLATE = '''
                 padding: 16px;
             }
 
+            /* --- Финансы (мобильная адаптация) --- */
+            .finance-summary {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .finance-summary-card {
+                min-width: auto;
+                padding: 14px 16px;
+            }
+            .finance-summary-card .value {
+                font-size: 20px;
+            }
+            .finance-filters {
+                flex-direction: column;
+                gap: 8px;
+                align-items: stretch;
+                padding: 12px 14px;
+            }
+            .finance-filters select,
+            .finance-filters input[type="date"] {
+                width: 100%;
+            }
+            .finance-filter-sep {
+                display: none;
+            }
+            .finance-form-row {
+                flex-direction: column;
+                gap: 12px;
+            }
+            .finance-form-field {
+                min-width: auto;
+                width: 100%;
+            }
+
             /* --- Сообщения --- */
             .messages-tab {
                 padding: 12px;
@@ -5801,6 +5897,163 @@ HTML_TEMPLATE = '''
         .destination-dropdown-item.selected {
             background: #667eea;
             color: white;
+        }
+
+        /* ============================================ */
+        /* ФИНАНСЫ — стили модуля доходов/расходов      */
+        /* ============================================ */
+
+        /* Карточки сводки (доход, расход, баланс) */
+        .finance-summary {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .finance-summary-card {
+            flex: 1;
+            min-width: 200px;
+            padding: 20px 24px;
+            border-radius: 12px;
+            background: #f8f9fb;
+            border: 1px solid #e9ecef;
+            transition: box-shadow 0.2s;
+        }
+        .finance-summary-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .finance-summary-card.income {
+            border-left: 4px solid #22c55e;
+        }
+        .finance-summary-card.expense {
+            border-left: 4px solid #ef4444;
+        }
+        .finance-summary-card.balance {
+            border-left: 4px solid #667eea;
+        }
+        .finance-summary-card .label {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        .finance-summary-card .value {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .finance-summary-card.income .value { color: #22c55e; }
+        .finance-summary-card.expense .value { color: #ef4444; }
+        .finance-summary-card.balance .value { color: #333; }
+
+        /* Бейджи типа записи (доход/расход) */
+        .finance-type-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .finance-type-badge.income {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+        .finance-type-badge.expense {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        /* Бейдж источника (веб/телеграм) */
+        .finance-source-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .finance-source-badge.web {
+            background: #e0e7ff;
+            color: #4338ca;
+        }
+        .finance-source-badge.telegram {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        /* Фильтры финансов */
+        .finance-filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            padding: 16px 20px;
+            background: #f8f9fb;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+        .finance-filters label {
+            font-size: 13px;
+            color: #666;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .finance-filters select,
+        .finance-filters input[type="date"] {
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            background: white;
+            cursor: pointer;
+        }
+        .finance-filters select:focus,
+        .finance-filters input[type="date"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+        .finance-filter-sep {
+            color: #e0e0e0;
+            margin: 0 2px;
+            user-select: none;
+        }
+
+        /* Форма добавления финансовой записи */
+        .finance-form {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+        }
+        .finance-form-row {
+            display: flex;
+            gap: 16px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .finance-form-field {
+            min-width: 140px;
+        }
+        .finance-form-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 13px;
+            color: #555;
+        }
+        .finance-form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 4px;
         }
 
         .wh-delete-btn {
@@ -7561,11 +7814,132 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
 
-            <!-- ТАБ: Финансы -->
+            <!-- ТАБ: Финансы — учёт доходов и расходов -->
             <div id="finance" class="tab-content">
-                <div style="padding: 40px; text-align: center; color: #999;">
-                    <h2 style="font-size: 28px; letter-spacing: 2px; color: #666;">ФИНАНСЫ</h2>
-                    <p style="margin-top: 12px;">Раздел в разработке</p>
+
+                <!-- Сводка: доход, расход, баланс -->
+                <div class="finance-summary">
+                    <div class="finance-summary-card income">
+                        <div class="label">Доход</div>
+                        <div class="value" id="finance-total-income">0 ₽</div>
+                    </div>
+                    <div class="finance-summary-card expense">
+                        <div class="label">Расход</div>
+                        <div class="value" id="finance-total-expense">0 ₽</div>
+                    </div>
+                    <div class="finance-summary-card balance">
+                        <div class="label">Баланс</div>
+                        <div class="value" id="finance-balance">0 ₽</div>
+                    </div>
+                </div>
+
+                <!-- Кнопка добавления записи (только для admin) -->
+                <div style="margin-bottom: 20px;">
+                    <button class="wh-save-receipt-btn admin-only" onclick="showFinanceForm()"
+                            style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px;">
+                        <span style="font-size: 18px;">+</span> Добавить запись
+                    </button>
+                </div>
+
+                <!-- Форма добавления/редактирования (скрыта по умолчанию) -->
+                <div class="finance-form" id="finance-form" style="display: none;">
+                    <div class="finance-form-row">
+                        <div class="finance-form-field" style="flex: 0 0 160px;">
+                            <label>Тип</label>
+                            <select id="finance-type" class="wh-input" style="cursor: pointer;">
+                                <option value="expense">📉 Расход</option>
+                                <option value="income">📈 Доход</option>
+                            </select>
+                        </div>
+                        <div class="finance-form-field" style="flex: 0 0 160px;">
+                            <label>Сумма, ₽</label>
+                            <input type="number" id="finance-amount" class="wh-input" placeholder="0" min="0" step="0.01">
+                        </div>
+                        <div class="finance-form-field" style="flex: 0 0 240px;">
+                            <label>Счёт / Источник</label>
+                            <div class="destination-dropdown-wrapper">
+                                <input type="text" id="finance-account-input" class="wh-input"
+                                       placeholder="Выберите или введите" autocomplete="off"
+                                       onclick="toggleFinanceAccountDropdown()"
+                                       oninput="filterFinanceAccounts()">
+                                <div class="destination-dropdown" id="finance-account-dropdown"></div>
+                                <button type="button" class="wh-add-btn-small admin-only"
+                                        onclick="addNewFinanceAccount()" title="Добавить счёт">+</button>
+                            </div>
+                        </div>
+                        <div class="finance-form-field" style="flex: 0 0 160px;">
+                            <label>Дата</label>
+                            <input type="date" id="finance-date" class="wh-input" style="cursor: pointer;">
+                        </div>
+                        <div class="finance-form-field" style="flex: 1; min-width: 200px;">
+                            <label>Описание (на что)</label>
+                            <input type="text" id="finance-description" class="wh-input"
+                                   placeholder="Например: Закупка упаковки">
+                        </div>
+                    </div>
+                    <div class="finance-form-actions">
+                        <button class="wh-save-receipt-btn" id="finance-save-btn" onclick="saveFinanceRecord()">Сохранить</button>
+                        <button class="wh-clear-btn" onclick="cancelFinanceForm()">Отмена</button>
+                    </div>
+                </div>
+
+                <!-- Фильтры -->
+                <div class="finance-filters">
+                    <label>Тип:</label>
+                    <select id="finance-filter-type" style="width: 140px;" onchange="loadFinanceRecords()">
+                        <option value="">Все</option>
+                        <option value="income">📈 Доход</option>
+                        <option value="expense">📉 Расход</option>
+                    </select>
+                    <span class="finance-filter-sep">|</span>
+
+                    <label>Счёт:</label>
+                    <select id="finance-filter-account" style="width: 180px;" onchange="loadFinanceRecords()">
+                        <option value="">Все счета</option>
+                    </select>
+                    <span class="finance-filter-sep">|</span>
+
+                    <label>Период:</label>
+                    <input type="date" id="finance-date-from" style="width: 140px;" onchange="loadFinanceRecords()">
+                    <span style="color: #999;">—</span>
+                    <input type="date" id="finance-date-to" style="width: 140px;" onchange="loadFinanceRecords()">
+                    <span class="finance-filter-sep">|</span>
+
+                    <label>Сортировка:</label>
+                    <select id="finance-sort" style="width: 200px;" onchange="loadFinanceRecords()">
+                        <option value="date:desc">По дате (новые сверху)</option>
+                        <option value="date:asc">По дате (старые сверху)</option>
+                        <option value="amount:desc">По сумме (больше)</option>
+                        <option value="amount:asc">По сумме (меньше)</option>
+                    </select>
+
+                    <button class="wh-clear-btn" onclick="resetFinanceFilters()" style="padding: 6px 14px; font-size: 12px;">Сбросить</button>
+                </div>
+
+                <!-- Таблица финансовых записей -->
+                <div class="wh-table-wrapper" id="finance-table-wrapper" style="display: none;">
+                    <table class="wh-table" id="finance-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">№</th>
+                                <th style="width: 110px;">Дата</th>
+                                <th style="width: 100px;">Тип</th>
+                                <th style="width: 120px;">Сумма</th>
+                                <th>Счёт / Источник</th>
+                                <th>Описание</th>
+                                <th style="width: 120px;">Создал</th>
+                                <th style="width: 100px;">Источник</th>
+                                <th style="width: 80px;" class="admin-only"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="finance-tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- Пустое состояние -->
+                <div class="wh-empty-state" id="finance-empty">
+                    <p>Нет финансовых записей</p>
+                    <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Добавьте первую запись кнопкой выше или через Telegram-бота</p>
                 </div>
             </div>
 
@@ -7909,7 +8283,7 @@ HTML_TEMPLATE = '''
                         }, 50);
                     }
                 } else if (savedTab === 'finance') {
-                    // Финансы — пока без загрузки данных
+                    loadFinance();
                 } else if (savedTab === 'users') {
                     loadUsers();
                 }
@@ -8021,9 +8395,9 @@ HTML_TEMPLATE = '''
             if (tab === 'ved') {
                 loadVed();
             }
-            // Если открыли финансы - пока ничего не загружаем
+            // Если открыли финансы — загружаем данные
             if (tab === 'finance') {
-                // Раздел в разработке
+                loadFinance();
             }
             // Если открыли сообщения - загружаем список
             if (tab === 'messages') {
@@ -9340,6 +9714,569 @@ HTML_TEMPLATE = '''
             div.textContent = text;
             return div.innerHTML;
         }
+
+        // ============================================================================
+        // ФИНАНСЫ — УПРАВЛЕНИЕ ЗАПИСЯМИ ДОХОДОВ И РАСХОДОВ
+        // ============================================================================
+        // Модуль для работы с финансовыми записями: загрузка, добавление,
+        // редактирование, удаление, фильтрация, управление счетами.
+        // ============================================================================
+
+        // Глобальные переменные модуля финансов
+        let financeDataLoaded = false;       // Флаг первой загрузки
+        let financeAccounts = [];            // Массив счетов [{id, name, is_default}, ...]
+        let financeRecordsData = [];         // Массив загруженных записей
+        let currentFinanceEditId = null;     // ID редактируемой записи (null = новая)
+        let selectedFinanceAccountId = null; // ID выбранного счёта в форме
+
+        /**
+         * Точка входа: загрузка модуля финансов.
+         * Вызывается при переключении на вкладку "Финансы"
+         * или при восстановлении хеша #finance.
+         */
+        function loadFinance() {
+            if (!financeDataLoaded) {
+                loadFinanceAccounts();
+                financeDataLoaded = true;
+            }
+            loadFinanceRecords();
+        }
+
+        /**
+         * Загрузить список финансовых счетов/источников.
+         * Заполняет массив financeAccounts и обновляет фильтр-селект.
+         */
+        async function loadFinanceAccounts() {
+            try {
+                const resp = await authFetch('/api/finance/accounts');
+                const data = await resp.json();
+                if (data.success) {
+                    financeAccounts = data.accounts;
+                    // Заполняем выпадающий список в фильтрах
+                    const filterSelect = document.getElementById('finance-filter-account');
+                    if (filterSelect) {
+                        const currentVal = filterSelect.value;
+                        filterSelect.innerHTML = '<option value="">Все счета</option>';
+                        financeAccounts.forEach(acc => {
+                            const opt = document.createElement('option');
+                            opt.value = acc.id;
+                            opt.textContent = acc.name;
+                            filterSelect.appendChild(opt);
+                        });
+                        filterSelect.value = currentVal;
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки счетов:', e);
+            }
+        }
+
+        /**
+         * Загрузить список финансовых записей с учётом текущих фильтров.
+         * Обновляет таблицу и сводку (доход, расход, баланс).
+         */
+        async function loadFinanceRecords() {
+            try {
+                // Собираем параметры фильтрации
+                const recordType = document.getElementById('finance-filter-type')?.value || '';
+                const accountId = document.getElementById('finance-filter-account')?.value || '';
+                const dateFrom = document.getElementById('finance-date-from')?.value || '';
+                const dateTo = document.getElementById('finance-date-to')?.value || '';
+                const sortVal = document.getElementById('finance-sort')?.value || 'date:desc';
+                const [sortBy, sortDir] = sortVal.split(':');
+
+                const params = new URLSearchParams();
+                if (recordType) params.append('type', recordType);
+                if (accountId) params.append('account_id', accountId);
+                if (dateFrom) params.append('date_from', dateFrom);
+                if (dateTo) params.append('date_to', dateTo);
+                params.append('sort_by', sortBy);
+                params.append('sort_dir', sortDir);
+
+                const resp = await authFetch('/api/finance/records?' + params.toString());
+                const data = await resp.json();
+
+                if (!data.success) {
+                    console.error('Ошибка загрузки записей:', data.error);
+                    return;
+                }
+
+                financeRecordsData = data.records;
+
+                // Обновляем сводку
+                updateFinanceSummary(data.summary);
+
+                // Рендерим таблицу
+                renderFinanceTable(data.records);
+            } catch (e) {
+                console.error('Ошибка загрузки финансовых записей:', e);
+            }
+        }
+
+        /**
+         * Обновить карточки сводки (доход, расход, баланс).
+         * Форматирует суммы с пробелами между тысячами.
+         */
+        function updateFinanceSummary(summary) {
+            const fmt = (num) => {
+                if (num === 0) return '0 ₽';
+                const abs = Math.abs(num);
+                const formatted = abs % 1 === 0
+                    ? abs.toLocaleString('ru-RU')
+                    : abs.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                return (num < 0 ? '-' : '') + formatted + ' ₽';
+            };
+
+            const incomeEl = document.getElementById('finance-total-income');
+            const expenseEl = document.getElementById('finance-total-expense');
+            const balanceEl = document.getElementById('finance-balance');
+
+            if (incomeEl) incomeEl.textContent = fmt(summary.total_income);
+            if (expenseEl) expenseEl.textContent = fmt(summary.total_expense);
+            if (balanceEl) {
+                balanceEl.textContent = fmt(summary.balance);
+                // Цвет баланса: зелёный если > 0, красный если < 0
+                const card = balanceEl.closest('.finance-summary-card');
+                if (card) {
+                    if (summary.balance > 0) {
+                        balanceEl.style.color = '#22c55e';
+                    } else if (summary.balance < 0) {
+                        balanceEl.style.color = '#ef4444';
+                    } else {
+                        balanceEl.style.color = '#333';
+                    }
+                }
+            }
+        }
+
+        /**
+         * Отрисовать таблицу финансовых записей.
+         * Показывает/скрывает таблицу и пустое состояние.
+         */
+        function renderFinanceTable(records) {
+            const tbody = document.getElementById('finance-tbody');
+            const wrapper = document.getElementById('finance-table-wrapper');
+            const empty = document.getElementById('finance-empty');
+
+            if (!records || records.length === 0) {
+                if (wrapper) wrapper.style.display = 'none';
+                if (empty) empty.style.display = 'block';
+                return;
+            }
+
+            if (wrapper) wrapper.style.display = 'block';
+            if (empty) empty.style.display = 'none';
+
+            tbody.innerHTML = '';
+
+            records.forEach((rec, idx) => {
+                const tr = document.createElement('tr');
+
+                // № (порядковый)
+                const tdNum = document.createElement('td');
+                tdNum.textContent = idx + 1;
+                tdNum.style.color = '#999';
+                tr.appendChild(tdNum);
+
+                // Дата
+                const tdDate = document.createElement('td');
+                if (rec.record_date) {
+                    const parts = rec.record_date.split('-');
+                    tdDate.textContent = parts.length === 3
+                        ? parts[2] + '.' + parts[1] + '.' + parts[0]
+                        : rec.record_date;
+                } else {
+                    tdDate.textContent = '—';
+                }
+                tr.appendChild(tdDate);
+
+                // Тип (бейдж)
+                const tdType = document.createElement('td');
+                const badge = document.createElement('span');
+                badge.className = 'finance-type-badge ' + rec.record_type;
+                badge.textContent = rec.record_type === 'income' ? '📈 Доход' : '📉 Расход';
+                tdType.appendChild(badge);
+                tr.appendChild(tdType);
+
+                // Сумма
+                const tdAmount = document.createElement('td');
+                const amount = parseFloat(rec.amount) || 0;
+                const amountFormatted = amount % 1 === 0
+                    ? amount.toLocaleString('ru-RU')
+                    : amount.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                tdAmount.textContent = amountFormatted + ' ₽';
+                tdAmount.style.fontWeight = '600';
+                tdAmount.style.whiteSpace = 'nowrap';
+                if (rec.record_type === 'income') {
+                    tdAmount.style.color = '#16a34a';
+                } else {
+                    tdAmount.style.color = '#dc2626';
+                }
+                tr.appendChild(tdAmount);
+
+                // Счёт / Источник
+                const tdAccount = document.createElement('td');
+                tdAccount.textContent = rec.account_name || '—';
+                tr.appendChild(tdAccount);
+
+                // Описание
+                const tdDesc = document.createElement('td');
+                tdDesc.textContent = rec.description || '—';
+                tdDesc.style.maxWidth = '300px';
+                tdDesc.style.overflow = 'hidden';
+                tdDesc.style.textOverflow = 'ellipsis';
+                tdDesc.style.whiteSpace = 'nowrap';
+                tdDesc.title = rec.description || '';
+                tr.appendChild(tdDesc);
+
+                // Создал
+                const tdCreated = document.createElement('td');
+                tdCreated.textContent = rec.created_by || '—';
+                tdCreated.style.fontSize = '13px';
+                tdCreated.style.color = '#666';
+                tr.appendChild(tdCreated);
+
+                // Источник (веб/телеграм)
+                const tdSource = document.createElement('td');
+                const srcBadge = document.createElement('span');
+                srcBadge.className = 'finance-source-badge ' + rec.source;
+                srcBadge.textContent = rec.source === 'telegram' ? '📱 Telegram' : '🌐 Веб';
+                tdSource.appendChild(srcBadge);
+                tr.appendChild(tdSource);
+
+                // Действия (admin-only)
+                const tdActions = document.createElement('td');
+                tdActions.className = 'admin-only';
+                tdActions.style.whiteSpace = 'nowrap';
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'action-btn';
+                editBtn.textContent = '✏️';
+                editBtn.title = 'Редактировать';
+                editBtn.style.background = 'none';
+                editBtn.style.border = 'none';
+                editBtn.style.cursor = 'pointer';
+                editBtn.style.fontSize = '16px';
+                editBtn.style.padding = '4px';
+                editBtn.onclick = () => editFinanceRecord(rec.id);
+                tdActions.appendChild(editBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'action-btn delete-btn';
+                delBtn.textContent = '🗑';
+                delBtn.title = 'Удалить';
+                delBtn.style.background = 'none';
+                delBtn.style.border = 'none';
+                delBtn.style.cursor = 'pointer';
+                delBtn.style.fontSize = '16px';
+                delBtn.style.padding = '4px';
+                delBtn.onclick = () => deleteFinanceRecord(rec.id);
+                tdActions.appendChild(delBtn);
+
+                tr.appendChild(tdActions);
+                tbody.appendChild(tr);
+            });
+        }
+
+        /**
+         * Показать форму добавления/редактирования записи.
+         * Если editId передан — заполняет поля из существующей записи.
+         */
+        function showFinanceForm(editId) {
+            const form = document.getElementById('finance-form');
+            form.style.display = 'block';
+
+            // Устанавливаем дату по умолчанию — сегодня
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('finance-date').value = today;
+            document.getElementById('finance-type').value = 'expense';
+            document.getElementById('finance-amount').value = '';
+            document.getElementById('finance-account-input').value = '';
+            document.getElementById('finance-description').value = '';
+            selectedFinanceAccountId = null;
+            currentFinanceEditId = null;
+
+            if (editId) {
+                // Находим запись для редактирования
+                const rec = financeRecordsData.find(r => r.id === editId);
+                if (rec) {
+                    currentFinanceEditId = editId;
+                    document.getElementById('finance-type').value = rec.record_type;
+                    document.getElementById('finance-amount').value = rec.amount;
+                    document.getElementById('finance-account-input').value = rec.account_name || '';
+                    selectedFinanceAccountId = rec.account_id;
+                    document.getElementById('finance-date').value = rec.record_date || today;
+                    document.getElementById('finance-description').value = rec.description || '';
+                }
+                document.getElementById('finance-save-btn').textContent = 'Обновить';
+            } else {
+                document.getElementById('finance-save-btn').textContent = 'Сохранить';
+            }
+
+            // Плавный скролл к форме
+            form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            document.getElementById('finance-amount').focus();
+        }
+
+        /**
+         * Скрыть форму и сбросить все поля.
+         */
+        function cancelFinanceForm() {
+            document.getElementById('finance-form').style.display = 'none';
+            currentFinanceEditId = null;
+            selectedFinanceAccountId = null;
+        }
+
+        /**
+         * Сохранить финансовую запись (новую или обновлённую).
+         * Валидирует поля, отправляет на API, обновляет таблицу.
+         */
+        async function saveFinanceRecord() {
+            const recordType = document.getElementById('finance-type').value;
+            const amountStr = document.getElementById('finance-amount').value;
+            const accountInput = document.getElementById('finance-account-input').value.trim();
+            const recordDate = document.getElementById('finance-date').value;
+            const description = document.getElementById('finance-description').value.trim();
+
+            // Валидация
+            const amount = parseFloat(amountStr);
+            if (!amount || amount <= 0) {
+                alert('Введите сумму больше 0');
+                document.getElementById('finance-amount').focus();
+                return;
+            }
+
+            if (!selectedFinanceAccountId) {
+                // Пытаемся найти счёт по введённому названию
+                const found = financeAccounts.find(a => a.name.toLowerCase() === accountInput.toLowerCase());
+                if (found) {
+                    selectedFinanceAccountId = found.id;
+                } else {
+                    alert('Выберите счёт из списка или добавьте новый кнопкой "+"');
+                    document.getElementById('finance-account-input').focus();
+                    return;
+                }
+            }
+
+            if (!recordDate) {
+                alert('Укажите дату');
+                document.getElementById('finance-date').focus();
+                return;
+            }
+
+            const payload = {
+                record_type: recordType,
+                amount: amount,
+                account_id: selectedFinanceAccountId,
+                description: description,
+                record_date: recordDate
+            };
+
+            try {
+                let url = '/api/finance/records/add';
+                if (currentFinanceEditId) {
+                    url = '/api/finance/records/update';
+                    payload.id = currentFinanceEditId;
+                }
+
+                const resp = await authFetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    cancelFinanceForm();
+                    loadFinanceRecords();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка сохранения:', e);
+                alert('Ошибка сохранения записи');
+            }
+        }
+
+        /**
+         * Начать редактирование записи (открывает форму с данными).
+         */
+        function editFinanceRecord(id) {
+            showFinanceForm(id);
+        }
+
+        /**
+         * Удалить финансовую запись (с подтверждением).
+         */
+        async function deleteFinanceRecord(id) {
+            if (!confirm('Удалить эту запись?')) return;
+
+            try {
+                const resp = await authFetch('/api/finance/records/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    loadFinanceRecords();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка удаления:', e);
+            }
+        }
+
+        /**
+         * Сбросить все фильтры финансов в значения по умолчанию.
+         */
+        function resetFinanceFilters() {
+            document.getElementById('finance-filter-type').value = '';
+            document.getElementById('finance-filter-account').value = '';
+            document.getElementById('finance-date-from').value = '';
+            document.getElementById('finance-date-to').value = '';
+            document.getElementById('finance-sort').value = 'date:desc';
+            loadFinanceRecords();
+        }
+
+        // ============================================
+        // Dropdown управления счетами/источниками
+        // ============================================
+        // Повторяет паттерн destination-dropdown из модуля отгрузок.
+
+        /**
+         * Отрисовать элементы выпадающего списка счетов.
+         * Фильтрует по введённому тексту, показывает подсказку если нет совпадений.
+         */
+        function renderFinanceAccountDropdown(filter) {
+            const dropdown = document.getElementById('finance-account-dropdown');
+            if (!dropdown) return;
+
+            const filterLower = (filter || '').toLowerCase();
+            const filtered = filterLower
+                ? financeAccounts.filter(a => a.name.toLowerCase().includes(filterLower))
+                : financeAccounts;
+
+            dropdown.innerHTML = '';
+
+            filtered.forEach(acc => {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                if (selectedFinanceAccountId === acc.id) {
+                    item.className += ' selected';
+                }
+                item.textContent = acc.name;
+                item.onclick = () => selectFinanceAccount(acc.name, acc.id);
+                dropdown.appendChild(item);
+            });
+
+            if (filtered.length === 0 && filter) {
+                const item = document.createElement('div');
+                item.className = 'destination-dropdown-item';
+                item.style.color = '#999';
+                item.style.fontSize = '13px';
+                item.textContent = 'Нажмите + чтобы добавить "' + filter + '"';
+                dropdown.appendChild(item);
+            }
+        }
+
+        /**
+         * Показать/скрыть dropdown счетов.
+         */
+        function toggleFinanceAccountDropdown() {
+            const dropdown = document.getElementById('finance-account-dropdown');
+            const input = document.getElementById('finance-account-input');
+            if (!dropdown) return;
+
+            if (dropdown.classList.contains('show')) {
+                dropdown.classList.remove('show');
+            } else {
+                renderFinanceAccountDropdown(input.value);
+                dropdown.classList.add('show');
+            }
+        }
+
+        /**
+         * Фильтровать dropdown при вводе текста.
+         */
+        function filterFinanceAccounts() {
+            const dropdown = document.getElementById('finance-account-dropdown');
+            const input = document.getElementById('finance-account-input');
+            if (!dropdown) return;
+
+            selectedFinanceAccountId = null; // Сбрасываем выбор при ручном вводе
+            renderFinanceAccountDropdown(input.value);
+            dropdown.classList.add('show');
+        }
+
+        /**
+         * Выбрать счёт из dropdown.
+         */
+        function selectFinanceAccount(name, id) {
+            const input = document.getElementById('finance-account-input');
+            const dropdown = document.getElementById('finance-account-dropdown');
+            input.value = name;
+            selectedFinanceAccountId = id;
+            dropdown.classList.remove('show');
+        }
+
+        /**
+         * Добавить новый финансовый счёт через API.
+         * Введённое в input название добавляется в справочник.
+         */
+        async function addNewFinanceAccount() {
+            const input = document.getElementById('finance-account-input');
+            const name = (input.value || '').trim();
+
+            if (!name) {
+                alert('Введите название счёта');
+                input.focus();
+                return;
+            }
+
+            // Проверяем, не существует ли уже
+            if (financeAccounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
+                // Если уже есть — просто выбираем его
+                const existing = financeAccounts.find(a => a.name.toLowerCase() === name.toLowerCase());
+                selectFinanceAccount(existing.name, existing.id);
+                return;
+            }
+
+            try {
+                const resp = await authFetch('/api/finance/accounts/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    // Добавляем в локальный массив и выбираем
+                    financeAccounts.push({ id: data.id, name: name, is_default: false });
+                    selectedFinanceAccountId = data.id;
+                    renderFinanceAccountDropdown('');
+                    // Обновляем фильтр
+                    loadFinanceAccounts();
+                    alert('Счёт "' + name + '" добавлен');
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка добавления счёта:', e);
+            }
+        }
+
+        // Закрытие dropdown при клике вне его
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('#finance-form .destination-dropdown-wrapper');
+            const dropdown = document.getElementById('finance-account-dropdown');
+            if (wrapper && dropdown && !wrapper.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
 
         // ============================================================================
         // ФУНКЦИИ ДЛЯ ВКЛАДКИ "СООБЩЕНИЯ"
@@ -20638,6 +21575,488 @@ def get_warehouse_stock():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e), 'stock': []})
+
+
+# ============================================================================
+# API ФИНАНСЫ — СПРАВОЧНИК СЧЕТОВ
+# ============================================================================
+# Эндпоинты для управления финансовыми счетами/источниками средств.
+# Счета используются как в веб-интерфейсе, так и в Telegram-боте
+# для указания откуда пришли / куда ушли деньги.
+# ============================================================================
+
+@app.route('/api/finance/accounts')
+@require_auth(['admin', 'viewer'])
+def api_finance_accounts():
+    """
+    Получить список всех финансовых счетов.
+    Возвращает: {'success': True, 'accounts': [{'id': 1, 'name': 'ООО', 'is_default': True}, ...]}
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, is_default, created_at FROM finance_accounts ORDER BY is_default DESC, name ASC')
+        rows = cursor.fetchall()
+        accounts = [{'id': r['id'], 'name': r['name'], 'is_default': bool(r['is_default']), 'created_at': r['created_at']} for r in rows]
+        conn.close()
+        return jsonify({'success': True, 'accounts': accounts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/accounts/add', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_accounts_add():
+    """
+    Добавить новый финансовый счёт.
+    Payload: {'name': 'Новый счёт'}
+    Проверяет уникальность имени (без учёта регистра).
+    """
+    try:
+        data = request.json
+        name = (data.get('name') or '').strip()
+
+        if not name:
+            return jsonify({'success': False, 'error': 'Укажите название счёта'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем уникальность (без учёта регистра)
+        cursor.execute('SELECT id FROM finance_accounts WHERE LOWER(name) = LOWER(?)', (name,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': f'Счёт "{name}" уже существует'}), 400
+
+        cursor.execute('INSERT INTO finance_accounts (name, is_default) VALUES (?, 0)', (name,))
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id, 'message': f'Счёт "{name}" добавлен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/accounts/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_accounts_delete():
+    """
+    Удалить финансовый счёт.
+    Payload: {'id': 5}
+    Нельзя удалить дефолтный счёт или счёт с привязанными записями.
+    """
+    try:
+        data = request.json
+        account_id = data.get('id')
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Укажите ID счёта'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем, не дефолтный ли счёт
+        cursor.execute('SELECT is_default, name FROM finance_accounts WHERE id = ?', (account_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        if row[0]:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Нельзя удалить дефолтный счёт'}), 400
+
+        # Проверяем, нет ли привязанных записей
+        cursor.execute('SELECT COUNT(*) FROM finance_records WHERE account_id = ?', (account_id,))
+        count = cursor.fetchone()[0]
+        if count > 0:
+            conn.close()
+            return jsonify({'success': False, 'error': f'Счёт "{row[1]}" используется в {count} записях. Удаление невозможно.'}), 400
+
+        cursor.execute('DELETE FROM finance_accounts WHERE id = ?', (account_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Счёт удалён'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ФИНАНСЫ — ЗАПИСИ ДОХОДОВ И РАСХОДОВ
+# ============================================================================
+# CRUD-эндпоинты для финансовых записей.
+# Поддерживают фильтрацию по типу, счёту, дате и сортировку.
+# Возвращают также агрегированную сводку (доход, расход, баланс).
+# ============================================================================
+
+@app.route('/api/finance/records')
+@require_auth(['admin', 'viewer'])
+def api_finance_records():
+    """
+    Получить список финансовых записей с фильтрацией и сводкой.
+
+    Query-параметры:
+        type: 'income' | 'expense' | '' (все)
+        account_id: ID счёта или '' (все)
+        date_from: 'YYYY-MM-DD' (начало периода)
+        date_to: 'YYYY-MM-DD' (конец периода)
+        sort_by: 'date' | 'amount' (по умолчанию 'date')
+        sort_dir: 'asc' | 'desc' (по умолчанию 'desc')
+
+    Возвращает: {'success': True, 'records': [...], 'summary': {total_income, total_expense, balance}}
+    """
+    try:
+        record_type = request.args.get('type', '').strip()
+        account_id = request.args.get('account_id', '').strip()
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        sort_by = request.args.get('sort_by', 'date').strip()
+        sort_dir = request.args.get('sort_dir', 'desc').strip()
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Формируем WHERE-условия
+        conditions = []
+        params = []
+
+        if record_type in ('income', 'expense'):
+            conditions.append('record_type = ?')
+            params.append(record_type)
+
+        if account_id:
+            conditions.append('account_id = ?')
+            params.append(int(account_id))
+
+        if date_from:
+            conditions.append('record_date >= ?')
+            params.append(date_from)
+
+        if date_to:
+            conditions.append('record_date <= ?')
+            params.append(date_to)
+
+        where_clause = ''
+        if conditions:
+            where_clause = 'WHERE ' + ' AND '.join(conditions)
+
+        # Сортировка
+        sort_column = 'record_date' if sort_by == 'date' else 'amount'
+        sort_direction = 'ASC' if sort_dir == 'asc' else 'DESC'
+        # Для даты добавляем вторичную сортировку по id для стабильности
+        order_clause = f'ORDER BY {sort_column} {sort_direction}, id DESC'
+
+        # Получаем записи
+        query = f'SELECT * FROM finance_records {where_clause} {order_clause}'
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        records = [dict(r) for r in rows]
+
+        # Рассчитываем сводку с теми же фильтрами
+        summary_query = f'''
+            SELECT
+                COALESCE(SUM(CASE WHEN record_type = 'income' THEN amount ELSE 0 END), 0) as total_income,
+                COALESCE(SUM(CASE WHEN record_type = 'expense' THEN amount ELSE 0 END), 0) as total_expense
+            FROM finance_records {where_clause}
+        '''
+        cursor.execute(summary_query, params)
+        summary_row = cursor.fetchone()
+        total_income = summary_row['total_income']
+        total_expense = summary_row['total_expense']
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'records': records,
+            'summary': {
+                'total_income': round(total_income, 2),
+                'total_expense': round(total_expense, 2),
+                'balance': round(total_income - total_expense, 2)
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/records/add', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_records_add():
+    """
+    Создать новую финансовую запись из веб-интерфейса.
+
+    Payload: {
+        'record_type': 'income'|'expense',
+        'amount': 15000,
+        'account_id': 1,
+        'description': 'Закупка упаковки',
+        'record_date': '2026-02-10'
+    }
+    """
+    try:
+        data = request.json
+        user_info = getattr(request, 'current_user', {})
+
+        record_type = data.get('record_type', '')
+        amount = data.get('amount', 0)
+        account_id = data.get('account_id')
+        description = (data.get('description') or '').strip()
+        record_date = data.get('record_date', '')
+
+        # Валидация
+        if record_type not in ('income', 'expense'):
+            return jsonify({'success': False, 'error': 'Укажите тип: income или expense'}), 400
+
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Сумма должна быть числом больше 0'}), 400
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
+
+        if not record_date:
+            record_date = get_snapshot_date()
+
+        # Получаем название счёта
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        acc_row = cursor.fetchone()
+        if not acc_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        account_name = acc_row[0]
+
+        cursor.execute('''
+            INSERT INTO finance_records
+            (record_type, amount, account_id, account_name, description, created_by, source, record_date)
+            VALUES (?, ?, ?, ?, ?, ?, 'web', ?)
+        ''', (record_type, amount, account_id, account_name, description, user_info.get('username', ''), record_date))
+
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id, 'message': 'Запись добавлена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/records/update', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_records_update():
+    """
+    Обновить существующую финансовую запись.
+
+    Payload: то же, что и add, плюс 'id'.
+    """
+    try:
+        data = request.json
+        record_id = data.get('id')
+
+        if not record_id:
+            return jsonify({'success': False, 'error': 'Укажите ID записи'}), 400
+
+        record_type = data.get('record_type', '')
+        amount = data.get('amount', 0)
+        account_id = data.get('account_id')
+        description = (data.get('description') or '').strip()
+        record_date = data.get('record_date', '')
+
+        if record_type not in ('income', 'expense'):
+            return jsonify({'success': False, 'error': 'Укажите тип: income или expense'}), 400
+
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Сумма должна быть числом больше 0'}), 400
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
+
+        if not record_date:
+            record_date = get_snapshot_date()
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Получаем название счёта
+        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        acc_row = cursor.fetchone()
+        if not acc_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        account_name = acc_row[0]
+
+        cursor.execute('''
+            UPDATE finance_records
+            SET record_type = ?, amount = ?, account_id = ?, account_name = ?,
+                description = ?, record_date = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (record_type, amount, account_id, account_name, description, record_date, record_id))
+
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Запись не найдена'}), 404
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Запись обновлена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/records/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_records_delete():
+    """
+    Удалить финансовую запись.
+    Payload: {'id': 1}
+    """
+    try:
+        data = request.json
+        record_id = data.get('id')
+
+        if not record_id:
+            return jsonify({'success': False, 'error': 'Укажите ID записи'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM finance_records WHERE id = ?', (record_id,))
+
+        if cursor.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Запись не найдена'}), 404
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Запись удалена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# API ФИНАНСЫ — ЭНДПОИНТЫ ДЛЯ TELEGRAM-БОТА
+# ============================================================================
+# Отдельные эндпоинты для Telegram-бота с авторизацией через TELEGRAM_BOT_SECRET.
+# Бот использует их для получения списка счетов и создания записей.
+# ============================================================================
+
+@app.route('/api/telegram/finance/accounts')
+def api_telegram_finance_accounts():
+    """
+    Получить список финансовых счетов для Telegram-бота.
+    Авторизация через секретный токен в параметрах запроса.
+    """
+    try:
+        token = request.args.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name FROM finance_accounts ORDER BY is_default DESC, name ASC')
+        rows = cursor.fetchall()
+        accounts = [{'id': r['id'], 'name': r['name']} for r in rows]
+        conn.close()
+
+        return jsonify({'success': True, 'accounts': accounts})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/telegram/finance/add', methods=['POST'])
+def api_telegram_finance_add():
+    """
+    Создать финансовую запись из Telegram-бота.
+    Авторизация через TELEGRAM_BOT_SECRET в теле запроса.
+
+    Payload: {
+        'token': 'secret',
+        'record_type': 'expense',
+        'amount': 5000,
+        'account_id': 2,
+        'description': 'Обед для команды',
+        'telegram_chat_id': 123456789,
+        'telegram_username': '@username'
+    }
+    """
+    try:
+        data = request.json
+
+        # Проверяем токен
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        record_type = data.get('record_type', '')
+        amount = data.get('amount', 0)
+        account_id = data.get('account_id')
+        description = (data.get('description') or '').strip()
+        telegram_chat_id = data.get('telegram_chat_id')
+        telegram_username = data.get('telegram_username', '')
+
+        # Валидация
+        if record_type not in ('income', 'expense'):
+            return jsonify({'success': False, 'error': 'Укажите тип: income или expense'}), 400
+
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Сумма должна быть числом больше 0'}), 400
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Выберите счёт/источник'}), 400
+
+        # Получаем название счёта
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        acc_row = cursor.fetchone()
+        if not acc_row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        account_name = acc_row[0]
+        record_date = get_snapshot_date()
+
+        cursor.execute('''
+            INSERT INTO finance_records
+            (record_type, amount, account_id, account_name, description,
+             created_by, source, telegram_chat_id, telegram_username, record_date)
+            VALUES (?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?)
+        ''', (record_type, amount, account_id, account_name, description,
+              telegram_username, telegram_chat_id, telegram_username, record_date))
+
+        conn.commit()
+        new_id = cursor.lastrowid
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 # ============================================================================
