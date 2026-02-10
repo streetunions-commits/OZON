@@ -2172,7 +2172,7 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
         f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
         f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
         f"🏷 Категория: *{escape_md(category_name)}*\n\n"
-        "📝 Введите описание (на что потрачено / за что получено):",
+        "📝 Введите комментарий:",
         parse_mode='Markdown'
     )
     return STATE_FIN_DESCRIPTION
@@ -2180,12 +2180,12 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
 
 async def finance_description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Обработка введённого описания.
+    Обработка введённого комментария.
     Показывает итоговую сводку для подтверждения.
     """
     description = update.message.text.strip()
     if not description:
-        await update.message.reply_text("❌ Введите описание:")
+        await update.message.reply_text("❌ Введите комментарий:")
         return STATE_FIN_DESCRIPTION
 
     context.user_data['finance']['description'] = description
@@ -2211,7 +2211,7 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         f"Сумма: *{escape_md(formatted)} ₽*\n"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
-        f"Описание: {escape_md(description)}\n\n"
+        f"Комментарий: {escape_md(description)}\n\n"
         "Всё верно?",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
