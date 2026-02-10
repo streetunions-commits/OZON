@@ -7665,7 +7665,6 @@ HTML_TEMPLATE = '''
                         <table class="wh-table" id="wh-stock-table">
                             <thead>
                                 <tr>
-                                    <th>Товар</th>
                                     <th>Артикул</th>
                                     <th>Оприходовано</th>
                                     <th>Отгружено</th>
@@ -11702,6 +11701,7 @@ HTML_TEMPLATE = '''
                 // Сохраняем дату для фильтрации (формат YYYY-MM-DD)
                 row.dataset.date = doc.receipt_date || '';
                 row.onclick = function() { toggleReceiptAccordion(doc.id); };
+                row.ondblclick = function() { editReceiptDoc(doc.id); };
 
                 // Бледно-красная подсветка если есть нераспределённые товары
                 if (doc.has_undistributed) {
@@ -11799,13 +11799,7 @@ HTML_TEMPLATE = '''
                 const tdActions = document.createElement('td');
                 tdActions.style.whiteSpace = 'nowrap';
 
-                // Кнопка редактирования (stopPropagation чтобы не тогглить аккордеон)
-                const editBtn = document.createElement('button');
-                editBtn.className = 'wh-edit-btn';
-                editBtn.textContent = '✏️';
-                editBtn.title = 'Редактировать';
-                editBtn.onclick = (e) => { e.stopPropagation(); editReceiptDoc(doc.id); };
-                tdActions.appendChild(editBtn);
+                // Редактирование по двойному клику на строке (row.ondblclick)
 
                 // Кнопка удаления (stopPropagation чтобы не тогглить аккордеон)
                 const delBtn = document.createElement('button');
@@ -12575,6 +12569,8 @@ HTML_TEMPLATE = '''
             docs.forEach(doc => {
                 const row = document.createElement('tr');
                 row.dataset.docId = doc.id; // Для фильтрации
+                row.style.cursor = 'pointer';
+                row.ondblclick = function() { editShipmentDoc(doc.id); };
 
                 // № отгрузки
                 const tdNum = document.createElement('td');
@@ -12637,18 +12633,13 @@ HTML_TEMPLATE = '''
                 const tdActions = document.createElement('td');
                 tdActions.style.whiteSpace = 'nowrap';
 
-                const editBtn = document.createElement('button');
-                editBtn.className = 'wh-edit-btn';
-                editBtn.textContent = '✏️';
-                editBtn.title = 'Редактировать';
-                editBtn.onclick = () => editShipmentDoc(doc.id);
-                tdActions.appendChild(editBtn);
+                // Редактирование по двойному клику на строке (row.ondblclick)
 
                 const delBtn = document.createElement('button');
                 delBtn.className = 'wh-delete-btn';
                 delBtn.textContent = '✕';
                 delBtn.title = 'Удалить';
-                delBtn.onclick = () => deleteShipmentDoc(doc.id);
+                delBtn.onclick = (e) => { e.stopPropagation(); deleteShipmentDoc(doc.id); };
                 tdActions.appendChild(delBtn);
 
                 row.appendChild(tdActions);
@@ -12735,8 +12726,7 @@ HTML_TEMPLATE = '''
                 row.onclick = function() { toggleStockAccordion(sku, productName); };
                 const reserved = item.reserved || 0;
                 const available = item.stock_balance - reserved; // Остаток минус бронь
-                row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + productName + '</td>' +
-                    '<td style="color:#888;">' + (item.offer_id || '—') + '</td>' +
+                row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
                     '<td style="text-align:center;' + (reserved > 0 ? 'color:#d97706;font-weight:500;' : '') + '">' + (reserved > 0 ? formatNumberWithSpaces(reserved) : '—') + '</td>' +
