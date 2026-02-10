@@ -12150,22 +12150,39 @@ HTML_TEMPLATE = '''
         let vedSuppliers = []; // Поставщики для выпадающего списка
 
         /**
-         * Загрузка данных вкладки "ВЭД"
-         * Загружает курсы валют, список товаров и поставщиков
+         * Обновить курс юаня с сервера (ЦБ РФ).
+         * Вызывается при каждом открытии вкладки ВЭД и при создании нового контейнера,
+         * чтобы курс всегда соответствовал текущему дню.
          */
-        function loadVed() {
-            if (vedDataLoaded) return;
-
-            // Загружаем курс юаня
+        function refreshVedCnyRate() {
             fetch('/api/currency-rates')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
                         const rates = data.rates;
                         vedCnyRate = rates.CNY || 0;
-                        document.getElementById('ved-rate-cny').textContent = formatCurrencyRate(rates.CNY);
+                        // Обновляем отображение только если не редактируем завершённый контейнер
+                        if (vedEditingCnyRate === null) {
+                            const rateElement = document.getElementById('ved-rate-cny');
+                            if (rateElement) {
+                                rateElement.textContent = formatCurrencyRate(rates.CNY);
+                                rateElement.title = 'Актуальный курс ЦБ РФ';
+                            }
+                        }
                     }
-                });
+                })
+                .catch(err => console.error('Ошибка загрузки курса юаня:', err));
+        }
+
+        /**
+         * Загрузка данных вкладки "ВЭД"
+         * Загружает курсы валют, список товаров и поставщиков
+         */
+        function loadVed() {
+            // Курс юаня обновляем ВСЕГДА при переходе на вкладку ВЭД (не кэшируем на фронтенде)
+            refreshVedCnyRate();
+
+            if (vedDataLoaded) return;
 
             // Загружаем список товаров (как в Оприходовании)
             authFetch('/api/products/list')
@@ -12496,6 +12513,10 @@ HTML_TEMPLATE = '''
                 const result = await response.json();
 
                 if (result.success) {
+                    // Загружаем буферизованные файлы (выбранные до сохранения контейнера)
+                    if (vedContainerPendingFiles.length > 0) {
+                        await uploadPendingFiles(result.doc_id);
+                    }
                     // Очищаем список файлов сессии (файлы успешно сохранены, не удаляем их)
                     vedContainerUploadedFilesSession = [];
                     clearVedContainerForm();
@@ -12974,9 +12995,15 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Показать форму создания/редактирования контейнера
+         * Показать форму создания/редактирования контейнера.
+         * При создании нового контейнера (не редактирование) — обновляем курс юаня
+         * с сервера, чтобы он соответствовал текущему дню.
          */
         function showVedContainerForm() {
+            // Если это создание нового контейнера — обновляем курс юаня
+            if (!editingVedContainerId) {
+                refreshVedCnyRate();
+            }
             document.getElementById('ved-container-form').style.display = 'block';
             document.getElementById('ved-container-create-btn-wrapper').style.display = 'none';
             document.getElementById('ved-container-form').scrollIntoView({ behavior: 'smooth' });
@@ -13006,6 +13033,9 @@ HTML_TEMPLATE = '''
          */
         // Список файлов, загруженных в текущей сессии редактирования (для отката при отмене)
         let vedContainerUploadedFilesSession = [];
+
+        // Буфер файлов, выбранных до сохранения контейнера (File объекты + display_name)
+        let vedContainerPendingFiles = [];
 
         function clearVedContainerForm() {
             // Удаляем файлы, загруженные в этой сессии редактирования
@@ -13071,8 +13101,109 @@ HTML_TEMPLATE = '''
          */
         function clearVedContainerFiles() {
             const list = document.getElementById('ved-container-files-list');
-            const empty = document.getElementById('ved-container-files-empty');
             if (list) list.innerHTML = '<p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>';
+            vedContainerPendingFiles = [];
+        }
+
+        /**
+         * Создать элемент для буферизованного файла (ещё не загруженного на сервер)
+         */
+        function createPendingFileElement(pendingFile, index) {
+            const div = document.createElement('div');
+            div.className = 'ved-file-item ved-file-pending';
+            div.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fffde7; border: 1px dashed #f9a825; border-radius: 6px; font-size: 13px;';
+            div.dataset.pendingIndex = index;
+
+            const file = pendingFile.file;
+            let icon = '📄';
+            if (file.type.startsWith('image/')) icon = '🖼️';
+            else if (file.type === 'application/pdf') icon = '📕';
+            else if (file.type.includes('word')) icon = '📘';
+            else if (file.type.includes('excel') || file.type.includes('spreadsheet')) icon = '📗';
+            else if (file.type.includes('zip') || file.type.includes('rar')) icon = '📦';
+
+            const sizeKb = Math.round(file.size / 1024);
+            const sizeStr = sizeKb > 1024 ? (sizeKb / 1024).toFixed(1) + ' МБ' : sizeKb + ' КБ';
+            const displayName = pendingFile.displayName || file.name;
+
+            div.innerHTML = \`
+                <span style="font-size: 18px;">\${icon}</span>
+                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="\${file.name}">\${displayName}</span>
+                <span style="color: #f57f17; font-size: 11px;">⏳ Ожидает сохранения</span>
+                <span style="color: #888; font-size: 11px;">\${sizeStr}</span>
+                <button onclick="removePendingFile(\${index})" style="padding: 4px 8px; border: none; background: #ffebee; color: #d32f2f; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Удалить">🗑️</button>
+            \`;
+
+            return div;
+        }
+
+        /**
+         * Удалить буферизованный файл из списка
+         */
+        function removePendingFile(index) {
+            vedContainerPendingFiles.splice(index, 1);
+            renderPendingFiles();
+        }
+
+        /**
+         * Перерисовать список буферизованных файлов
+         */
+        function renderPendingFiles() {
+            // Удаляем старые pending-элементы
+            document.querySelectorAll('.ved-file-pending').forEach(el => el.remove());
+
+            const list = document.getElementById('ved-container-files-list');
+            if (!list) return;
+
+            // Убираем "Нет прикрепленных файлов" если есть pending файлы
+            const empty = document.getElementById('ved-container-files-empty');
+            if (vedContainerPendingFiles.length > 0 && empty) {
+                empty.remove();
+            }
+
+            // Если нет ни pending, ни загруженных файлов — показываем "нет файлов"
+            const uploadedFiles = list.querySelectorAll('.ved-file-item:not(.ved-file-pending)');
+            if (vedContainerPendingFiles.length === 0 && uploadedFiles.length === 0 && !empty) {
+                list.innerHTML = '<p id="ved-container-files-empty" style="color: #999; font-size: 13px; margin: 0;">Нет прикрепленных файлов</p>';
+            }
+
+            vedContainerPendingFiles.forEach((pf, i) => {
+                list.appendChild(createPendingFileElement(pf, i));
+            });
+        }
+
+        /**
+         * Загрузить буферизованные файлы на сервер после сохранения контейнера
+         */
+        async function uploadPendingFiles(docId) {
+            if (vedContainerPendingFiles.length === 0) return;
+
+            for (const pendingFile of vedContainerPendingFiles) {
+                const formData = new FormData();
+                formData.append('file', pendingFile.file);
+                formData.append('display_name', pendingFile.displayName || '');
+
+                try {
+                    const response = await fetch('/api/ved/containers/' + docId + '/files', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + authToken
+                        },
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        vedContainerUploadedFilesSession.push(result.file.id);
+                    } else {
+                        console.error('Ошибка загрузки файла:', pendingFile.file.name, result.error);
+                    }
+                } catch (error) {
+                    console.error('Ошибка загрузки файла:', pendingFile.file.name, error);
+                }
+            }
+            vedContainerPendingFiles = [];
         }
 
         /**
@@ -13150,20 +13281,39 @@ HTML_TEMPLATE = '''
 
         /**
          * Загрузить файл к контейнеру
+         * Если контейнер ещё не сохранён — буферизуем файлы и загружаем после сохранения
          */
         async function uploadVedContainerFile() {
             const input = document.getElementById('ved-container-file-input');
             if (!input || !input.files || input.files.length === 0) return;
 
-            // Контейнер должен быть сохранён
+            const files = input.files;
+
+            // Если контейнер ещё не сохранён — буферизуем файлы
             if (!editingVedContainerId) {
-                alert('Сначала сохраните контейнер, затем прикрепите файлы');
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+
+                    const displayName = prompt(
+                        'Укажите наименование файла (необязательно):\\n\\n' +
+                        'Оригинальное имя: ' + file.name + '\\n\\n' +
+                        'Оставьте пустым, чтобы использовать оригинальное имя файла:',
+                        ''
+                    );
+
+                    if (displayName === null) continue;
+
+                    vedContainerPendingFiles.push({
+                        file: file,
+                        displayName: displayName.trim()
+                    });
+                }
+                renderPendingFiles();
                 input.value = '';
                 return;
             }
 
-            const files = input.files;
-
+            // Контейнер уже сохранён — загружаем файлы сразу на сервер
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
 
@@ -17998,6 +18148,7 @@ def delete_ved_container():
 def toggle_ved_container_completed():
     """
     Переключить статус завершения контейнера ВЭД.
+    При завершении контейнера — фиксируем текущий курс юаня ЦБ РФ.
     Только для администратора.
     """
     try:
@@ -18011,11 +18162,22 @@ def toggle_ved_container_completed():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        cursor.execute('''
-            UPDATE ved_container_docs
-            SET is_completed = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (1 if is_completed else 0, doc_id))
+        if is_completed:
+            # При завершении — фиксируем текущий курс юаня
+            current_rates = fetch_cbr_rates()
+            current_cny_rate = current_rates.get('CNY', 0)
+            cursor.execute('''
+                UPDATE ved_container_docs
+                SET is_completed = 1, cny_rate = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (current_cny_rate, doc_id))
+        else:
+            # При снятии завершения — только меняем флаг, курс остаётся сохранённым
+            cursor.execute('''
+                UPDATE ved_container_docs
+                SET is_completed = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (doc_id,))
 
         conn.commit()
         conn.close()
