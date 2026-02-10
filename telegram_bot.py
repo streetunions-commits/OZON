@@ -91,6 +91,15 @@ logger = logging.getLogger(__name__)
     STATE_WAITING_REPLY       # Ожидание ответа на сообщение
 ) = range(8)
 
+# Состояния для отправки сообщения в контейнер (начинаем с 200, чтобы не конфликтовать)
+STATE_MSG_CONTAINER_SELECT = 200   # Выбор контейнера из списка
+STATE_MSG_RECIPIENTS = 201          # Выбор получателей (мультивыбор)
+STATE_MSG_TEXT = 202                # Ввод текста сообщения / прикрепление файла
+STATE_MSG_CONFIRM = 203             # Подтверждение перед отправкой
+
+# Количество контейнеров на странице в списке выбора
+MSG_PAGE_SIZE = 6
+
 
 # ============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -263,7 +272,8 @@ def get_main_menu():
     """
     keyboard = [
         ["📦 Новый приход"],
-        ["📊 Остатки", "❓ Помощь"]
+        ["✉️ Сообщение", "📊 Остатки"],
+        ["❓ Помощь"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -1155,6 +1165,126 @@ def send_container_reply_with_file(chat_id: int, container_id: int, message: str
         return {'success': False, 'error': str(e)}
 
 
+# ============================================================================
+# API-ХЕЛПЕРЫ ДЛЯ ОТПРАВКИ СООБЩЕНИЙ В КОНТЕЙНЕР
+# ============================================================================
+
+def get_containers(page: int = 0, page_size: int = MSG_PAGE_SIZE) -> dict:
+    """
+    Получить список контейнеров ВЭД с сервера (пагинация).
+
+    Аргументы:
+        page: Номер страницы (0, 1, 2...)
+        page_size: Количество контейнеров на странице
+
+    Возвращает:
+        {'containers': [...], 'total': N, 'page': 0, 'page_size': 6} или пустой dict при ошибке
+    """
+    try:
+        response = requests.get(
+            f'{API_BASE_URL}/api/telegram/containers',
+            params={
+                'token': TELEGRAM_BOT_SECRET,
+                'page': page,
+                'page_size': page_size
+            },
+            timeout=10
+        )
+        data = response.json()
+        if data.get('success'):
+            return data
+        else:
+            logger.error(f"Ошибка API containers: {data.get('error')}")
+            return {}
+    except Exception as e:
+        logger.error(f"Ошибка получения контейнеров: {e}")
+        return {}
+
+
+def get_users_list(exclude_chat_id: int = None) -> list:
+    """
+    Получить список пользователей для выбора получателей сообщения.
+
+    Аргументы:
+        exclude_chat_id: Исключить пользователя с этим chat_id (сам отправитель)
+
+    Возвращает:
+        Список: [{'id': 1, 'username': 'admin', 'display_name': 'Иванов', ...}, ...]
+    """
+    try:
+        params = {'token': TELEGRAM_BOT_SECRET}
+        if exclude_chat_id:
+            params['exclude_chat_id'] = exclude_chat_id
+        response = requests.get(
+            f'{API_BASE_URL}/api/telegram/users',
+            params=params,
+            timeout=10
+        )
+        data = response.json()
+        if data.get('success'):
+            return data.get('users', [])
+        return []
+    except Exception as e:
+        logger.error(f"Ошибка получения пользователей: {e}")
+        return []
+
+
+def send_container_message_api(chat_id: int, container_id: int, recipient_ids: list,
+                                message: str, sender_name: str,
+                                file_data: bytes = None, filename: str = None) -> dict:
+    """
+    Отправить сообщение в контейнер через API (с поддержкой файлов).
+
+    Аргументы:
+        chat_id: Telegram chat_id отправителя
+        container_id: ID контейнера
+        recipient_ids: Список ID пользователей-получателей
+        message: Текст сообщения
+        sender_name: Имя отправителя (@username или имя)
+        file_data: Байты файла (опционально)
+        filename: Имя файла (опционально)
+
+    Возвращает:
+        {'success': True, 'message_id': N} или {'success': False, 'error': '...'}
+    """
+    try:
+        if file_data and filename:
+            # Multipart/form-data для файлов
+            response = requests.post(
+                f'{API_BASE_URL}/api/telegram/send-container-message',
+                data={
+                    'token': TELEGRAM_BOT_SECRET,
+                    'chat_id': chat_id,
+                    'container_id': container_id,
+                    'recipient_ids': ','.join(map(str, recipient_ids)),
+                    'message': message,
+                    'sender_name': sender_name
+                },
+                files={
+                    'files': (filename, file_data)
+                },
+                timeout=30
+            )
+        else:
+            # JSON для текстовых сообщений
+            response = requests.post(
+                f'{API_BASE_URL}/api/telegram/send-container-message',
+                json={
+                    'token': TELEGRAM_BOT_SECRET,
+                    'chat_id': chat_id,
+                    'container_id': container_id,
+                    'recipient_ids': recipient_ids,
+                    'message': message,
+                    'sender_name': sender_name
+                },
+                timeout=15
+            )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения контейнера: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 async def receive_container_reply_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Обработчик файлов/фото в ответе на контейнер.
@@ -1237,6 +1367,496 @@ async def receive_container_reply_file(update: Update, context: ContextTypes.DEF
             reply_markup=get_main_menu()
         )
 
+    return ConversationHandler.END
+
+
+# ============================================================================
+# ОТПРАВКА СООБЩЕНИЙ В КОНТЕЙНЕР (НОВЫЙ ФЛОУ)
+# ============================================================================
+
+async def send_message_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Начало флоу отправки сообщения. Показывает список контейнеров.
+    Точка входа: кнопка "✉️ Сообщение" в главном меню.
+    """
+    chat_id = update.effective_chat.id
+    if not is_authorized(chat_id):
+        await update.message.reply_text("⛔ У вас нет доступа к этому боту.")
+        return ConversationHandler.END
+
+    # Инициализируем данные для флоу отправки сообщения
+    context.user_data['msg_flow'] = {
+        'container_id': None,
+        'container_info': '',
+        'selected_recipients': [],
+        'all_users': [],
+        'message_text': '',
+        'file_data': None,
+        'filename': None
+    }
+
+    return await show_container_selection(update, context, page=0, is_message=True)
+
+
+async def show_container_selection(update_or_query, context, page=0, is_message=False):
+    """
+    Показать пагинированный список контейнеров для выбора.
+
+    Каждый контейнер отображается как кнопка с информацией:
+    📦 #45 | 15.01.25 | ABC Trading | 12шт ¥15,000
+
+    Аргументы:
+        update_or_query: Update (сообщение) или CallbackQuery (пагинация)
+        context: контекст бота
+        page: номер страницы (0-индекс)
+        is_message: True если вызвано из текстового сообщения, False из callback
+    """
+    data = get_containers(page=page, page_size=MSG_PAGE_SIZE)
+
+    if not data or not data.get('containers'):
+        text = "📭 Нет контейнеров.\nСписок контейнеров пуст."
+        if is_message:
+            await update_or_query.message.reply_text(text, reply_markup=get_main_menu())
+        else:
+            await update_or_query.edit_message_text(text)
+        return ConversationHandler.END
+
+    containers = data['containers']
+    total = data.get('total', len(containers))
+
+    context.user_data['msg_container_page'] = page
+
+    keyboard = []
+    for c in containers:
+        # Форматируем дату (YYYY-MM-DD → DD.MM.YY)
+        try:
+            from datetime import datetime as dt_cls
+            parsed_date = dt_cls.strptime(c['container_date'], '%Y-%m-%d')
+            date_str = parsed_date.strftime('%d.%m.%y')
+        except Exception:
+            date_str = c['container_date']
+
+        # Форматируем сумму в юанях
+        sum_cny = c.get('total_sum_cny', 0)
+        if sum_cny >= 1000:
+            sum_str = f"¥{sum_cny:,.0f}"
+        else:
+            sum_str = f"¥{sum_cny:.0f}"
+
+        total_qty = c.get('total_qty', 0)
+        supplier = c.get('supplier', '')
+        # Обрезаем поставщика, если длинный
+        if len(supplier) > 15:
+            supplier = supplier[:12] + '...'
+
+        # Иконка статуса: ✅ завершён, 📦 активный
+        status_icon = "✅" if c.get('is_completed') else "📦"
+
+        label = f"{status_icon} #{c['id']} | {date_str} | {supplier} | {total_qty}шт {sum_str}"
+
+        keyboard.append([
+            InlineKeyboardButton(label, callback_data=f"msgc:{c['id']}")
+        ])
+
+    # Кнопки навигации (паттерн из show_product_selection)
+    nav_buttons = []
+    total_pages = (total + MSG_PAGE_SIZE - 1) // MSG_PAGE_SIZE
+
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"msgcp:{page - 1}"))
+
+    if page + 1 < total_pages:
+        remaining = total - (page + 1) * MSG_PAGE_SIZE
+        nav_buttons.append(InlineKeyboardButton(f"➡️ Ещё ({remaining})", callback_data=f"msgcp:{page + 1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # Кнопка отмены
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="msgcancel")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    page_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+    text = f"📦 *Выберите контейнер{page_info}:*"
+
+    if is_message:
+        await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+
+    return STATE_MSG_CONTAINER_SELECT
+
+
+async def msg_container_select_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора контейнера из списка. Переходит к выбору получателей.
+    Callback data: msgc:{container_id}
+    """
+    query = update.callback_query
+    await query.answer()
+
+    container_id = int(query.data.split(':')[1])
+    context.user_data['msg_flow']['container_id'] = container_id
+
+    # Загружаем список пользователей для выбора получателей
+    chat_id = update.effective_chat.id
+    users = get_users_list(exclude_chat_id=chat_id)
+
+    if not users:
+        await query.edit_message_text(
+            "❌ Нет пользователей с привязанным Telegram.\n"
+            "Невозможно отправить сообщение.",
+        )
+        context.user_data.pop('msg_flow', None)
+        return ConversationHandler.END
+
+    context.user_data['msg_flow']['all_users'] = users
+    context.user_data['msg_flow']['selected_recipients'] = []
+
+    return await show_recipient_selection(query, context)
+
+
+async def msg_container_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка пагинации контейнеров (кнопки ⬅️ Назад / ➡️ Ещё).
+    Callback data: msgcp:{page}
+    """
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split(':')[1])
+    return await show_container_selection(query, context, page=page, is_message=False)
+
+
+# ============================================================================
+# ВЫБОР ПОЛУЧАТЕЛЕЙ (МУЛЬТИВЫБОР)
+# ============================================================================
+
+async def show_recipient_selection(query, context):
+    """
+    Показать UI выбора получателей с галочками.
+
+    Отображает:
+    - Кнопка "Все" для быстрого выбора/снятия всех
+    - Список пользователей по 2 в ряд с галочками ✓
+    - Кнопка "Готово" (появляется когда хотя бы один выбран)
+    - Кнопка "Назад" для возврата к контейнерам
+    """
+    flow = context.user_data['msg_flow']
+    users = flow['all_users']
+    selected = flow['selected_recipients']
+    all_selected = len(selected) == len(users) and len(users) > 0
+
+    keyboard = []
+
+    # Кнопка "Все" — переключает выбор всех
+    all_label = "✅ Все" if all_selected else "☐ Все"
+    keyboard.append([InlineKeyboardButton(all_label, callback_data="msgrall")])
+
+    # Пользователи по 2 в ряд
+    row = []
+    for user in users:
+        is_selected = user['id'] in selected
+        check = "✓" if is_selected else "  "
+        name = user.get('display_name') or user.get('username', '?')
+        # Обрезаем длинные имена для кнопок
+        if len(name) > 18:
+            name = name[:15] + "..."
+        label = f"{check} {name}"
+        row.append(InlineKeyboardButton(label, callback_data=f"msgr:{user['id']}"))
+
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Кнопка "Готово" (только если хотя бы один получатель выбран)
+    bottom_row = []
+    if selected:
+        bottom_row.append(InlineKeyboardButton("✅ Готово", callback_data="msgrdone"))
+
+    # Кнопка "Назад к контейнерам"
+    back_page = context.user_data.get('msg_container_page', 0)
+    bottom_row.append(InlineKeyboardButton("⬅️ Контейнеры", callback_data=f"msgcp:{back_page}"))
+    keyboard.append(bottom_row)
+
+    # Кнопка отмены
+    keyboard.append([InlineKeyboardButton("❌ Отмена", callback_data="msgcancel")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    count_text = f" ({len(selected)} выбрано)" if selected else ""
+    container_id = flow['container_id']
+    text = f"📦 Контейнер *#{container_id}*\n\n👥 *Выберите получателей{count_text}:*\nНажмите на имя для выбора/отмены"
+
+    await query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+    return STATE_MSG_RECIPIENTS
+
+
+async def msg_recipient_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Переключить выбор одного получателя (toggle).
+    Callback data: msgr:{user_id}
+    """
+    query = update.callback_query
+    await query.answer()
+
+    user_id = int(query.data.split(':')[1])
+    selected = context.user_data['msg_flow']['selected_recipients']
+
+    if user_id in selected:
+        selected.remove(user_id)
+    else:
+        selected.append(user_id)
+
+    return await show_recipient_selection(query, context)
+
+
+async def msg_recipient_all_toggle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Переключить выбор всех получателей (выбрать всех / снять все).
+    Callback data: msgrall
+    """
+    query = update.callback_query
+    await query.answer()
+
+    flow = context.user_data['msg_flow']
+    users = flow['all_users']
+    selected = flow['selected_recipients']
+
+    if len(selected) == len(users):
+        # Снять все
+        flow['selected_recipients'] = []
+    else:
+        # Выбрать все
+        flow['selected_recipients'] = [u['id'] for u in users]
+
+    return await show_recipient_selection(query, context)
+
+
+async def msg_recipient_done_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Получатели выбраны, переходим к вводу текста сообщения.
+    Callback data: msgrdone
+    """
+    query = update.callback_query
+
+    selected = context.user_data['msg_flow']['selected_recipients']
+    if not selected:
+        await query.answer("Выберите хотя бы одного получателя", show_alert=True)
+        return STATE_MSG_RECIPIENTS
+
+    await query.answer()
+
+    # Формируем список имён для отображения
+    users = context.user_data['msg_flow']['all_users']
+    names = [u.get('display_name') or u.get('username') for u in users if u['id'] in selected]
+    names_str = ", ".join(names)
+
+    container_id = context.user_data['msg_flow']['container_id']
+
+    keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="msgcancel")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"📦 Контейнер *#{container_id}*\n"
+        f"👥 Получатели: {names_str}\n\n"
+        "💬 *Введите текст сообщения:*\n"
+        "Можно также отправить фото или документ",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+    return STATE_MSG_TEXT
+
+
+# ============================================================================
+# ВВОД ТЕКСТА / ФАЙЛА
+# ============================================================================
+
+async def msg_text_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка текстового сообщения. Сохраняет текст и переходит к подтверждению.
+    """
+    text = update.message.text.strip()
+
+    if not text:
+        await update.message.reply_text("❌ Сообщение не может быть пустым. Введите текст:")
+        return STATE_MSG_TEXT
+
+    context.user_data['msg_flow']['message_text'] = text
+    context.user_data['msg_flow']['file_data'] = None
+    context.user_data['msg_flow']['filename'] = None
+
+    return await show_send_confirmation(update, context, is_message=True)
+
+
+async def msg_file_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка фото/документа. Скачивает файл и переходит к подтверждению.
+    Паттерн из receive_container_reply_file.
+    """
+    message = update.message
+
+    try:
+        if message.photo:
+            # Фото — берём самое большое разрешение (последний элемент)
+            file_obj = await message.photo[-1].get_file()
+            filename = f"photo_{message.photo[-1].file_unique_id}.jpg"
+        elif message.document:
+            file_obj = await message.document.get_file()
+            filename = message.document.file_name or f"file_{message.document.file_unique_id}"
+        else:
+            await message.reply_text("❌ Неподдерживаемый тип файла. Отправьте фото или документ.")
+            return STATE_MSG_TEXT
+
+        # Скачиваем файл в память
+        file_bytes = await file_obj.download_as_bytearray()
+
+        # Текст подписи (caption) как текст сообщения
+        caption = message.caption or ''
+
+        context.user_data['msg_flow']['message_text'] = caption
+        context.user_data['msg_flow']['file_data'] = bytes(file_bytes)
+        context.user_data['msg_flow']['filename'] = filename
+
+        return await show_send_confirmation(update, context, is_message=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка скачивания файла: {e}")
+        await message.reply_text(f"❌ Ошибка обработки файла: {e}\nПопробуйте ещё раз.")
+        return STATE_MSG_TEXT
+
+
+# ============================================================================
+# ПОДТВЕРЖДЕНИЕ И ОТПРАВКА
+# ============================================================================
+
+async def show_send_confirmation(update_or_msg, context, is_message=False):
+    """
+    Показать превью сообщения перед отправкой.
+
+    Отображает: контейнер, получателей, текст, наличие файла.
+    Кнопки: ✅ Отправить / ❌ Отменить
+    """
+    flow = context.user_data['msg_flow']
+    container_id = flow['container_id']
+    users = flow['all_users']
+    selected = flow['selected_recipients']
+    message_text = flow['message_text']
+    has_file = flow.get('file_data') is not None
+
+    names = [u.get('display_name') or u.get('username') for u in users if u['id'] in selected]
+    names_str = ", ".join(names)
+
+    text = (
+        "────────────────────────\n"
+        "📋 *ПРОВЕРЬТЕ СООБЩЕНИЕ:*\n"
+        "────────────────────────\n\n"
+        f"📦 Контейнер: *#{container_id}*\n"
+        f"👥 Получатели: {names_str}\n\n"
+    )
+
+    if message_text:
+        text += f"💬 {message_text}\n"
+    if has_file:
+        text += f"📎 Файл: {flow['filename']}\n"
+    if not message_text and not has_file:
+        text += "⚠️ Пустое сообщение\n"
+
+    text += "\n────────────────────────"
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Отправить", callback_data="msgconfirm"),
+            InlineKeyboardButton("❌ Отменить", callback_data="msgcancel")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if is_message:
+        await update_or_msg.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update_or_msg.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+
+    return STATE_MSG_CONFIRM
+
+
+async def msg_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Подтверждение и отправка сообщения через API.
+    Callback data: msgconfirm
+    """
+    query = update.callback_query
+    await query.answer("Отправляю...")
+
+    flow = context.user_data.get('msg_flow', {})
+    if not flow.get('container_id'):
+        await query.edit_message_text("❌ Ошибка: данные сообщения потеряны.")
+        return ConversationHandler.END
+
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    sender_name = f"@{user.username}" if user.username else user.first_name or str(chat_id)
+
+    # Отправляем через API
+    result = send_container_message_api(
+        chat_id=chat_id,
+        container_id=flow['container_id'],
+        recipient_ids=flow['selected_recipients'],
+        message=flow.get('message_text', ''),
+        sender_name=sender_name,
+        file_data=flow.get('file_data'),
+        filename=flow.get('filename')
+    )
+
+    # Очищаем данные флоу
+    context.user_data.pop('msg_flow', None)
+
+    if result.get('success'):
+        await query.edit_message_text(
+            f"✅ *Сообщение отправлено!*\n\n"
+            f"📦 Контейнер #{flow['container_id']}\n"
+            f"👥 Получателей: {len(flow['selected_recipients'])}",
+            parse_mode='Markdown'
+        )
+        # Отправляем главное меню отдельным сообщением
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Что делаем дальше? 👇",
+            reply_markup=get_main_menu()
+        )
+    else:
+        error = result.get('error', 'Неизвестная ошибка')
+        await query.edit_message_text(f"❌ Ошибка отправки: {error}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Попробуйте ещё раз 👇",
+            reply_markup=get_main_menu()
+        )
+
+    return ConversationHandler.END
+
+
+async def msg_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Отмена флоу отправки сообщения из любого шага (через inline-кнопку).
+    Callback data: msgcancel
+    """
+    query = update.callback_query
+    await query.answer()
+
+    # Очищаем данные флоу
+    context.user_data.pop('msg_flow', None)
+
+    await query.edit_message_text("↩️ Отправка сообщения отменена.")
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Выберите действие 👇",
+        reply_markup=get_main_menu()
+    )
     return ConversationHandler.END
 
 
@@ -1344,11 +1964,50 @@ def main():
         ]
     )
 
+    # Обработчик отправки сообщения в контейнер (новый флоу)
+    send_message_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r'^✉️ Сообщение$'), send_message_start)
+        ],
+        states={
+            STATE_MSG_CONTAINER_SELECT: [
+                CallbackQueryHandler(msg_container_select_callback, pattern=r'^msgc:\d+$'),
+                CallbackQueryHandler(msg_container_page_callback, pattern=r'^msgcp:\d+$'),
+                CallbackQueryHandler(msg_cancel_callback, pattern=r'^msgcancel$'),
+            ],
+            STATE_MSG_RECIPIENTS: [
+                CallbackQueryHandler(msg_recipient_toggle_callback, pattern=r'^msgr:\d+$'),
+                CallbackQueryHandler(msg_recipient_all_toggle_callback, pattern=r'^msgrall$'),
+                CallbackQueryHandler(msg_recipient_done_callback, pattern=r'^msgrdone$'),
+                # Назад к контейнерам (кнопка "⬅️ Контейнеры")
+                CallbackQueryHandler(msg_container_page_callback, pattern=r'^msgcp:\d+$'),
+                CallbackQueryHandler(msg_cancel_callback, pattern=r'^msgcancel$'),
+            ],
+            STATE_MSG_TEXT: [
+                # PHOTO/Document ПЕРЕД TEXT (фото с caption содержат и текст)
+                MessageHandler(filters.PHOTO | filters.Document.ALL, msg_file_entered),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_text_entered),
+                CallbackQueryHandler(msg_cancel_callback, pattern=r'^msgcancel$'),
+            ],
+            STATE_MSG_CONFIRM: [
+                CallbackQueryHandler(msg_confirm_callback, pattern=r'^msgconfirm$'),
+                CallbackQueryHandler(msg_cancel_callback, pattern=r'^msgcancel$'),
+            ],
+        },
+        fallbacks=[
+            CommandHandler('cancel', cancel),
+            CommandHandler('stop', cancel),
+            # Позволяем перезапустить флоу
+            MessageHandler(filters.Regex(r'^✉️ Сообщение$'), send_message_start),
+        ]
+    )
+
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(container_reply_handler)  # Обработчик ответов на контейнеры
+    application.add_handler(send_message_handler)  # Отправка сообщений в контейнер
     application.add_handler(receipt_handler)
 
     # Обработчик кнопок главного меню (должен быть после receipt_handler)
