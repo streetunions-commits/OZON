@@ -10196,6 +10196,14 @@ HTML_TEMPLATE = '''
                 }
             }
 
+            // Если категория "Другое" — комментарий обязателен
+            const selectedCatName = financeCategories.find(c => c.id === selectedFinanceCategoryId)?.name || categoryInput;
+            if (selectedCatName.toLowerCase() === 'другое' && !description) {
+                alert('При категории "Другое" комментарий обязателен');
+                document.getElementById('finance-description').focus();
+                return;
+            }
+
             if (!recordDate) {
                 alert('Укажите дату');
                 document.getElementById('finance-date').focus();
@@ -22454,6 +22462,11 @@ def api_finance_records_add():
 
         category_name = cat_row[0]
 
+        # При категории "Другое" комментарий обязателен
+        if category_name.lower() == 'другое' and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
+
         cursor.execute('''
             INSERT INTO finance_records
             (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date)
@@ -22534,6 +22547,11 @@ def api_finance_records_update():
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
         category_name = cat_row[0]
+
+        # При категории "Другое" комментарий обязателен
+        if category_name.lower() == 'другое' and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
 
         cursor.execute('''
             UPDATE finance_records
@@ -22713,6 +22731,12 @@ def api_telegram_finance_add():
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
         category_name = cat_row[0]
+
+        # При категории "Другое" комментарий обязателен
+        if category_name.lower() == 'другое' and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'При категории "Другое" комментарий обязателен'}), 400
+
         record_date = get_snapshot_date()
 
         cursor.execute('''

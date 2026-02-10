@@ -2167,15 +2167,64 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
 
+    # Если категория "Другое" — комментарий обязателен, иначе можно пропустить
+    is_other = category_name.lower() == 'другое'
+    if is_other:
+        comment_prompt = "📝 Введите комментарий (обязательно при категории «Другое»):"
+        reply_markup = None
+    else:
+        comment_prompt = "📝 Введите комментарий или нажмите «Пропустить»:"
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏩ Пропустить", callback_data="fin_skip_comment")]
+        ])
+
     await query.edit_message_text(
         f"💰 *{escape_md(type_label)}*\n"
         f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
         f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
         f"🏷 Категория: *{escape_md(category_name)}*\n\n"
-        "📝 Введите комментарий:",
-        parse_mode='Markdown'
+        f"{comment_prompt}",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
     )
     return STATE_FIN_DESCRIPTION
+
+
+async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Пропуск комментария (доступно только если категория НЕ "Другое").
+    """
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['finance']['description'] = ''
+    fin = context.user_data['finance']
+
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes"),
+            InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")
+        ]
+    ]
+
+    category_line = ""
+    if fin.get('category_name'):
+        category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
+
+    await query.edit_message_text(
+        f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
+        f"Тип: {escape_md(type_label)}\n"
+        f"Сумма: *{escape_md(formatted)} ₽*\n"
+        f"Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"{category_line}"
+        "Всё верно?",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_CONFIRM
 
 
 async def finance_description_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2184,8 +2233,13 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     Показывает итоговую сводку для подтверждения.
     """
     description = update.message.text.strip()
-    if not description:
-        await update.message.reply_text("❌ Введите комментарий:")
+    fin = context.user_data['finance']
+    is_other = (fin.get('category_name') or '').lower() == 'другое'
+
+    if is_other and not description:
+        await update.message.reply_text(
+            "❌ При категории «Другое» комментарий обязателен. Введите комментарий:"
+        )
         return STATE_FIN_DESCRIPTION
 
     context.user_data['finance']['description'] = description
@@ -2205,13 +2259,17 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     if fin.get('category_name'):
         category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
 
+    comment_line = ""
+    if description:
+        comment_line = f"Комментарий: {escape_md(description)}\n"
+
     await update.message.reply_text(
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
         f"Сумма: *{escape_md(formatted)} ₽*\n"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
-        f"Комментарий: {escape_md(description)}\n\n"
+        f"{comment_line}\n"
         "Всё верно?",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2447,6 +2505,7 @@ def main():
                 CallbackQueryHandler(finance_category_selected, pattern=r'^fin_cat:')
             ],
             STATE_FIN_DESCRIPTION: [
+                CallbackQueryHandler(finance_skip_comment, pattern=r'^fin_skip_comment$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
             ],
             STATE_FIN_CONFIRM: [
