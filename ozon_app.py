@@ -6474,6 +6474,9 @@ HTML_TEMPLATE = '''
             background: #f8f9fb;
             border-radius: 10px;
             border: 1px solid #e9ecef;
+            position: sticky;
+            top: 0;
+            z-index: 50;
         }
         .finance-filters label {
             font-size: 13px;
@@ -8442,7 +8445,7 @@ HTML_TEMPLATE = '''
                 <!-- Фильтры -->
                 <div class="finance-filters">
                     <label>Тип:</label>
-                    <select id="finance-filter-type" style="width: 140px;" onchange="loadFinanceRecords()">
+                    <select id="finance-filter-type" style="width: 140px;" onchange="onFinanceFilterTypeChange()">
                         <option value="">Все</option>
                         <option value="income">📈 Доход</option>
                         <option value="expense">📉 Расход</option>
@@ -10353,6 +10356,11 @@ HTML_TEMPLATE = '''
             if (!financeDataLoaded) {
                 loadFinanceAccounts();
                 loadFinanceCategories();
+                // Устанавливаем даты по умолчанию: начало текущего месяца — сегодня
+                const today = new Date();
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                document.getElementById('finance-date-from').value = firstDay.toISOString().slice(0, 10);
+                document.getElementById('finance-date-to').value = today.toISOString().slice(0, 10);
                 financeDataLoaded = true;
             }
             loadFinanceRecords();
@@ -10397,24 +10405,53 @@ HTML_TEMPLATE = '''
                 const data = await resp.json();
                 if (data.success) {
                     financeCategories = data.categories;
-                    // Заполняем выпадающий список в фильтрах
-                    const filterSelect = document.getElementById('finance-filter-category');
-                    if (filterSelect) {
-                        const currentVal = filterSelect.value;
-                        filterSelect.innerHTML = '<option value="">Все категории</option>';
-                        financeCategories.forEach(cat => {
-                            const opt = document.createElement('option');
-                            opt.value = cat.id;
-                            const typeIcon = cat.record_type === 'income' ? '📈' : '📉';
-                            opt.textContent = typeIcon + ' ' + cat.name;
-                            filterSelect.appendChild(opt);
-                        });
-                        filterSelect.value = currentVal;
-                    }
+                    // Обновляем фильтр категорий с учётом выбранного типа
+                    updateFinanceCategoryFilter();
                 }
             } catch (e) {
                 console.error('Ошибка загрузки категорий:', e);
             }
+        }
+
+        /**
+         * Обновить выпадающий список категорий в фильтрах.
+         * Показывает только категории, соответствующие выбранному типу (расход/доход).
+         * Если тип не выбран (Все) — показывает все категории.
+         */
+        function updateFinanceCategoryFilter() {
+            const filterSelect = document.getElementById('finance-filter-category');
+            if (!filterSelect) return;
+
+            const selectedType = document.getElementById('finance-filter-type')?.value || '';
+            const currentVal = filterSelect.value;
+
+            filterSelect.innerHTML = '<option value="">Все категории</option>';
+
+            // Фильтруем категории по выбранному типу
+            const filtered = selectedType
+                ? financeCategories.filter(cat => cat.record_type === selectedType)
+                : financeCategories;
+
+            filtered.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.id;
+                const typeIcon = cat.record_type === 'income' ? '📈' : '📉';
+                opt.textContent = typeIcon + ' ' + cat.name;
+                filterSelect.appendChild(opt);
+            });
+
+            // Восстанавливаем выбранную категорию, если она осталась в списке
+            const stillExists = filtered.some(cat => String(cat.id) === String(currentVal));
+            filterSelect.value = stillExists ? currentVal : '';
+        }
+
+        /**
+         * Обработчик смены типа в фильтре.
+         * Обновляет список категорий и перезагружает записи.
+         */
+        function onFinanceFilterTypeChange() {
+            updateFinanceCategoryFilter();
+            loadFinanceRecords();
         }
 
         /**
@@ -10912,9 +10949,14 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-filter-type').value = '';
             document.getElementById('finance-filter-account').value = '';
             document.getElementById('finance-filter-category').value = '';
-            document.getElementById('finance-date-from').value = '';
-            document.getElementById('finance-date-to').value = '';
+            // Сбрасываем даты на текущий месяц
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            document.getElementById('finance-date-from').value = firstDay.toISOString().slice(0, 10);
+            document.getElementById('finance-date-to').value = today.toISOString().slice(0, 10);
             document.getElementById('finance-sort').value = 'date:desc';
+            // Обновляем категории (показываем все, т.к. тип сброшен)
+            updateFinanceCategoryFilter();
             loadFinanceRecords();
         }
 
