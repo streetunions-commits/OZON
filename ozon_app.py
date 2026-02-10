@@ -10352,8 +10352,8 @@ HTML_TEMPLATE = '''
             if (!financeDataLoaded) {
                 loadFinanceAccounts();
                 loadFinanceCategories();
-                // По умолчанию: текущий месяц (dropdown "month")
-                document.getElementById('finance-period').value = 'month';
+                // По умолчанию: вся история (без ограничений по датам)
+                document.getElementById('finance-period').value = 'all';
                 applyFinancePeriod();
                 financeDataLoaded = true;
             }
@@ -10986,8 +10986,8 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-filter-type').value = '';
             document.getElementById('finance-filter-account').value = '';
             document.getElementById('finance-filter-category').value = '';
-            // Сбрасываем период на текущий месяц
-            document.getElementById('finance-period').value = 'month';
+            // Сбрасываем период — вся история
+            document.getElementById('finance-period').value = 'all';
             applyFinancePeriod();
             // Обновляем категории (показываем все, т.к. тип сброшен)
             updateFinanceCategoryFilter();
