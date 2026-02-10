@@ -2029,7 +2029,10 @@ async def finance_type_selected(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(
         f"💰 *{type_label}*\n\n"
         "💵 Введите сумму (в рублях):",
-        parse_mode='Markdown'
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_type")]
+        ])
     )
     return STATE_FIN_AMOUNT
 
@@ -2077,6 +2080,7 @@ async def finance_amount_entered(update: Update, context: ContextTypes.DEFAULT_T
             row = []
     if row:
         keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_amount")])
 
     formatted = format_amount(amount)
     fin = context.user_data['finance']
@@ -2139,6 +2143,7 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
             row = []
     if row:
         keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_account")])
 
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
@@ -2180,20 +2185,22 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     # Комментарий обязателен при "Другое" или при контейнерной категории
     is_other = category_name.lower() == 'другое'
     comment_required = is_other or is_container_linked
+    back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
     if is_container_linked:
         comment_prompt = (
             "📝 *Комментарий обязателен!*\n\n"
             "Распишите какие суммы за что были оплачены.\n"
             "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
         )
-        reply_markup = None
+        reply_markup = InlineKeyboardMarkup([back_btn])
     elif is_other:
         comment_prompt = "📝 Введите комментарий (обязательно при категории «Другое»):"
-        reply_markup = None
+        reply_markup = InlineKeyboardMarkup([back_btn])
     else:
         comment_prompt = "📝 Введите комментарий или нажмите «Пропустить»:"
         reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⏩ Пропустить", callback_data="fin_skip_comment")]
+            [InlineKeyboardButton("⏩ Пропустить", callback_data="fin_skip_comment")],
+            back_btn
         ])
 
     await query.edit_message_text(
@@ -2225,7 +2232,8 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
         [
             InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes"),
             InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")
-        ]
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_description")]
     ]
 
     category_line = ""
@@ -2279,7 +2287,8 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         [
             InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes"),
             InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")
-        ]
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_description")]
     ]
 
     category_line = ""
@@ -2302,6 +2311,193 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STATE_FIN_CONFIRM
+
+
+# ============================================================================
+# ОБРАБОТЧИКИ КНОПКИ «НАЗАД» В ФИНАНСОВОМ ПОТОКЕ
+# ============================================================================
+
+
+async def finance_back_to_type(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к выбору типа (расход/доход).
+    Вызывается из шага AMOUNT при нажатии «⬅️ Назад».
+    """
+    query = update.callback_query
+    await query.answer()
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📉 Расход", callback_data="fin_type:expense"),
+            InlineKeyboardButton("📈 Доход", callback_data="fin_type:income")
+        ]
+    ]
+    await query.edit_message_text(
+        "💰 *ФИНАНСЫ*\n\nВыберите тип записи:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_TYPE
+
+
+async def finance_back_to_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к вводу суммы.
+    Вызывается из шага ACCOUNT при нажатии «⬅️ Назад».
+    """
+    query = update.callback_query
+    await query.answer()
+
+    fin = context.user_data['finance']
+    type_label = "📉 РАСХОД" if fin['record_type'] == 'expense' else "📈 ДОХОД"
+    await query.edit_message_text(
+        f"💰 *{type_label}*\n\n"
+        "💵 Введите сумму (в рублях):",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_type")]
+        ])
+    )
+    return STATE_FIN_AMOUNT
+
+
+async def finance_back_to_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к выбору счёта.
+    Вызывается из шага CATEGORY при нажатии «⬅️ Назад».
+    """
+    query = update.callback_query
+    await query.answer()
+
+    fin = context.user_data['finance']
+
+    # Загружаем список счетов с сервера
+    accounts = get_finance_accounts()
+    if not accounts:
+        await query.edit_message_text("❌ Не удалось загрузить список счетов.")
+        return ConversationHandler.END
+
+    # Формируем inline-кнопки со счетами (по 2 в ряд)
+    keyboard = []
+    row = []
+    for acc in accounts:
+        acc_name = acc['name'][:30]
+        row.append(InlineKeyboardButton(
+            acc['name'],
+            callback_data=f"fin_acc:{acc['id']}:{acc_name}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_amount")])
+
+    formatted = format_amount(fin['amount'])
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n\n"
+        "🏦 Выберите счёт / источник:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_ACCOUNT
+
+
+async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к выбору категории.
+    Вызывается из шага DESCRIPTION при нажатии «⬅️ Назад».
+    """
+    query = update.callback_query
+    await query.answer()
+
+    fin = context.user_data['finance']
+
+    # Загружаем категории для выбранного типа (расход/доход)
+    fin_type = fin.get('record_type', 'expense')
+    categories = get_finance_categories(record_type=fin_type)
+    if not categories:
+        await query.edit_message_text("❌ Нет доступных категорий.")
+        return ConversationHandler.END
+
+    # Формируем inline-кнопки с категориями (по 2 в ряд)
+    keyboard = []
+    row = []
+    for cat in categories:
+        cat_name = cat['name'][:30]
+        linked = cat.get('is_container_linked', 0) or 0
+        row.append(InlineKeyboardButton(
+            cat['name'],
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_account")])
+
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n\n"
+        "🏷 Выберите категорию:",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_CATEGORY
+
+
+async def finance_back_to_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к вводу комментария.
+    Вызывается из шага CONFIRM при нажатии «⬅️ Назад».
+    """
+    query = update.callback_query
+    await query.answer()
+
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    # Определяем, обязателен ли комментарий
+    is_other = (fin.get('category_name') or '').lower() == 'другое'
+    is_container_linked = fin.get('is_container_linked', 0)
+    back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
+
+    if is_container_linked:
+        comment_prompt = (
+            "📝 *Комментарий обязателен!*\n\n"
+            "Распишите какие суммы за что были оплачены.\n"
+            "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
+        )
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    elif is_other:
+        comment_prompt = "📝 Введите комментарий (обязательно при категории «Другое»):"
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    else:
+        comment_prompt = "📝 Введите комментарий или нажмите «Пропустить»:"
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏩ Пропустить", callback_data="fin_skip_comment")],
+            back_btn
+        ])
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"🏷 Категория: *{escape_md(fin.get('category_name', ''))}*\n\n"
+        f"{comment_prompt}",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+    return STATE_FIN_DESCRIPTION
 
 
 async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2523,19 +2719,24 @@ def main():
                 CallbackQueryHandler(finance_type_selected, pattern=r'^fin_type:')
             ],
             STATE_FIN_AMOUNT: [
+                CallbackQueryHandler(finance_back_to_type, pattern=r'^fin_back_type$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_amount_entered)
             ],
             STATE_FIN_ACCOUNT: [
+                CallbackQueryHandler(finance_back_to_amount, pattern=r'^fin_back_amount$'),
                 CallbackQueryHandler(finance_account_selected, pattern=r'^fin_acc:')
             ],
             STATE_FIN_CATEGORY: [
+                CallbackQueryHandler(finance_back_to_account, pattern=r'^fin_back_account$'),
                 CallbackQueryHandler(finance_category_selected, pattern=r'^fin_cat:')
             ],
             STATE_FIN_DESCRIPTION: [
+                CallbackQueryHandler(finance_back_to_category, pattern=r'^fin_back_category$'),
                 CallbackQueryHandler(finance_skip_comment, pattern=r'^fin_skip_comment$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
             ],
             STATE_FIN_CONFIRM: [
+                CallbackQueryHandler(finance_back_to_description, pattern=r'^fin_back_description$'),
                 CallbackQueryHandler(finance_confirm, pattern=r'^fin_confirm:')
             ]
         },
