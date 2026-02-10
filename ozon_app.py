@@ -12726,7 +12726,7 @@ HTML_TEMPLATE = '''
                 row.onclick = function() { toggleStockAccordion(sku, productName); };
                 const reserved = item.reserved || 0;
                 const available = item.stock_balance - reserved; // Остаток минус бронь
-                row.innerHTML = '<td><span class="wh-stock-arrow">▶</span> ' + (item.offer_id || '—') + '</td>' +
+                row.innerHTML = '<td style="text-align:left;"><span class="wh-stock-arrow">▶</span> ' + (item.offer_id || '—') + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_received) + '</td>' +
                     '<td style="text-align:center;">' + formatNumberWithSpaces(item.total_shipped) + '</td>' +
                     '<td style="text-align:center;' + (reserved > 0 ? 'color:#d97706;font-weight:500;' : '') + '">' + (reserved > 0 ? formatNumberWithSpaces(reserved) : '—') + '</td>' +
@@ -13082,7 +13082,7 @@ HTML_TEMPLATE = '''
 
                 // Основная строка товара
                 html += '<tr class="fbo-row" id="fbo-row-' + sku + '" onclick="toggleFboRow(' + sku + ')">';
-                html += '<td><span class="fbo-arrow">&#9654;</span>' + (p.offer_id || p.name || 'SKU ' + sku) + '</td>';
+                html += '<td style="text-align:left;"><span class="fbo-arrow">&#9654;</span>' + (p.offer_id || p.name || 'SKU ' + sku) + '</td>';
                 html += '<td class="' + stockClass + '">' + p.fbo_stock + ' шт</td>';
                 html += '<td>' + p.total_ads + '</td>';
                 html += '<td>' + (p.in_transit || 0) + '</td>';
