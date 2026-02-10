@@ -693,6 +693,21 @@ def init_database():
         )
     ''')
 
+    # Таблица для хранения файлов, прикрепленных к сообщениям контейнеров
+    # Файлы привязываются к конкретному сообщению (не к контейнеру) и отображаются inline в чате
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS container_message_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
+            file_type TEXT DEFAULT '',
+            file_size INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (message_id) REFERENCES container_messages(id) ON DELETE CASCADE
+        )
+    ''')
+
     # Миграция: добавляем колонку is_completed для контейнеров ВЭД
     try:
         cursor.execute('ALTER TABLE ved_container_docs ADD COLUMN is_completed INTEGER DEFAULT 0')
@@ -12576,6 +12591,10 @@ HTML_TEMPLATE = '''
                     const dateFormatted = doc.container_date ? doc.container_date.split('-').reverse().join('.') : '';
                     const isCompleted = doc.is_completed === 1;
 
+                    // Двойной клик по строке открывает контейнер для редактирования
+                    row.style.cursor = 'pointer';
+                    row.ondblclick = () => editVedContainer(doc.id);
+
                     // Если завершено — зелёный фон строки
                     if (isCompleted) {
                         row.style.backgroundColor = '#d4edda';
@@ -12643,7 +12662,6 @@ HTML_TEMPLATE = '''
                         <td style="white-space: nowrap;">${updatedInfo}</td>
                         <td style="text-align: center;">${checkboxHtml}</td>
                         <td>
-                            <button class="wh-edit-btn" onclick="editVedContainer(${doc.id})" title="Редактировать">✏️</button>
                             <button class="wh-delete-btn" onclick="deleteVedContainer(${doc.id})" title="Удалить">🗑️</button>
                         </td>
                     `;
@@ -16585,6 +16603,156 @@ def send_telegram_container_message(chat_id, text, container_id, message_id):
     except Exception as e:
         print(f"⚠️ Ошибка отправки в Telegram: {e}")
         return None
+
+
+def send_telegram_container_files(chat_id, files_info):
+    """
+    Отправить файлы в Telegram после текстового сообщения контейнера.
+    files_info: список словарей с ключами file_path, file_type, filename
+    """
+    import requests as req_lib
+
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        return
+
+    for f in files_info:
+        try:
+            file_path = f['file_path']
+            if not os.path.exists(file_path):
+                continue
+
+            with open(file_path, 'rb') as fobj:
+                if f['file_type'].startswith('image/'):
+                    # Отправляем как фото (показывает превью в Telegram)
+                    req_lib.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+                        data={"chat_id": chat_id},
+                        files={"photo": (f['filename'], fobj)},
+                        timeout=30
+                    )
+                else:
+                    # Отправляем как документ
+                    req_lib.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendDocument",
+                        data={"chat_id": chat_id},
+                        files={"document": (f['filename'], fobj)},
+                        timeout=30
+                    )
+        except Exception as e:
+            print(f"⚠️ Ошибка отправки файла в Telegram: {e}")
+
+
+@app.route('/api/container-messages/files/<int:file_id>')
+@require_auth(['admin', 'viewer'])
+def download_container_message_file(file_id):
+    """
+    Скачать или просмотреть файл, прикрепленный к сообщению контейнера.
+    Параметры: ?view=1 для inline просмотра картинок/PDF
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT cmf.*, cm.container_id
+            FROM container_message_files cmf
+            JOIN container_messages cm ON cmf.message_id = cm.id
+            WHERE cmf.id = ?
+        ''', (file_id,))
+        file_info = cursor.fetchone()
+        conn.close()
+
+        if not file_info:
+            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
+
+        file_path = os.path.join(
+            UPLOAD_FOLDER,
+            str(file_info['container_id']),
+            'messages',
+            file_info['stored_filename']
+        )
+
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Файл не найден на диске'}), 404
+
+        view_inline = request.args.get('view', '0') == '1'
+
+        if view_inline and file_info['file_type'].startswith(('image/', 'application/pdf')):
+            return send_file(file_path, mimetype=file_info['file_type'])
+        else:
+            return send_file(file_path, as_attachment=True, download_name=file_info['filename'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def save_message_files(cursor, message_id, container_id, files):
+    """
+    Сохранить файлы, прикрепленные к сообщению контейнера.
+    Возвращает список сохраненных файлов (для отправки в Telegram).
+    """
+    saved_files = []
+    mime_types = {
+        'pdf': 'application/pdf',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'txt': 'text/plain',
+        'zip': 'application/zip',
+        'rar': 'application/x-rar-compressed'
+    }
+
+    # Папка для файлов сообщений контейнера
+    msg_folder = os.path.join(UPLOAD_FOLDER, str(container_id), 'messages')
+    os.makedirs(msg_folder, exist_ok=True)
+
+    for f in files:
+        if not f or not f.filename:
+            continue
+        if not allowed_file(f.filename):
+            continue
+
+        # Проверяем размер
+        f.seek(0, 2)
+        file_size = f.tell()
+        f.seek(0)
+        if file_size > MAX_FILE_SIZE:
+            continue
+
+        # Генерируем UUID имя файла
+        original_filename = secure_filename(f.filename)
+        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
+        stored_filename = f"{uuid.uuid4().hex}.{ext}" if ext else uuid.uuid4().hex
+
+        # Сохраняем файл на диск
+        file_path = os.path.join(msg_folder, stored_filename)
+        f.save(file_path)
+
+        # Определяем MIME тип
+        file_type = mime_types.get(ext, 'application/octet-stream')
+
+        # Запись в БД
+        cursor.execute('''
+            INSERT INTO container_message_files (message_id, filename, stored_filename, file_type, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (message_id, f.filename, stored_filename, file_type, file_size))
+
+        saved_files.append({
+            'id': cursor.lastrowid,
+            'filename': f.filename,
+            'stored_filename': stored_filename,
+            'file_type': file_type,
+            'file_size': file_size,
+            'file_path': file_path
+        })
+
+    return saved_files
 
 
 @app.route('/api/users/create', methods=['POST'])
