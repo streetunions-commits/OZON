@@ -225,17 +225,23 @@ def get_finance_accounts() -> list:
         return []
 
 
-def get_finance_categories() -> list:
+def get_finance_categories(record_type: str = '') -> list:
     """
     Получить список финансовых категорий с сервера.
+
+    Аргументы:
+        record_type (str): Тип записи ('income' или 'expense'). Если пусто — все.
 
     Возвращает:
         Список категорий: [{'id': 1, 'name': 'Упаковка'}, ...]
     """
     try:
+        params = {'token': TELEGRAM_BOT_SECRET}
+        if record_type in ('income', 'expense'):
+            params['type'] = record_type
         response = requests.get(
             f'{API_BASE_URL}/api/telegram/finance/categories',
-            params={'token': TELEGRAM_BOT_SECRET},
+            params=params,
             timeout=10
         )
         data = response.json()
@@ -2102,8 +2108,9 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
     context.user_data['finance']['account_id'] = account_id
     context.user_data['finance']['account_name'] = account_name
 
-    # Загружаем список категорий с сервера
-    categories = get_finance_categories()
+    # Загружаем категории только для выбранного типа (расход/доход)
+    fin_type = context.user_data['finance'].get('record_type', 'expense')
+    categories = get_finance_categories(record_type=fin_type)
     if not categories:
         await query.edit_message_text(
             "❌ Нет доступных категорий.\n\n"
