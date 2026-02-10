@@ -7942,7 +7942,7 @@ HTML_TEMPLATE = '''
                             <input type="date" id="finance-date" class="wh-input" style="cursor: pointer;" max="">
                         </div>
                         <div class="finance-form-field" style="flex: 1; min-width: 200px;">
-                            <label>Описание (на что)</label>
+                            <label>Комментарий</label>
                             <input type="text" id="finance-description" class="wh-input"
                                    placeholder="Например: Закупка упаковки">
                         </div>
@@ -8001,9 +8001,9 @@ HTML_TEMPLATE = '''
                                 <th style="width: 110px;">Дата</th>
                                 <th style="width: 100px;">Тип</th>
                                 <th style="width: 120px;">Сумма</th>
-                                <th>Счёт / Источник</th>
-                                <th>Категория</th>
-                                <th>Описание</th>
+                                <th style="width: 140px; text-align: left;">Счёт / Источник</th>
+                                <th style="width: 140px; text-align: left;">Категория</th>
+                                <th style="text-align: left;">Комментарий</th>
                                 <th style="width: 120px;">Создал</th>
                                 <th style="width: 100px;">Источник</th>
                                 <th style="width: 80px;" class="admin-only"></th>
@@ -10028,16 +10028,19 @@ HTML_TEMPLATE = '''
                 // Счёт / Источник
                 const tdAccount = document.createElement('td');
                 tdAccount.textContent = rec.account_name || '—';
+                tdAccount.style.textAlign = 'left';
                 tr.appendChild(tdAccount);
 
                 // Категория
                 const tdCategory = document.createElement('td');
                 tdCategory.textContent = rec.category_name || '—';
+                tdCategory.style.textAlign = 'left';
                 tr.appendChild(tdCategory);
 
-                // Описание
+                // Комментарий
                 const tdDesc = document.createElement('td');
                 tdDesc.textContent = rec.description || '—';
+                tdDesc.style.textAlign = 'left';
                 tdDesc.style.maxWidth = '300px';
                 tdDesc.style.overflow = 'hidden';
                 tdDesc.style.textOverflow = 'ellipsis';
