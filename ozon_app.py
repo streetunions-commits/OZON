@@ -10437,7 +10437,10 @@ HTML_TEMPLATE = '''
          */
         function toggleFinanceAccountsManager() {
             const panel = document.getElementById('finance-accounts-manager');
+            const otherPanel = document.getElementById('finance-categories-manager');
             if (panel.style.display === 'none') {
+                // Закрываем панель категорий, если открыта
+                if (otherPanel) otherPanel.style.display = 'none';
                 panel.style.display = 'block';
                 renderFinanceAccountsList();
                 panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -10685,7 +10688,10 @@ HTML_TEMPLATE = '''
          */
         function toggleFinanceCategoriesManager() {
             const panel = document.getElementById('finance-categories-manager');
+            const otherPanel = document.getElementById('finance-accounts-manager');
             if (panel.style.display === 'none') {
+                // Закрываем панель счетов, если открыта
+                if (otherPanel) otherPanel.style.display = 'none';
                 panel.style.display = 'block';
                 renderFinanceCategoriesList();
                 panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
