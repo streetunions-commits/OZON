@@ -104,6 +104,7 @@ STATE_FIN_ACCOUNT = 302            # Выбор счёта/источника
 STATE_FIN_CATEGORY = 303           # Выбор категории
 STATE_FIN_DESCRIPTION = 304        # Ввод описания (на что)
 STATE_FIN_CONFIRM = 305            # Подтверждение перед сохранением
+STATE_FIN_YUAN_AMOUNT = 306        # Ввод суммы в юанях (для категорий с requires_yuan)
 
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
@@ -1996,6 +1997,8 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'category_id': None,
         'category_name': None,
         'description': None,
+        'yuan_amount': None,
+        'requires_yuan': 0,
         'telegram_chat_id': chat_id,
         'telegram_username': display_name
     }
@@ -2132,11 +2135,12 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
     keyboard = []
     row = []
     for cat in categories:
-        cat_name = cat['name'][:30]
+        cat_name = cat['name'][:25]
         linked = cat.get('is_container_linked', 0) or 0
+        yuan = cat.get('requires_yuan', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2163,28 +2167,45 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
 async def finance_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Обработка выбора категории.
-    Запрашивает описание (на что потрачено / за что получено).
+    Если категория требует юани — запрашивает сумму в юанях.
+    Иначе — запрашивает описание (на что потрачено / за что получено).
     """
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_cat:id:name:is_container_linked
-    parts = query.data.split(':', 3)
+    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan
+    parts = query.data.split(':', 4)
     category_id = int(parts[1])
     category_name = parts[2] if len(parts) > 2 else ''
     is_container_linked = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+    requires_yuan = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
 
     context.user_data['finance']['category_id'] = category_id
     context.user_data['finance']['category_name'] = category_name
     context.user_data['finance']['is_container_linked'] = is_container_linked
+    context.user_data['finance']['requires_yuan'] = requires_yuan
 
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
 
+    # Если категория требует юани — сначала запрашиваем сумму в юанях
+    if requires_yuan:
+        await query.edit_message_text(
+            f"💰 *{escape_md(type_label)}*\n"
+            f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+            f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+            f"🏷 Категория: *{escape_md(category_name)}*\n\n"
+            "💴 Введите сумму в юанях (¥):",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
+            ])
+        )
+        return STATE_FIN_YUAN_AMOUNT
+
     # Комментарий обязателен при "Другое" или при контейнерной категории
     is_other = category_name.lower() == 'другое'
-    comment_required = is_other or is_container_linked
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
     if is_container_linked:
         comment_prompt = (
@@ -2215,6 +2236,90 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     return STATE_FIN_DESCRIPTION
 
 
+async def finance_yuan_amount_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка введённой суммы в юанях.
+    Валидирует число, сохраняет и переходит к вводу комментария.
+    """
+    text = update.message.text.strip().replace(',', '.').replace(' ', '')
+    try:
+        yuan_amount = float(text)
+        if yuan_amount <= 0:
+            raise ValueError("Сумма должна быть больше 0")
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Введите корректную сумму в юанях (число больше 0).\n"
+            "Примеры: 5000, 15000.50, 1500"
+        )
+        return STATE_FIN_YUAN_AMOUNT
+
+    context.user_data['finance']['yuan_amount'] = yuan_amount
+
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+    yuan_formatted = format_amount(yuan_amount)
+    category_name = fin.get('category_name', '')
+    is_container_linked = fin.get('is_container_linked', 0)
+    is_other = category_name.lower() == 'другое'
+
+    back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_yuan")]
+    if is_container_linked:
+        comment_prompt = (
+            "📝 *Комментарий обязателен!*\n\n"
+            "Распишите какие суммы за что были оплачены.\n"
+            "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
+        )
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    elif is_other:
+        comment_prompt = "📝 Введите комментарий (обязательно при категории «Другое»):"
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    else:
+        comment_prompt = "📝 Введите комментарий или нажмите «Пропустить»:"
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏩ Пропустить", callback_data="fin_skip_comment")],
+            back_btn
+        ])
+
+    await update.message.reply_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"💴 Юани: *{escape_md(yuan_formatted)} ¥*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"🏷 Категория: *{escape_md(category_name)}*\n\n"
+        f"{comment_prompt}",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+    return STATE_FIN_DESCRIPTION
+
+
+async def finance_back_to_yuan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к вводу суммы в юанях.
+    Вызывается из шага DESCRIPTION при нажатии «⬅️ Назад» (если категория требует юани).
+    """
+    query = update.callback_query
+    await query.answer()
+
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    await query.edit_message_text(
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"🏷 Категория: *{escape_md(fin.get('category_name', ''))}*\n\n"
+        "💴 Введите сумму в юанях (¥):",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
+        ])
+    )
+    return STATE_FIN_YUAN_AMOUNT
+
+
 async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
     Пропуск комментария (доступно только если категория НЕ "Другое").
@@ -2240,10 +2345,15 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
     if fin.get('category_name'):
         category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
 
+    yuan_line = ""
+    if fin.get('yuan_amount'):
+        yuan_line = f"Юани: *{escape_md(format_amount(fin['yuan_amount']))} ¥*\n"
+
     await query.edit_message_text(
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
         f"Сумма: *{escape_md(formatted)} ₽*\n"
+        f"{yuan_line}"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
         "Всё верно?",
@@ -2295,6 +2405,10 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     if fin.get('category_name'):
         category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
 
+    yuan_line = ""
+    if fin.get('yuan_amount'):
+        yuan_line = f"Юани: *{escape_md(format_amount(fin['yuan_amount']))} ¥*\n"
+
     comment_line = ""
     if description:
         comment_line = f"Комментарий: {escape_md(description)}\n"
@@ -2303,6 +2417,7 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
         f"Сумма: *{escape_md(formatted)} ₽*\n"
+        f"{yuan_line}"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
         f"{comment_line}\n"
@@ -2427,11 +2542,12 @@ async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT
     keyboard = []
     row = []
     for cat in categories:
-        cat_name = cat['name'][:30]
+        cat_name = cat['name'][:25]
         linked = cat.get('is_container_linked', 0) or 0
+        yuan = cat.get('requires_yuan', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2469,7 +2585,10 @@ async def finance_back_to_description(update: Update, context: ContextTypes.DEFA
     # Определяем, обязателен ли комментарий
     is_other = (fin.get('category_name') or '').lower() == 'другое'
     is_container_linked = fin.get('is_container_linked', 0)
-    back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
+    requires_yuan = fin.get('requires_yuan', 0)
+    # Кнопка «Назад» ведёт на шаг юаней или категории
+    back_callback = "fin_back_yuan" if requires_yuan else "fin_back_category"
+    back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)]
 
     if is_container_linked:
         comment_prompt = (
@@ -2529,6 +2648,8 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     }
     if fin.get('category_id'):
         record_data['category_id'] = fin['category_id']
+    if fin.get('yuan_amount'):
+        record_data['yuan_amount'] = fin['yuan_amount']
     result = create_finance_record(record_data)
 
     if result.get('success'):
@@ -2537,9 +2658,12 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         cat_line = ""
         if fin.get('category_name'):
             cat_line = f"\n🏷 {escape_markdown(fin['category_name'])}"
+        yuan_line = ""
+        if fin.get('yuan_amount'):
+            yuan_line = f"\n💴 {escape_markdown(format_amount(fin['yuan_amount']))} ¥"
         await query.edit_message_text(
             f"✅ *Запись сохранена\\!*\n\n"
-            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}{cat_line}\n"
+            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}{cat_line}{yuan_line}\n"
             f"📝 {escape_markdown(fin['description'])}",
             parse_mode='MarkdownV2'
         )
@@ -2730,8 +2854,13 @@ def main():
                 CallbackQueryHandler(finance_back_to_account, pattern=r'^fin_back_account$'),
                 CallbackQueryHandler(finance_category_selected, pattern=r'^fin_cat:')
             ],
+            STATE_FIN_YUAN_AMOUNT: [
+                CallbackQueryHandler(finance_back_to_category, pattern=r'^fin_back_category$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, finance_yuan_amount_entered)
+            ],
             STATE_FIN_DESCRIPTION: [
                 CallbackQueryHandler(finance_back_to_category, pattern=r'^fin_back_category$'),
+                CallbackQueryHandler(finance_back_to_yuan, pattern=r'^fin_back_yuan$'),
                 CallbackQueryHandler(finance_skip_comment, pattern=r'^fin_skip_comment$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
             ],
