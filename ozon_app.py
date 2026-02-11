@@ -27023,56 +27023,73 @@ def api_finance_realization():
         return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
 
     # ── Загрузка всех транзакций за период из Ozon API ──
+    # Ozon API ограничивает период ОДНИМ месяцем за запрос.
+    # Для кассового месяца M нужны операции за 2 месяца:
+    #   1) Предыдущий месяц целиком (M-1, 1-е — M, 1-е)
+    #   2) Начало текущего месяца (M, 1-е — M, 10-е)
+    # Делаем 2 раздельных серии запросов с пагинацией.
+
     headers = get_ozon_headers()
     all_operations = []
-    page = 1
     page_size = 1000
     max_pages = 50
 
+    # Два диапазона дат (каждый ≤ 1 месяца для API)
+    date_ranges = [
+        # Предыдущий месяц целиком
+        (f"{prev_year}-{prev_month:02d}-01T00:00:00.000Z",
+         f"{year}-{month:02d}-01T00:00:00.000Z"),
+        # Начало текущего месяца (1—10 число)
+        (f"{year}-{month:02d}-01T00:00:00.000Z",
+         f"{year}-{month:02d}-10T00:00:00.000Z"),
+    ]
+
     try:
-        while page <= max_pages:
-            payload = {
-                "filter": {
-                    "date": {
-                        "from": date_from,
-                        "to": date_to
+        for d_from, d_to in date_ranges:
+            page = 1
+            while page <= max_pages:
+                payload = {
+                    "filter": {
+                        "date": {
+                            "from": d_from,
+                            "to": d_to
+                        },
+                        "operation_type": [],
+                        "posting_number": "",
+                        "transaction_type": "all"
                     },
-                    "operation_type": [],
-                    "posting_number": "",
-                    "transaction_type": "all"
-                },
-                "page": page,
-                "page_size": page_size
-            }
+                    "page": page,
+                    "page_size": page_size
+                }
 
-            resp = requests.post(
-                f"{OZON_HOST}/v3/finance/transaction/list",
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
+                resp = requests.post(
+                    f"{OZON_HOST}/v3/finance/transaction/list",
+                    json=payload,
+                    headers=headers,
+                    timeout=30
+                )
 
-            if resp.status_code != 200:
-                print(f"  ❌ Ozon Finance API ошибка: {resp.status_code}")
-                print(f"  📋 Ответ: {resp.text[:500]}")
-                return jsonify({
-                    'success': False,
-                    'error': f'Ошибка Ozon API: {resp.status_code}'
-                }), 502
+                if resp.status_code != 200:
+                    print(f"  ❌ Ozon Finance API ошибка: {resp.status_code}")
+                    print(f"  📋 Ответ: {resp.text[:500]}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Ошибка Ozon API: {resp.status_code}'
+                    }), 502
 
-            data = resp.json()
-            result_data = data.get('result', {})
-            operations = result_data.get('operations', [])
+                data = resp.json()
+                result_data = data.get('result', {})
+                operations = result_data.get('operations', [])
 
-            if not operations:
-                break
+                if not operations:
+                    break
 
-            all_operations.extend(operations)
-            page_count = result_data.get('page_count', 1)
+                all_operations.extend(operations)
+                page_count = result_data.get('page_count', 1)
 
-            if page >= page_count:
-                break
-            page += 1
+                if page >= page_count:
+                    break
+                page += 1
 
         # ── Классификация операций ──
         # Каждую операцию относим к одной из групп на основе operation_type и operation_type_name.
