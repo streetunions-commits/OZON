@@ -142,6 +142,10 @@ MAX_FILE_SIZE = 16 * 1024 * 1024  # 16 MB
 # Создаём директорию для загрузок если не существует
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Директория для загрузки файлов финансовых записей
+FINANCE_UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'finance')
+os.makedirs(FINANCE_UPLOAD_FOLDER, exist_ok=True)
+
 # ✅ Выбор поля для считывания остатков
 # Варианты: "free_to_sell_amount" | "available" | "present"
 STOCK_FIELD = os.environ.get("OZON_STOCK_FIELD", "free_to_sell_amount")
@@ -1071,6 +1075,29 @@ def init_database():
     if ensure_column(cursor, 'finance_records', 'yuan_amount',
                      "ALTER TABLE finance_records ADD COLUMN yuan_amount REAL DEFAULT NULL"):
         print("✅ Добавлена колонка yuan_amount в finance_records")
+
+    # Миграция: добавляем колонку requires_description в finance_categories
+    # Флаг означает, что при выборе этой категории нужно обязательно указать описание.
+    # Используется для категорий типа «Инвойс», «Инвойс-Дельта» и т.п.
+    if ensure_column(cursor, 'finance_categories', 'requires_description',
+                     "ALTER TABLE finance_categories ADD COLUMN requires_description INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка requires_description в finance_categories")
+
+    # Таблица для хранения файлов, прикрепленных к финансовым записям.
+    # Файлы привязываются к конкретной записи и отображаются в таблице/детализации.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_record_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finance_record_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
+            file_type TEXT DEFAULT '',
+            file_size INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (finance_record_id) REFERENCES finance_records(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_finance_record_files_record ON finance_record_files(finance_record_id)')
 
     # ============================================================================
     # ТАБЛИЦА: ПЛАН ЗАКУПОК (plan_items)
@@ -8953,22 +8980,6 @@ HTML_TEMPLATE = '''
 
             <!-- ТАБ: ПЛАН ЗАКУПОК -->
             <div id="plan" class="tab-content">
-                <!-- Сводка по плану -->
-                <div class="plan-summary">
-                    <div class="plan-summary-card total-items">
-                        <div class="label">Всего позиций</div>
-                        <div class="value" id="plan-total-items">0</div>
-                    </div>
-                    <div class="plan-summary-card total-yuan">
-                        <div class="label">Общая сумма (юань)</div>
-                        <div class="value" id="plan-total-yuan">0 ¥</div>
-                    </div>
-                    <div class="plan-summary-card total-paid">
-                        <div class="label">Оплачено (юань)</div>
-                        <div class="value" id="plan-total-paid">0 ¥</div>
-                    </div>
-                </div>
-
                 <!-- Кнопка добавления -->
                 <div class="plan-header">
                     <button class="plan-add-btn admin-only" onclick="openPlanModal()">+ Добавить позицию</button>
@@ -8980,7 +8991,7 @@ HTML_TEMPLATE = '''
                         <thead>
                             <tr>
                                 <th style="width: 40px;">№</th>
-                                <th style="min-width: 160px; text-align: left;">Товар</th>
+                                <th style="min-width: 160px; text-align: left;">Артикул</th>
                                 <th>Дата выхода план</th>
                                 <th>Примерный приход</th>
                                 <th>Кол-во план</th>
@@ -9034,9 +9045,9 @@ HTML_TEMPLATE = '''
                     <input type="hidden" id="plan-edit-id" value="">
                     <div class="plan-form-grid">
                         <div class="plan-form-group full-width">
-                            <label>Товар</label>
+                            <label>Артикул</label>
                             <select id="plan-product-name" style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
-                                <option value="">Выберите товар...</option>
+                                <option value="">Выберите артикул...</option>
                             </select>
                         </div>
                         <div class="plan-form-group">
@@ -19240,8 +19251,8 @@ HTML_TEMPLATE = '''
                     planProducts = data.products || [];
                     // Заполняем select в модальном окне
                     const select = document.getElementById('plan-product-name');
-                    select.innerHTML = '<option value="">Выберите товар...</option>' +
-                        planProducts.map(p => '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</option>').join('');
+                    select.innerHTML = '<option value="">Выберите артикул...</option>' +
+                        planProducts.map(p => '<option value="' + escapeHtml(p.offer_id || p.name) + '">' + escapeHtml(p.offer_id || p.name) + '</option>').join('');
                 }
             } catch (err) {
                 console.error('Ошибка загрузки товаров для плана:', err);
@@ -19324,11 +19335,6 @@ HTML_TEMPLATE = '''
                 document.getElementById('plan-foot-paid-inv-rub').textContent = fmtMoney(sumPaidInvRub);
                 document.getElementById('plan-foot-paid-delta-yuan').textContent = fmtMoney(sumPaidDeltaYuan);
                 document.getElementById('plan-foot-paid-delta-rub').textContent = fmtMoney(sumPaidDeltaRub);
-
-                // Обновляем сводку
-                document.getElementById('plan-total-items').textContent = items.length;
-                document.getElementById('plan-total-yuan').textContent = fmtMoney(sumTotalYuan) + ' ¥';
-                document.getElementById('plan-total-paid').textContent = fmtMoney(sumPaidInvYuan + sumPaidDeltaYuan) + ' ¥';
 
             } catch (err) {
                 console.error('Ошибка загрузки плана:', err);
@@ -19421,7 +19427,7 @@ HTML_TEMPLATE = '''
         async function savePlanItem() {
             const productName = document.getElementById('plan-product-name').value.trim();
             if (!productName) {
-                alert('Выберите товар');
+                alert('Выберите артикул');
                 return;
             }
 
@@ -25377,15 +25383,16 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
             'id': r['id'], 'name': r['name'], 'record_type': r['record_type'],
             'is_container_linked': r['is_container_linked'] or 0,
             'requires_yuan': r['requires_yuan'] or 0,
+            'requires_description': r['requires_description'] or 0,
             'created_at': r['created_at']
         } for r in rows]
         conn.close()
@@ -25426,9 +25433,11 @@ def api_finance_categories_add():
         is_container_linked = 1 if (data.get('is_container_linked') and record_type == 'expense') else 0
         # Флаг обязательности юаней (только для расходных категорий)
         requires_yuan = 1 if (data.get('requires_yuan') and record_type == 'expense') else 0
+        # Флаг обязательности описания (только для расходных категорий)
+        requires_description = 1 if (data.get('requires_description') and record_type == 'expense') else 0
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan) VALUES (?, ?, ?, ?)',
-                       (name, record_type, is_container_linked, requires_yuan))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description) VALUES (?, ?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan, requires_description))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -25618,7 +25627,15 @@ def api_finance_records_add():
     }
     """
     try:
-        data = request.json
+        # Поддержка multipart/form-data (когда есть файлы) и JSON
+        uploaded_files = []
+        if request.content_type and 'multipart' in request.content_type:
+            data = request.form.to_dict()
+            uploaded_files = request.files.getlist('files')
+            if 'distributions' in data and data['distributions']:
+                data['distributions'] = json.loads(data['distributions'])
+        else:
+            data = request.json
         user_info = getattr(request, 'current_user', {})
 
         record_type = data.get('record_type', '')
@@ -26225,6 +26242,12 @@ def api_finance_categories_update():
             updates.append('requires_yuan = ?')
             params_upd.append(requires_yuan)
 
+        # requires_description — обязательное описание (только для расходных)
+        if 'requires_description' in data:
+            requires_description = 1 if (data.get('requires_description') and row['record_type'] == 'expense') else 0
+            updates.append('requires_description = ?')
+            params_upd.append(requires_description)
+
         if not updates:
             conn.close()
             return jsonify({'success': True, 'message': 'Нечего обновлять'})
@@ -26297,12 +26320,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
