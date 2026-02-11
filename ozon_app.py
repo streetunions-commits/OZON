@@ -6065,8 +6065,13 @@ HTML_TEMPLATE = '''
         .pendel-empty { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
 
         /* ============================================================================
-           СТИЛИ ПОДВКЛАДКИ «РЕАЛИЗАЦИЯ» (Ozon Finance API)
+           СТИЛИ ПОДВКЛАДКИ «РЕАЛИЗАЦИЯ» (Ozon Finance API — кассовый метод)
            ============================================================================ */
+        /* --- Информационный баннер --- */
+        .real-info-banner {
+            padding: 12px 18px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
+            font-size: 13px; color: #4338ca; margin-bottom: 16px; line-height: 1.5;
+        }
         /* --- Фильтры --- */
         .real-filters {
             display: flex; align-items: center; gap: 12px; padding: 16px 20px;
@@ -6086,6 +6091,19 @@ HTML_TEMPLATE = '''
         .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
         .real-period-info { font-size: 13px; color: #888; margin-left: 8px; }
 
+        /* --- Главная карточка «Пришло на счёт» --- */
+        .real-payout-hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px;
+            padding: 28px 32px; color: #fff; margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+        }
+        .real-payout-hero-label { font-size: 14px; opacity: 0.85; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .real-payout-hero-value { font-size: 36px; font-weight: 800; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+        .real-payout-hero-details { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+        .real-hero-detail { font-size: 14px; opacity: 0.9; }
+        .real-hero-detail strong { font-weight: 700; }
+        .real-hero-separator { opacity: 0.4; }
+
         /* --- Сводные карточки --- */
         .real-summary {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
@@ -6100,8 +6118,6 @@ HTML_TEMPLATE = '''
         .real-card-sales .real-card-value { color: #38a169; }
         .real-card-returns { border-left-color: #e53e3e; }
         .real-card-returns .real-card-value { color: #e53e3e; }
-        .real-card-net { border-left-color: #3182ce; }
-        .real-card-net .real-card-value { color: #3182ce; }
         .real-card-commission { border-left-color: #d69e2e; }
         .real-card-commission .real-card-value { color: #d69e2e; }
         .real-card-logistics { border-left-color: #805ad5; }
@@ -6110,8 +6126,8 @@ HTML_TEMPLATE = '''
         .real-card-services .real-card-value { color: #718096; }
         .real-card-penalties { border-left-color: #c53030; }
         .real-card-penalties .real-card-value { color: #c53030; }
-        .real-card-payout { border-left-color: #667eea; background: #f0f4ff; }
-        .real-card-payout .real-card-value { color: #667eea; font-size: 24px; }
+        .real-card-other { border-left-color: #a0aec0; }
+        .real-card-other .real-card-value { color: #a0aec0; }
 
         /* --- Статистика --- */
         .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
@@ -6120,31 +6136,27 @@ HTML_TEMPLATE = '''
         .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
         .real-section-hint { font-size: 12px; color: #999; font-weight: 400; }
 
-        /* --- Таблица типов операций --- */
+        /* --- Таблица (общая для типов операций и товаров) --- */
         .real-types-table {
             width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
             overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
         .real-types-table thead th {
             background: #667eea; color: #fff; padding: 12px 16px; font-size: 13px;
-            font-weight: 500; text-align: left;
+            font-weight: 500; text-align: left; white-space: nowrap;
         }
-        .real-types-table thead th:nth-child(2),
-        .real-types-table thead th:nth-child(3) { text-align: right; }
         .real-types-table tbody td {
             padding: 12px 16px; border-bottom: 1px solid #e9ecef; font-size: 14px;
         }
-        .real-types-table tbody td:nth-child(2),
-        .real-types-table tbody td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
         .real-types-table tbody tr:hover { background: #f8f9fa; }
         .real-types-table tbody tr:last-child td { border-bottom: none; }
         .real-types-total-row td {
             background: #f0f4ff; padding: 12px 16px; font-size: 14px; border-top: 2px solid #667eea;
         }
-        .real-types-total-row td:nth-child(2),
-        .real-types-total-row td:nth-child(3) { text-align: right; }
         .real-amount-positive { color: #38a169; font-weight: 600; }
         .real-amount-negative { color: #e53e3e; font-weight: 600; }
+        .real-amount-right { text-align: right; font-variant-numeric: tabular-nums; }
+        .real-product-name { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* --- Таблица транзакций --- */
         .real-trans-table {
@@ -6179,13 +6191,17 @@ HTML_TEMPLATE = '''
             .real-summary { grid-template-columns: repeat(2, 1fr); }
         }
         @media (max-width: 768px) {
+            .real-info-banner { font-size: 12px; padding: 10px 14px; }
             .real-filters { padding: 12px 14px; gap: 10px; }
             .real-month-select { min-width: 140px; font-size: 13px; }
             .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
+            .real-payout-hero { padding: 20px 22px; }
+            .real-payout-hero-value { font-size: 28px; }
+            .real-payout-hero-details { gap: 8px; }
+            .real-hero-detail { font-size: 13px; }
             .real-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
             .real-card { padding: 12px 14px; }
             .real-card-value { font-size: 17px; }
-            .real-card-payout .real-card-value { font-size: 20px; }
             .real-types-table thead th,
             .real-types-table tbody td { padding: 10px 12px; font-size: 13px; }
             .real-trans-table { font-size: 12px; }
@@ -6198,11 +6214,16 @@ HTML_TEMPLATE = '''
             .real-card { padding: 10px 12px; }
             .real-card-label { font-size: 11px; }
             .real-card-value { font-size: 16px; }
-            .real-card-payout .real-card-value { font-size: 18px; }
+            .real-payout-hero { padding: 16px 18px; border-radius: 12px; }
+            .real-payout-hero-label { font-size: 12px; }
+            .real-payout-hero-value { font-size: 24px; }
+            .real-payout-hero-details { flex-direction: column; gap: 4px; }
+            .real-hero-separator { display: none; }
             .real-filters { flex-direction: column; align-items: stretch; }
             .real-filter-group { width: 100%; }
             .real-month-select { width: 100%; min-width: 0; }
             .real-period-info { margin-left: 0; }
+            .real-product-name { max-width: 150px; }
         }
 
         /* ====== Стили для распределения расходов по контейнерам ====== */
@@ -9007,13 +9028,18 @@ HTML_TEMPLATE = '''
                     </div>
                 </div><!-- /finance-pendel -->
 
-                <!-- Подвкладка: Реализация — данные из Ozon Finance API -->
+                <!-- Подвкладка: Реализация — данные из Ozon Finance API (кассовый метод) -->
                 <div id="finance-realization" class="finance-subtab-content">
+
+                    <!-- Пояснение -->
+                    <div class="real-info-banner">
+                        Данные по кассе: суммы, которые <strong>реально поступили / были удержаны</strong> в выбранном месяце (по дате выплаты на р/с, а не по дате заказа).
+                    </div>
 
                     <!-- Фильтр по месяцу и кнопка загрузки -->
                     <div class="real-filters">
                         <div class="real-filter-group">
-                            <label class="real-filter-label">Месяц:</label>
+                            <label class="real-filter-label">Месяц выплаты:</label>
                             <select id="real-month-select" class="real-month-select"></select>
                         </div>
                         <button class="real-load-btn" onclick="loadRealizationData()">
@@ -9022,22 +9048,29 @@ HTML_TEMPLATE = '''
                         <div class="real-period-info" id="real-period-info" style="display: none;"></div>
                     </div>
 
+                    <!-- Главная карточка: Пришло на счёт -->
+                    <div class="real-payout-hero" id="real-payout-hero" style="display: none;">
+                        <div class="real-payout-hero-label">Пришло на расчётный счёт</div>
+                        <div class="real-payout-hero-value" id="real-payout-total">0 ₽</div>
+                        <div class="real-payout-hero-details">
+                            <span class="real-hero-detail">Начислено: <strong id="real-hero-net">0 ₽</strong></span>
+                            <span class="real-hero-separator">&mdash;</span>
+                            <span class="real-hero-detail">Удержано: <strong id="real-hero-deductions">0 ₽</strong></span>
+                        </div>
+                    </div>
+
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Продажи (gross)</div>
+                            <div class="real-card-label">Начислено за товар</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                         </div>
                         <div class="real-card real-card-returns">
-                            <div class="real-card-label">Возвраты</div>
+                            <div class="real-card-label">Возвраты / отмены</div>
                             <div class="real-card-value" id="real-returns">0 ₽</div>
                         </div>
-                        <div class="real-card real-card-net">
-                            <div class="real-card-label">Чистые продажи</div>
-                            <div class="real-card-value" id="real-net-sales">0 ₽</div>
-                        </div>
                         <div class="real-card real-card-commission">
-                            <div class="real-card-label">Комиссия</div>
+                            <div class="real-card-label">Комиссия Ozon</div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                         </div>
                         <div class="real-card real-card-logistics">
@@ -9045,27 +9078,48 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-logistics">0 ₽</div>
                         </div>
                         <div class="real-card real-card-services">
-                            <div class="real-card-label">Услуги</div>
+                            <div class="real-card-label">Услуги / хранение</div>
                             <div class="real-card-value" id="real-services">0 ₽</div>
                         </div>
                         <div class="real-card real-card-penalties">
-                            <div class="real-card-label">Штрафы</div>
+                            <div class="real-card-label">Штрафы / компенсации</div>
                             <div class="real-card-value" id="real-penalties">0 ₽</div>
                         </div>
-                        <div class="real-card real-card-payout">
-                            <div class="real-card-label">Итого к выплате</div>
-                            <div class="real-card-value" id="real-payout-total">0 ₽</div>
+                        <div class="real-card real-card-other">
+                            <div class="real-card-label">Прочее</div>
+                            <div class="real-card-value" id="real-other">0 ₽</div>
                         </div>
                     </div>
 
                     <!-- Информация о загрузке -->
                     <div class="real-stats" id="real-stats" style="display: none;">
-                        <span id="real-total-ops">0</span> операций загружено
+                        <span id="real-total-ops">0</span> операций &middot; <span id="real-total-products">0</span> товаров
+                    </div>
+
+                    <!-- Таблица по товарам (SKU) -->
+                    <div class="real-products-wrapper" id="real-products-wrapper" style="display: none;">
+                        <h3 class="real-section-title">Реализация по товарам</h3>
+                        <div style="overflow-x: auto;">
+                            <table class="real-types-table">
+                                <thead>
+                                    <tr>
+                                        <th>Товар</th>
+                                        <th>SKU</th>
+                                        <th>Продажи</th>
+                                        <th>Возвраты</th>
+                                        <th>Комиссия</th>
+                                        <th>Итого</th>
+                                        <th>Операций</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="real-products-tbody"></tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- Таблица по типам операций -->
                     <div class="real-types-wrapper" id="real-types-wrapper" style="display: none;">
-                        <h3 class="real-section-title">По типам операций</h3>
+                        <h3 class="real-section-title">Все типы операций (детализация)</h3>
                         <div style="overflow-x: auto;">
                             <table class="real-types-table">
                                 <thead>
@@ -9089,7 +9143,7 @@ HTML_TEMPLATE = '''
 
                     <!-- Детальная таблица транзакций -->
                     <div class="real-transactions-wrapper" id="real-transactions-wrapper" style="display: none;">
-                        <h3 class="real-section-title">Последние транзакции <span class="real-section-hint">(макс. 200)</span></h3>
+                        <h3 class="real-section-title">Последние транзакции <span class="real-section-hint">(макс. 300)</span></h3>
                         <div style="overflow-x: auto;">
                             <table class="real-trans-table">
                                 <thead>
@@ -9109,14 +9163,14 @@ HTML_TEMPLATE = '''
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty">
                         <p>Выберите месяц и нажмите «Загрузить из Ozon»</p>
-                        <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Данные загружаются напрямую из Ozon Finance API (транзакции по выплатам)</p>
+                        <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Показывает деньги, которые реально поступили на р/с в выбранном месяце<br>(по дате выплаты Ozon, а не по дате заказа)</p>
                     </div>
 
                     <!-- Состояние загрузки -->
                     <div class="real-loading" id="real-loading" style="display: none;">
                         <div class="real-spinner"></div>
-                        <p>Загрузка данных из Ozon API...</p>
-                        <p style="font-size: 12px; color: #999;">Это может занять несколько секунд</p>
+                        <p>Загрузка транзакций из Ozon...</p>
+                        <p style="font-size: 12px; color: #999;">Может занять 5-15 секунд при большом количестве операций</p>
                     </div>
 
                     <!-- Ошибка -->
@@ -12444,19 +12498,20 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Загрузить данные реализации из API за выбранный месяц.
+         * Загрузить данные реализации (кассовый метод) из Ozon API за выбранный месяц.
+         * Показывает деньги, которые реально поступили/удержаны по дате выплаты.
          */
         async function loadRealizationData() {
             const select = document.getElementById('real-month-select');
             const month = select ? select.value : '';
 
-            // Показать загрузку, скрыть остальное
-            document.getElementById('real-empty').style.display = 'none';
-            document.getElementById('real-error').style.display = 'none';
-            document.getElementById('real-summary').style.display = 'none';
-            document.getElementById('real-stats').style.display = 'none';
-            document.getElementById('real-types-wrapper').style.display = 'none';
-            document.getElementById('real-transactions-wrapper').style.display = 'none';
+            // Скрыть всё, показать загрузку
+            ['real-empty', 'real-error', 'real-summary', 'real-stats',
+             'real-types-wrapper', 'real-transactions-wrapper', 'real-payout-hero',
+             'real-products-wrapper'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
             document.getElementById('real-loading').style.display = 'block';
 
             const btn = document.querySelector('.real-load-btn');
@@ -12479,25 +12534,35 @@ HTML_TEMPLATE = '''
                 // Период
                 const periodInfo = document.getElementById('real-period-info');
                 if (periodInfo && data.period) {
-                    periodInfo.textContent = data.period.from + ' — ' + data.period.to;
+                    periodInfo.textContent = data.period.from + ' \u2014 ' + data.period.to;
                     periodInfo.style.display = 'inline';
                 }
 
-                // Сводные карточки
                 const s = data.summary || {};
+
+                // Главная карточка «Пришло на счёт»
+                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.payout_total);
+                document.getElementById('real-hero-net').textContent = fmtRealMoney(s.net_sales);
+                document.getElementById('real-hero-deductions').textContent = fmtRealMoney(s.total_deductions);
+                document.getElementById('real-payout-hero').style.display = 'block';
+
+                // Сводные карточки
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
-                document.getElementById('real-net-sales').textContent = fmtRealMoney(s.net_sales);
                 document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
                 document.getElementById('real-logistics').textContent = fmtRealMoney(s.logistics);
                 document.getElementById('real-services').textContent = fmtRealMoney(s.services);
                 document.getElementById('real-penalties').textContent = fmtRealMoney(s.penalties);
-                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.payout_total);
+                document.getElementById('real-other').textContent = fmtRealMoney(s.other);
                 document.getElementById('real-summary').style.display = 'grid';
 
                 // Статистика
                 document.getElementById('real-total-ops').textContent = data.total_operations || 0;
+                document.getElementById('real-total-products').textContent = data.total_products || 0;
                 document.getElementById('real-stats').style.display = 'block';
+
+                // Таблица по товарам
+                renderRealizationProducts(data.products || []);
 
                 // Таблица по типам операций
                 renderRealizationTypesTable(data.operations_by_type || []);
@@ -12513,6 +12578,37 @@ HTML_TEMPLATE = '''
                 if (btn) { btn.disabled = false; }
                 if (btnText) { btnText.textContent = 'Загрузить из Ozon'; }
             }
+        }
+
+        /**
+         * Отрисовать таблицу реализации по товарам (SKU).
+         */
+        function renderRealizationProducts(products) {
+            const tbody = document.getElementById('real-products-tbody');
+            if (!tbody) return;
+
+            if (products.length === 0) {
+                document.getElementById('real-products-wrapper').style.display = 'none';
+                return;
+            }
+
+            tbody.innerHTML = products.map(p => {
+                const saleCls = p.sale_amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const retCls = p.return_amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const netCls = p.net >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                return '<tr>' +
+                    '<td class="real-product-name" title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</td>' +
+                    '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.sku) + '</td>' +
+                    '<td class="real-amount-right ' + saleCls + '">' + fmtRealMoney(p.sale_amount) + '</td>' +
+                    '<td class="real-amount-right ' + retCls + '">' + fmtRealMoney(p.return_amount) + '</td>' +
+                    '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
+                    '<td class="real-amount-right ' + netCls + '" style="font-weight:700;">' + fmtRealMoney(p.net) + '</td>' +
+                    '<td style="text-align:center; color:#888;">' + p.operations_count + '</td>' +
+                '</tr>';
+            }).join('');
+
+            document.getElementById('real-products-wrapper').style.display = 'block';
         }
 
         /**
@@ -12536,8 +12632,8 @@ HTML_TEMPLATE = '''
                 const cls = t.total >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 return '<tr>' +
                     '<td>' + escapeHtml(t.type_name) + '</td>' +
-                    '<td>' + t.count + '</td>' +
-                    '<td class="' + cls + '">' + fmtRealMoney(t.total) + '</td>' +
+                    '<td class="real-amount-right">' + t.count + '</td>' +
+                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(t.total) + '</td>' +
                 '</tr>';
             }).join('');
 
@@ -12560,7 +12656,6 @@ HTML_TEMPLATE = '''
             }
 
             tbody.innerHTML = transactions.map(t => {
-                // Форматируем дату
                 let dateStr = '';
                 if (t.date) {
                     try {
@@ -12573,8 +12668,8 @@ HTML_TEMPLATE = '''
                     '<td class="real-trans-date">' + dateStr + '</td>' +
                     '<td class="real-trans-type" title="' + escapeHtml(t.type) + '">' + escapeHtml(t.type) + '</td>' +
                     '<td class="' + cls + '">' + fmtRealMoney(t.amount) + '</td>' +
-                    '<td>' + escapeHtml(t.posting_number || '—') + '</td>' +
-                    '<td class="real-trans-item" title="' + escapeHtml(t.item_name || '') + '">' + escapeHtml(t.item_name || '—') + '</td>' +
+                    '<td>' + escapeHtml(t.posting_number || '\u2014') + '</td>' +
+                    '<td class="real-trans-item" title="' + escapeHtml(t.item_name || '') + '">' + escapeHtml(t.item_name || '\u2014') + '</td>' +
                 '</tr>';
             }).join('');
 
@@ -26862,8 +26957,14 @@ def api_finance_categories_update():
 # API ФИНАНСЫ — РЕАЛИЗАЦИЯ (данные из Ozon Finance API)
 # ============================================================================
 # Подвкладка «Реализация» тянет транзакции из Ozon Seller API
-# /v3/finance/transaction/list и агрегирует по типам операций.
-# Показывает кассовую выручку за выбранный месяц (по дате выплат).
+# /v3/finance/transaction/list и показывает КАССОВУЮ выручку —
+# т.е. деньги, которые реально поступили/были удержаны в выбранном месяце.
+#
+# Важно: фильтр по дате = дата операции (выплаты), а НЕ дата заказа.
+# Поэтому в январе могут быть выплаты за декабрьские продажи.
+#
+# Используемые эндпоинты Ozon:
+#   - /v3/finance/transaction/list — основной, все транзакции за период
 # ============================================================================
 
 @app.route('/api/finance/realization')
@@ -26871,13 +26972,14 @@ def api_finance_categories_update():
 def api_finance_realization():
     """
     Получить данные реализации из Ozon Finance API за указанный месяц.
+    Показывает КАССОВУЮ картину: деньги, поступившие/удержанные в этом месяце.
 
     Аргументы (query params):
         month (str): Месяц в формате YYYY-MM (например, 2026-02)
 
     Возвращает:
-        JSON с агрегированными данными по типам операций,
-        сводными карточками и списком транзакций.
+        JSON со сводкой (сколько пришло на счёт), агрегацией по типам операций,
+        агрегацией по товарам (SKU) и списком последних транзакций.
     """
     import calendar
     from datetime import datetime as dt_cls
@@ -26899,6 +27001,7 @@ def api_finance_realization():
     except (ValueError, TypeError):
         return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
 
+    # ── Загрузка всех транзакций за период из Ozon API ──
     headers = get_ozon_headers()
     all_operations = []
     page = 1
@@ -26950,7 +27053,23 @@ def api_finance_realization():
                 break
             page += 1
 
-        # Агрегация по типам операций
+        # ── Классификация операций ──
+        # Каждую операцию относим к одной из групп на основе operation_type и operation_type_name.
+        # Ozon использует англоязычные коды operation_type и русские operation_type_name.
+        # Группы: продажи, возвраты, комиссии, логистика, услуги, штрафы, прочее.
+
+        # Ключевые слова для классификации (в нижнем регистре)
+        SALES_KW = ['оплата товар', 'за продаж', 'начислен', 'deliveredtocustomer',
+                     'agentdelivered', 'itemservices', 'operationitem', 'сбп']
+        RETURNS_KW = ['возврат', 'return', 'отмен', 'cancell', 'returngoods']
+        COMMISSION_KW = ['комисси', 'commission', 'реклам', 'adv', 'promotion',
+                         'marketplaceservice', 'marketingservice']
+        LOGISTICS_KW = ['логистик', 'доставк', 'магистрал', 'последн', 'logistic',
+                        'delivery', 'crossdock', 'fulfillment', 'фулфил']
+        SERVICES_KW = ['эквайринг', 'хранение', 'размещение', 'подписк', 'service',
+                       'processing', 'корректир', 'adjustment', 'бронирование']
+        PENALTIES_KW = ['штраф', 'компенсац', 'penalty', 'fine', 'netting']
+
         type_totals = {}
         gross_sales = 0.0
         returns_total = 0.0
@@ -26960,35 +27079,78 @@ def api_finance_realization():
         penalties_total = 0.0
         other_total = 0.0
 
+        # Агрегация по товарам (SKU)
+        # Ключ: sku, значение: {name, sku, sale_amount, return_amount, commission, count}
+        products_map = {}
+
         for op in all_operations:
-            op_type = op.get('operation_type_name', 'Неизвестно')
+            op_type_name = op.get('operation_type_name', 'Неизвестно')
+            op_type_code = op.get('operation_type', '').lower()
             amount = op.get('amount', 0)
 
-            if op_type not in type_totals:
-                type_totals[op_type] = {'total': 0.0, 'count': 0}
-            type_totals[op_type]['total'] += amount
-            type_totals[op_type]['count'] += 1
+            # Агрегация по типу операции
+            if op_type_name not in type_totals:
+                type_totals[op_type_name] = {'total': 0.0, 'count': 0}
+            type_totals[op_type_name]['total'] += amount
+            type_totals[op_type_name]['count'] += 1
 
-            # Классификация для сводных карточек по ключевым словам
-            op_type_lower = op_type.lower()
-            if any(kw in op_type_lower for kw in ['оплата товар', 'за продаж', 'itemservices', 'operationitem']):
+            # Классификация — проверяем и operation_type_name и operation_type (код)
+            combined = (op_type_name + ' ' + op_type_code).lower()
+
+            if any(kw in combined for kw in SALES_KW):
                 gross_sales += amount
-            elif any(kw in op_type_lower for kw in ['возврат', 'return', 'отмен']):
+                group = 'sale'
+            elif any(kw in combined for kw in RETURNS_KW):
                 returns_total += amount
-            elif any(kw in op_type_lower for kw in ['комисси', 'commission', 'реклам']):
+                group = 'return'
+            elif any(kw in combined for kw in COMMISSION_KW):
                 commission_total += amount
-            elif any(kw in op_type_lower for kw in ['логистик', 'доставк', 'магистрал', 'последн', 'logistic', 'delivery']):
+                group = 'commission'
+            elif any(kw in combined for kw in LOGISTICS_KW):
                 logistics_total += amount
-            elif any(kw in op_type_lower for kw in ['штраф', 'компенсац', 'penalty']):
+                group = 'logistics'
+            elif any(kw in combined for kw in PENALTIES_KW):
                 penalties_total += amount
-            elif any(kw in op_type_lower for kw in ['эквайринг', 'хранение', 'размещение', 'подписк', 'service']):
+                group = 'penalty'
+            elif any(kw in combined for kw in SERVICES_KW):
                 services_total += amount
+                group = 'service'
             else:
                 other_total += amount
+                group = 'other'
 
-        net_sales = gross_sales + returns_total
-        payout_total = gross_sales + returns_total + commission_total + logistics_total + services_total + penalties_total + other_total
+            # Агрегация по товарам — собираем данные из items[]
+            items = op.get('items', [])
+            for item in items:
+                sku = str(item.get('sku', ''))
+                if not sku:
+                    continue
+                if sku not in products_map:
+                    products_map[sku] = {
+                        'name': item.get('name', 'Неизвестный товар')[:80],
+                        'sku': sku,
+                        'sale_amount': 0.0,
+                        'return_amount': 0.0,
+                        'commission': 0.0,
+                        'other_amount': 0.0,
+                        'operations_count': 0
+                    }
+                products_map[sku]['operations_count'] += 1
+                if group == 'sale':
+                    products_map[sku]['sale_amount'] += amount
+                elif group == 'return':
+                    products_map[sku]['return_amount'] += amount
+                elif group == 'commission':
+                    products_map[sku]['commission'] += amount
+                else:
+                    products_map[sku]['other_amount'] += amount
 
+        # ── Итоги ──
+        net_sales = gross_sales + returns_total  # returns_total обычно отрицательный
+        total_deductions = commission_total + logistics_total + services_total + penalties_total + other_total
+        payout_total = gross_sales + returns_total + total_deductions
+
+        # ── Таблица типов операций ──
         operations_by_type = []
         for type_name, tdata in sorted(type_totals.items(), key=lambda x: abs(x[1]['total']), reverse=True):
             operations_by_type.append({
@@ -26997,8 +27159,25 @@ def api_finance_realization():
                 'total': round(tdata['total'], 2)
             })
 
+        # ── Таблица товаров (по SKU) ──
+        products_list = []
+        for sku, pdata in sorted(products_map.items(),
+                                  key=lambda x: abs(x[1]['sale_amount']), reverse=True):
+            net = pdata['sale_amount'] + pdata['return_amount'] + pdata['commission'] + pdata['other_amount']
+            products_list.append({
+                'sku': pdata['sku'],
+                'name': pdata['name'],
+                'sale_amount': round(pdata['sale_amount'], 2),
+                'return_amount': round(pdata['return_amount'], 2),
+                'commission': round(pdata['commission'], 2),
+                'other_amount': round(pdata['other_amount'], 2),
+                'net': round(net, 2),
+                'operations_count': pdata['operations_count']
+            })
+
+        # ── Последние транзакции (детальная таблица) ──
         transactions = []
-        for op in all_operations[:200]:
+        for op in all_operations[:300]:
             items = op.get('items', [])
             item_names = ', '.join(i.get('name', '')[:60] for i in items) if items else '—'
             item_skus = ', '.join(str(i.get('sku', '')) for i in items) if items else ''
@@ -27009,6 +27188,7 @@ def api_finance_realization():
             transactions.append({
                 'date': op.get('operation_date', ''),
                 'type': op.get('operation_type_name', ''),
+                'type_code': op.get('operation_type', ''),
                 'amount': op.get('amount', 0),
                 'posting_number': posting.get('posting_number', ''),
                 'item_name': item_names[:100],
@@ -27034,10 +27214,13 @@ def api_finance_realization():
                 'services': round(services_total, 2),
                 'penalties': round(penalties_total, 2),
                 'other': round(other_total, 2),
+                'total_deductions': round(total_deductions, 2),
                 'payout_total': round(payout_total, 2)
             },
             'operations_by_type': operations_by_type,
+            'products': products_list,
             'total_operations': len(all_operations),
+            'total_products': len(products_list),
             'transactions': transactions
         })
 
