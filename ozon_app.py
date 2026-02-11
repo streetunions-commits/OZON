@@ -12024,7 +12024,7 @@ HTML_TEMPLATE = '''
                 row.appendChild(name);
 
                 const renBtn = document.createElement('button');
-                renBtn.textContent = '✏️';
+                renBtn.innerHTML = '&#9998;';
                 renBtn.title = 'Переименовать категорию';
                 renBtn.style.cssText = 'background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #999; cursor: pointer; padding: 4px 8px; font-size: 13px; transition: all 0.2s;';
                 renBtn.onmouseenter = () => { renBtn.style.borderColor = '#3b82f6'; };
