@@ -1059,6 +1059,19 @@ def init_database():
                      "ALTER TABLE finance_categories ADD COLUMN is_container_linked INTEGER DEFAULT 0"):
         print("✅ Добавлена колонка is_container_linked в finance_categories")
 
+    # Миграция: добавляем колонку requires_yuan в finance_categories
+    # Флаг означает, что при выборе этой категории нужно обязательно указать сумму в юанях.
+    # Используется для категорий типа «Инвойс», «Инвойс Дельта Банк» и т.п.
+    if ensure_column(cursor, 'finance_categories', 'requires_yuan',
+                     "ALTER TABLE finance_categories ADD COLUMN requires_yuan INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка requires_yuan в finance_categories")
+
+    # Миграция: добавляем колонку yuan_amount в finance_records
+    # Сумма в юанях — заполняется при выборе категории с флагом requires_yuan.
+    if ensure_column(cursor, 'finance_records', 'yuan_amount',
+                     "ALTER TABLE finance_records ADD COLUMN yuan_amount REAL DEFAULT NULL"):
+        print("✅ Добавлена колонка yuan_amount в finance_records")
+
     # ============================================================================
     # ТАБЛИЦА: ПЛАН ЗАКУПОК (plan_items)
     # ============================================================================
@@ -6449,6 +6462,8 @@ HTML_TEMPLATE = '''
         .finance-summary-card.income .value { color: #22c55e; }
         .finance-summary-card.expense .value { color: #ef4444; }
         .finance-summary-card.balance .value { color: #333; }
+        .finance-summary-card.yuan { border-left: 4px solid #f59e0b; }
+        .finance-summary-card.yuan .value { color: #d97706; }
 
         /* Бейджи типа записи (доход/расход) */
         .finance-type-badge {
@@ -8682,7 +8697,7 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Записи (существующий контент) -->
                 <div id="finance-records" class="finance-subtab-content active">
 
-                <!-- Сводка: доход, расход, баланс -->
+                <!-- Сводка: доход, расход, баланс, оплачено юаней -->
                 <div class="finance-summary">
                     <div class="finance-summary-card income">
                         <div class="label">Доход</div>
@@ -8695,6 +8710,10 @@ HTML_TEMPLATE = '''
                     <div class="finance-summary-card balance">
                         <div class="label">Баланс</div>
                         <div class="value" id="finance-balance">0 ₽</div>
+                    </div>
+                    <div class="finance-summary-card yuan">
+                        <div class="label">Оплачено юаней</div>
+                        <div class="value" id="finance-total-yuan">0 ¥</div>
                     </div>
                 </div>
 
@@ -8744,6 +8763,10 @@ HTML_TEMPLATE = '''
                             <input type="checkbox" id="finance-new-category-container-linked">
                             Привязка к контейнерам
                         </label>
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-category-requires-yuan">
+                            Сумма в юанях
+                        </label>
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
@@ -8785,6 +8808,10 @@ HTML_TEMPLATE = '''
                         <div class="finance-form-field" style="flex: 0 0 160px;">
                             <label>Дата</label>
                             <input type="date" id="finance-date" class="wh-input" style="cursor: pointer;" max="">
+                        </div>
+                        <div class="finance-form-field" id="finance-yuan-field" style="flex: 0 0 160px; display: none;">
+                            <label>Сумма, ¥</label>
+                            <input type="number" id="finance-yuan-amount" class="wh-input" placeholder="0" min="0" step="0.01" style="border-color: #f59e0b;">
                         </div>
                         <div class="finance-form-field" style="flex: 1; min-width: 200px;">
                             <label>Комментарий</label>
@@ -8861,6 +8888,7 @@ HTML_TEMPLATE = '''
                                 <th style="width: 110px;">Дата</th>
                                 <th style="width: 100px;">Тип</th>
                                 <th style="width: 120px;">Сумма</th>
+                                <th style="width: 100px;">Юани</th>
                                 <th style="width: 140px; text-align: left;">Счёт / Источник</th>
                                 <th style="width: 140px; text-align: left;">Категория</th>
                                 <th style="text-align: left;">Комментарий</th>
@@ -10981,6 +11009,8 @@ HTML_TEMPLATE = '''
             renderFinanceCategoryDropdown('');
             // Скрываем контейнерную секцию при смене типа
             resetFinanceContainerSection();
+            // Скрываем поле юаней при смене типа
+            checkFinanceYuanField();
         }
 
         /**
@@ -11096,9 +11126,19 @@ HTML_TEMPLATE = '''
                 return (num < 0 ? '-' : '') + formatted + ' ₽';
             };
 
+            const fmtYuan = (num) => {
+                if (num === 0) return '0 ¥';
+                const abs = Math.abs(num);
+                const formatted = abs % 1 === 0
+                    ? abs.toLocaleString('ru-RU')
+                    : abs.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                return (num < 0 ? '-' : '') + formatted + ' ¥';
+            };
+
             const incomeEl = document.getElementById('finance-total-income');
             const expenseEl = document.getElementById('finance-total-expense');
             const balanceEl = document.getElementById('finance-balance');
+            const yuanEl = document.getElementById('finance-total-yuan');
 
             if (incomeEl) incomeEl.textContent = fmt(summary.total_income);
             if (expenseEl) expenseEl.textContent = fmt(summary.total_expense);
@@ -11116,6 +11156,7 @@ HTML_TEMPLATE = '''
                     }
                 }
             }
+            if (yuanEl) yuanEl.textContent = fmtYuan(summary.total_yuan || 0);
         }
 
         /**
@@ -11190,6 +11231,23 @@ HTML_TEMPLATE = '''
                     tdAmount.style.color = '#dc2626';
                 }
                 tr.appendChild(tdAmount);
+
+                // Юани
+                const tdYuan = document.createElement('td');
+                if (rec.yuan_amount && rec.yuan_amount > 0) {
+                    const yuanVal = parseFloat(rec.yuan_amount);
+                    const yuanFormatted = yuanVal % 1 === 0
+                        ? yuanVal.toLocaleString('ru-RU')
+                        : yuanVal.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    tdYuan.textContent = yuanFormatted + ' ¥';
+                    tdYuan.style.fontWeight = '600';
+                    tdYuan.style.color = '#d97706';
+                    tdYuan.style.whiteSpace = 'nowrap';
+                } else {
+                    tdYuan.textContent = '—';
+                    tdYuan.style.color = '#ccc';
+                }
+                tr.appendChild(tdYuan);
 
                 // Счёт / Источник
                 const tdAccount = document.createElement('td');
@@ -11278,7 +11336,7 @@ HTML_TEMPLATE = '''
                     accordionTr.className = 'finance-dist-accordion';
                     accordionTr.id = `finance-dist-accordion-${rec.id}`;
                     const accordionTd = document.createElement('td');
-                    accordionTd.colSpan = 10;
+                    accordionTd.colSpan = 11;
                     accordionTd.className = 'finance-dist-accordion-cell';
                     const accordionContent = document.createElement('div');
                     accordionContent.className = 'finance-dist-accordion-content';
@@ -11317,12 +11375,14 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-account-input').value = '';
             document.getElementById('finance-category-input').value = '';
             document.getElementById('finance-description').value = '';
+            document.getElementById('finance-yuan-amount').value = '';
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
             currentFinanceEditId = null;
 
-            // Сбрасываем секцию контейнеров
+            // Сбрасываем секцию контейнеров и поле юаней
             resetFinanceContainerSection();
+            checkFinanceYuanField();
 
             if (editId) {
                 // Находим запись для редактирования
@@ -11338,8 +11398,15 @@ HTML_TEMPLATE = '''
                     document.getElementById('finance-date').value = rec.record_date || today;
                     document.getElementById('finance-description').value = rec.description || '';
 
+                    // Заполняем сумму в юанях при редактировании
+                    if (rec.yuan_amount) {
+                        document.getElementById('finance-yuan-amount').value = rec.yuan_amount;
+                    }
+
                     // Проверяем, нужно ли показать контейнерную секцию
                     checkFinanceContainerSection();
+                    // Проверяем, нужно ли показать поле юаней
+                    checkFinanceYuanField();
 
                     // Если есть распределения — загружаем их
                     if (rec.has_distributions) {
@@ -11361,6 +11428,8 @@ HTML_TEMPLATE = '''
          */
         function cancelFinanceForm() {
             document.getElementById('finance-form').style.display = 'none';
+            document.getElementById('finance-yuan-amount').value = '';
+            document.getElementById('finance-yuan-field').style.display = 'none';
             currentFinanceEditId = null;
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
@@ -11425,6 +11494,15 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            // Валидация суммы в юанях (обязательна для категорий с requires_yuan)
+            const yuanAmountStr = document.getElementById('finance-yuan-amount').value;
+            const yuanAmount = parseFloat(yuanAmountStr) || 0;
+            if (selectedCat?.requires_yuan && yuanAmount <= 0) {
+                alert('Для данной категории необходимо указать сумму в юанях');
+                document.getElementById('finance-yuan-amount').focus();
+                return;
+            }
+
             if (!recordDate) {
                 alert('Укажите дату');
                 document.getElementById('finance-date').focus();
@@ -11446,6 +11524,11 @@ HTML_TEMPLATE = '''
                 description: description,
                 record_date: recordDate
             };
+
+            // Добавляем сумму в юанях если заполнена
+            if (yuanAmount > 0) {
+                payload.yuan_amount = yuanAmount;
+            }
 
             // Собираем распределения по контейнерам (если секция видна и есть данные)
             const containerSection = document.getElementById('finance-container-section');
@@ -11819,6 +11902,8 @@ HTML_TEMPLATE = '''
             dropdown.classList.remove('show');
             // Проверяем, нужно ли показать секцию контейнеров
             checkFinanceContainerSection();
+            // Проверяем, нужно ли показать поле суммы в юанях
+            checkFinanceYuanField();
         }
 
         /**
@@ -11907,6 +11992,30 @@ HTML_TEMPLATE = '''
                     linkLabel.appendChild(linkCb);
                     linkLabel.appendChild(document.createTextNode(' Контейнеры'));
                     name.appendChild(linkLabel);
+
+                    // Чекбокс «Юани» — обязательный ввод суммы в юанях
+                    const yuanLabel = document.createElement('label');
+                    yuanLabel.className = 'finance-category-container-link';
+                    const yuanCb = document.createElement('input');
+                    yuanCb.type = 'checkbox';
+                    yuanCb.checked = !!cat.requires_yuan;
+                    yuanCb.onchange = async () => {
+                        try {
+                            const resp = await authFetch('/api/finance/categories/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: cat.id, requires_yuan: yuanCb.checked })
+                            });
+                            const result = await resp.json();
+                            if (result.success) {
+                                cat.requires_yuan = yuanCb.checked ? 1 : 0;
+                                await loadFinanceCategories();
+                            }
+                        } catch(e) { console.error(e); }
+                    };
+                    yuanLabel.appendChild(yuanCb);
+                    yuanLabel.appendChild(document.createTextNode(' Юани'));
+                    name.appendChild(yuanLabel);
                 }
                 row.appendChild(name);
 
@@ -11970,7 +12079,8 @@ HTML_TEMPLATE = '''
                     body: JSON.stringify({
                         name: name,
                         record_type: catType,
-                        is_container_linked: document.getElementById('finance-new-category-container-linked')?.checked ? true : false
+                        is_container_linked: document.getElementById('finance-new-category-container-linked')?.checked ? true : false,
+                        requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false
                     })
                 });
                 const data = await resp.json();
@@ -11979,6 +12089,8 @@ HTML_TEMPLATE = '''
                     input.value = '';
                     const cb = document.getElementById('finance-new-category-container-linked');
                     if (cb) cb.checked = false;
+                    const yuanCb = document.getElementById('finance-new-category-requires-yuan');
+                    if (yuanCb) yuanCb.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -12073,6 +12185,31 @@ HTML_TEMPLATE = '''
                 }
             } else {
                 section.style.display = 'none';
+            }
+        }
+
+        /**
+         * Показать/скрыть поле суммы в юанях в зависимости от выбранной категории.
+         * Поле отображается если у категории установлен флаг requires_yuan.
+         */
+        function checkFinanceYuanField() {
+            const field = document.getElementById('finance-yuan-field');
+            if (!field) return;
+
+            const recordType = document.getElementById('finance-type')?.value;
+            if (recordType !== 'expense' || !selectedFinanceCategoryId) {
+                field.style.display = 'none';
+                return;
+            }
+
+            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            if (cat && cat.requires_yuan) {
+                field.style.display = '';
+            } else {
+                field.style.display = 'none';
+                // Очищаем значение при скрытии
+                const input = document.getElementById('finance-yuan-amount');
+                if (input) input.value = '';
             }
         }
 
@@ -25165,14 +25302,16 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
             'id': r['id'], 'name': r['name'], 'record_type': r['record_type'],
-            'is_container_linked': r['is_container_linked'] or 0, 'created_at': r['created_at']
+            'is_container_linked': r['is_container_linked'] or 0,
+            'requires_yuan': r['requires_yuan'] or 0,
+            'created_at': r['created_at']
         } for r in rows]
         conn.close()
         return jsonify({'success': True, 'categories': categories})
@@ -25210,9 +25349,11 @@ def api_finance_categories_add():
 
         # Флаг привязки к контейнерам (только для расходных категорий)
         is_container_linked = 1 if (data.get('is_container_linked') and record_type == 'expense') else 0
+        # Флаг обязательности юаней (только для расходных категорий)
+        requires_yuan = 1 if (data.get('requires_yuan') and record_type == 'expense') else 0
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked) VALUES (?, ?, ?)',
-                       (name, record_type, is_container_linked))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan) VALUES (?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -25359,13 +25500,15 @@ def api_finance_records():
         summary_query = f'''
             SELECT
                 COALESCE(SUM(CASE WHEN record_type = 'income' THEN amount ELSE 0 END), 0) as total_income,
-                COALESCE(SUM(CASE WHEN record_type = 'expense' THEN amount ELSE 0 END), 0) as total_expense
+                COALESCE(SUM(CASE WHEN record_type = 'expense' THEN amount ELSE 0 END), 0) as total_expense,
+                COALESCE(SUM(CASE WHEN yuan_amount IS NOT NULL AND yuan_amount > 0 THEN yuan_amount ELSE 0 END), 0) as total_yuan
             FROM finance_records {where_clause}
         '''
         cursor.execute(summary_query, params)
         summary_row = cursor.fetchone()
         total_income = summary_row['total_income']
         total_expense = summary_row['total_expense']
+        total_yuan = summary_row['total_yuan']
 
         conn.close()
 
@@ -25375,7 +25518,8 @@ def api_finance_records():
             'summary': {
                 'total_income': round(total_income, 2),
                 'total_expense': round(total_expense, 2),
-                'balance': round(total_income - total_expense, 2)
+                'balance': round(total_income - total_expense, 2),
+                'total_yuan': round(total_yuan, 2)
             }
         })
     except Exception as e:
@@ -25445,7 +25589,7 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -25453,6 +25597,7 @@ def api_finance_records_add():
 
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
+        requires_yuan = cat_row[2] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -25462,11 +25607,26 @@ def api_finance_records_add():
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
 
+        # Обработка суммы в юанях
+        yuan_amount = data.get('yuan_amount')
+        if yuan_amount is not None:
+            try:
+                yuan_amount = float(yuan_amount)
+                if yuan_amount <= 0:
+                    yuan_amount = None
+            except (ValueError, TypeError):
+                yuan_amount = None
+
+        # Если категория требует юани — валидируем
+        if requires_yuan and not yuan_amount:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
+
         cursor.execute('''
             INSERT INTO finance_records
-            (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?)
-        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date))
+            (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date, yuan_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date, yuan_amount))
 
         new_id = cursor.lastrowid
 
@@ -25548,7 +25708,7 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -25556,6 +25716,7 @@ def api_finance_records_update():
 
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
+        requires_yuan = cat_row[2] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -25565,13 +25726,28 @@ def api_finance_records_update():
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
 
+        # Обработка суммы в юанях
+        yuan_amount = data.get('yuan_amount')
+        if yuan_amount is not None:
+            try:
+                yuan_amount = float(yuan_amount)
+                if yuan_amount <= 0:
+                    yuan_amount = None
+            except (ValueError, TypeError):
+                yuan_amount = None
+
+        # Если категория требует юани — валидируем
+        if requires_yuan and not yuan_amount:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
+
         cursor.execute('''
             UPDATE finance_records
             SET record_type = ?, amount = ?, account_id = ?, account_name = ?,
                 category_id = ?, category_name = ?,
-                description = ?, record_date = ?, updated_at = CURRENT_TIMESTAMP
+                description = ?, record_date = ?, yuan_amount = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, record_date, record_id))
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, record_date, yuan_amount, record_id))
 
         if cursor.rowcount == 0:
             conn.close()
@@ -25923,8 +26099,8 @@ def api_finance_record_distributions(record_id):
 @require_auth(['admin'])
 def api_finance_categories_update():
     """
-    Обновить категорию (в частности, флаг is_container_linked).
-    Payload: {'id': 5, 'is_container_linked': true}
+    Обновить категорию (флаги is_container_linked и requires_yuan).
+    Payload: {'id': 5, 'is_container_linked': true, 'requires_yuan': true}
     """
     try:
         data = request.json
@@ -25943,11 +26119,28 @@ def api_finance_categories_update():
             conn.close()
             return jsonify({'success': False, 'error': 'Категория не найдена'}), 404
 
-        # is_container_linked имеет смысл только для расходных категорий
-        is_container_linked = 1 if (data.get('is_container_linked') and row['record_type'] == 'expense') else 0
+        # Обновляем только переданные поля
+        updates = []
+        params_upd = []
 
-        cursor.execute('UPDATE finance_categories SET is_container_linked = ? WHERE id = ?',
-                       (is_container_linked, cat_id))
+        # is_container_linked имеет смысл только для расходных категорий
+        if 'is_container_linked' in data:
+            is_container_linked = 1 if (data.get('is_container_linked') and row['record_type'] == 'expense') else 0
+            updates.append('is_container_linked = ?')
+            params_upd.append(is_container_linked)
+
+        # requires_yuan имеет смысл только для расходных категорий
+        if 'requires_yuan' in data:
+            requires_yuan = 1 if (data.get('requires_yuan') and row['record_type'] == 'expense') else 0
+            updates.append('requires_yuan = ?')
+            params_upd.append(requires_yuan)
+
+        if not updates:
+            conn.close()
+            return jsonify({'success': True, 'message': 'Нечего обновлять'})
+
+        params_upd.append(cat_id)
+        cursor.execute(f'UPDATE finance_categories SET {", ".join(updates)} WHERE id = ?', params_upd)
         conn.commit()
         conn.close()
 
@@ -26009,12 +26202,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, is_container_linked FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, is_container_linked FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
@@ -26084,7 +26277,7 @@ def api_telegram_finance_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -26092,6 +26285,7 @@ def api_telegram_finance_add():
 
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
+        requires_yuan = cat_row[2] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -26100,6 +26294,21 @@ def api_telegram_finance_add():
         if is_container_linked and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
+
+        # Обработка суммы в юанях
+        yuan_amount = data.get('yuan_amount')
+        if yuan_amount is not None:
+            try:
+                yuan_amount = float(yuan_amount)
+                if yuan_amount <= 0:
+                    yuan_amount = None
+            except (ValueError, TypeError):
+                yuan_amount = None
+
+        # Если категория требует юани — валидируем
+        if requires_yuan and not yuan_amount:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
 
         record_date = get_snapshot_date()
 
@@ -26114,10 +26323,10 @@ def api_telegram_finance_add():
         cursor.execute('''
             INSERT INTO finance_records
             (record_type, amount, account_id, account_name, category_id, category_name,
-             description, created_by, source, telegram_chat_id, telegram_username, record_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?)
+             description, created_by, source, telegram_chat_id, telegram_username, record_date, yuan_amount)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?, ?)
         ''', (record_type, amount, account_id, account_name, category_id, category_name,
-              description, created_by, telegram_chat_id, telegram_username, record_date))
+              description, created_by, telegram_chat_id, telegram_username, record_date, yuan_amount))
 
         new_id = cursor.lastrowid
 
