@@ -12779,7 +12779,7 @@ HTML_TEMPLATE = '''
                         const item = document.createElement('div');
                         item.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px 0;';
                         const link = document.createElement('a');
-                        link.href = '/api/finance/files/' + f.id + '?view=1';
+                        link.href = '/api/finance/files/' + f.id + '?view=1&token=' + encodeURIComponent(authToken);
                         link.target = '_blank';
                         link.textContent = f.filename;
                         link.style.cssText = 'color: #3b82f6; font-size: 13px;';
@@ -13143,7 +13143,7 @@ HTML_TEMPLATE = '''
                 td.style.cssText = 'padding: 8px 16px; background: #f8f9fa;';
                 data.files.forEach(f => {
                     const link = document.createElement('a');
-                    link.href = '/api/finance/files/' + f.id + '?view=1';
+                    link.href = '/api/finance/files/' + f.id + '?view=1&token=' + encodeURIComponent(authToken);
                     link.target = '_blank';
                     link.textContent = f.filename;
                     link.style.cssText = 'color: #3b82f6; margin-right: 16px; font-size: 13px;';
