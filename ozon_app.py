@@ -6078,6 +6078,17 @@ HTML_TEMPLATE = '''
             padding: 12px 18px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
             font-size: 13px; color: #4338ca; margin-bottom: 16px; line-height: 1.5;
         }
+        /* --- Быстрые кнопки периодов --- */
+        .real-quick-periods {
+            display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+        }
+        .real-quick-btn {
+            padding: 6px 14px; background: #fff; color: #667eea; border: 1px solid #667eea;
+            border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer;
+            transition: all 0.2s; white-space: nowrap;
+        }
+        .real-quick-btn:hover { background: #667eea; color: #fff; }
+        .real-quick-btn.active { background: #667eea; color: #fff; }
         /* --- Фильтры --- */
         .real-filters {
             display: flex; align-items: center; gap: 12px; padding: 16px 20px;
@@ -6085,10 +6096,11 @@ HTML_TEMPLATE = '''
         }
         .real-filter-group { display: flex; align-items: center; gap: 8px; }
         .real-filter-label { font-size: 13px; font-weight: 500; color: #555; white-space: nowrap; }
-        .real-month-select {
-            padding: 8px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
-            background: #fff; cursor: pointer; min-width: 180px;
+        .real-date-input {
+            padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+            background: #fff; cursor: pointer; min-width: 150px; height: 38px;
         }
+        .real-date-input:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
         .real-load-btn {
             padding: 10px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px;
             font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap;
@@ -6198,8 +6210,10 @@ HTML_TEMPLATE = '''
         }
         @media (max-width: 768px) {
             .real-info-banner { font-size: 12px; padding: 10px 14px; }
+            .real-quick-periods { gap: 6px; }
+            .real-quick-btn { padding: 5px 10px; font-size: 12px; }
             .real-filters { padding: 12px 14px; gap: 10px; }
-            .real-month-select { min-width: 140px; font-size: 13px; }
+            .real-date-input { min-width: 120px; font-size: 13px; }
             .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
             .real-payout-hero { padding: 20px 22px; }
             .real-payout-hero-value { font-size: 28px; }
@@ -6225,9 +6239,10 @@ HTML_TEMPLATE = '''
             .real-payout-hero-value { font-size: 24px; }
             .real-payout-hero-details { flex-direction: column; gap: 4px; }
             .real-hero-separator { display: none; }
+            .real-quick-periods { justify-content: center; }
             .real-filters { flex-direction: column; align-items: stretch; }
             .real-filter-group { width: 100%; }
-            .real-month-select { width: 100%; min-width: 0; }
+            .real-date-input { width: 100%; min-width: 0; }
             .real-period-info { margin-left: 0; }
             .real-product-name { max-width: 150px; }
         }
@@ -9043,14 +9058,28 @@ HTML_TEMPLATE = '''
 
                     <!-- Пояснение -->
                     <div class="real-info-banner">
-                        Кассовый метод: загружаются операции, которые <strong>были выплачены на р/с</strong> в выбранном месяце. Ozon выплачивает с лагом ~3-4 недели, поэтому январские выплаты = операции за декабрь. Диапазон подбирается автоматически.
+                        Данные из Ozon Finance API: все операции (продажи, возвраты, комиссии, логистика и т.д.) за выбранный период.
+                        Выберите <strong>любой диапазон дат</strong> или воспользуйтесь быстрыми кнопками.
                     </div>
 
-                    <!-- Фильтр по месяцу и кнопка загрузки -->
+                    <!-- Быстрые кнопки периодов -->
+                    <div class="real-quick-periods">
+                        <button class="real-quick-btn" onclick="setRealizationPeriod('this_month')">Этот месяц</button>
+                        <button class="real-quick-btn" onclick="setRealizationPeriod('last_month')">Прошлый месяц</button>
+                        <button class="real-quick-btn" onclick="setRealizationPeriod('7d')">7 дней</button>
+                        <button class="real-quick-btn" onclick="setRealizationPeriod('30d')">30 дней</button>
+                        <button class="real-quick-btn" onclick="setRealizationPeriod('90d')">90 дней</button>
+                    </div>
+
+                    <!-- Фильтр по датам и кнопка загрузки -->
                     <div class="real-filters">
                         <div class="real-filter-group">
-                            <label class="real-filter-label">Месяц выплаты:</label>
-                            <select id="real-month-select" class="real-month-select"></select>
+                            <label class="real-filter-label">С:</label>
+                            <input type="date" id="real-date-from" class="real-date-input">
+                        </div>
+                        <div class="real-filter-group">
+                            <label class="real-filter-label">По:</label>
+                            <input type="date" id="real-date-to" class="real-date-input">
                         </div>
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
@@ -9058,9 +9087,9 @@ HTML_TEMPLATE = '''
                         <div class="real-period-info" id="real-period-info" style="display: none;"></div>
                     </div>
 
-                    <!-- Главная карточка: Пришло на счёт -->
+                    <!-- Главная карточка: Итого за период -->
                     <div class="real-payout-hero" id="real-payout-hero" style="display: none;">
-                        <div class="real-payout-hero-label">Пришло на расчётный счёт</div>
+                        <div class="real-payout-hero-label">Итого за период</div>
                         <div class="real-payout-hero-value" id="real-payout-total">0 ₽</div>
                         <div class="real-payout-hero-details">
                             <span class="real-hero-detail">Начислено: <strong id="real-hero-net">0 ₽</strong></span>
@@ -12465,7 +12494,7 @@ HTML_TEMPLATE = '''
 
         let pendelDataLoaded = false;
         let pendelCache = {};
-        let realizationInitialized = false;  // Флаг: выпадающий месяц уже заполнен
+        let realizationInitialized = false;  // Флаг: date-пикеры уже инициализированы
 
         /**
          * Переключение подвкладок финансов (Записи / Пендель / Реализация).
@@ -12481,7 +12510,7 @@ HTML_TEMPLATE = '''
                 loadPendelData();
             }
             if (subtab === 'finance-realization' && !realizationInitialized) {
-                initRealizationMonthSelect();
+                initRealizationDatePickers();
             }
         }
 
@@ -12507,7 +12536,7 @@ HTML_TEMPLATE = '''
                 loadPendelData();
             }
             if (subtab === 'finance-realization' && !realizationInitialized) {
-                initRealizationMonthSelect();
+                initRealizationDatePickers();
             }
         }
 
@@ -12515,34 +12544,73 @@ HTML_TEMPLATE = '''
         // РЕАЛИЗАЦИЯ — данные из Ozon Finance API
         // ============================================================================
         // Подвкладка «Реализация» загружает транзакции из Ozon Seller API
-        // /v3/finance/transaction/list за выбранный месяц, агрегирует по типам
-        // операций и показывает сводные карточки + таблицы.
+        // /v3/finance/transaction/list за произвольный диапазон дат, агрегирует
+        // по типам операций и показывает сводные карточки + таблицы.
         // ============================================================================
 
         /**
-         * Инициализировать выпадающий список месяцев.
-         * Заполняет select текущим + 11 предыдущих месяцев.
+         * Инициализировать date-пикеры значениями по умолчанию (текущий месяц).
          */
-        function initRealizationMonthSelect() {
-            const select = document.getElementById('real-month-select');
-            if (!select) return;
+        function initRealizationDatePickers() {
+            const fromEl = document.getElementById('real-date-from');
+            const toEl = document.getElementById('real-date-to');
+            if (!fromEl || !toEl) return;
 
             const now = new Date();
-            const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-            select.innerHTML = '';
-
-            for (let i = 0; i < 12; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-                const label = months[d.getMonth()] + ' ' + d.getFullYear();
-                const opt = document.createElement('option');
-                opt.value = val;
-                opt.textContent = label;
-                select.appendChild(opt);
-            }
+            // Дефолт: 1-е число текущего месяца — сегодня
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            fromEl.value = firstDay.toISOString().slice(0, 10);
+            toEl.value = now.toISOString().slice(0, 10);
 
             realizationInitialized = true;
+        }
+
+        /**
+         * Быстрые кнопки периодов: заполнить даты и загрузить данные.
+         * type: 'this_month', 'last_month', '7d', '30d', '90d'
+         */
+        function setRealizationPeriod(type) {
+            const fromEl = document.getElementById('real-date-from');
+            const toEl = document.getElementById('real-date-to');
+            if (!fromEl || !toEl) return;
+
+            const now = new Date();
+            let from, to;
+
+            switch (type) {
+                case 'this_month':
+                    from = new Date(now.getFullYear(), now.getMonth(), 1);
+                    to = now;
+                    break;
+                case 'last_month':
+                    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    to = new Date(now.getFullYear(), now.getMonth(), 0); // последний день прошлого месяца
+                    break;
+                case '7d':
+                    from = new Date(now.getTime() - 7 * 86400000);
+                    to = now;
+                    break;
+                case '30d':
+                    from = new Date(now.getTime() - 30 * 86400000);
+                    to = now;
+                    break;
+                case '90d':
+                    from = new Date(now.getTime() - 90 * 86400000);
+                    to = now;
+                    break;
+                default:
+                    return;
+            }
+
+            fromEl.value = from.toISOString().slice(0, 10);
+            toEl.value = to.toISOString().slice(0, 10);
+
+            // Подсветить активную кнопку
+            document.querySelectorAll('.real-quick-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Загрузить данные
+            loadRealizationData();
         }
 
         /**
@@ -12554,12 +12622,19 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Загрузить данные реализации (кассовый метод) из Ozon API за выбранный месяц.
-         * Показывает деньги, которые реально поступили/удержаны по дате выплаты.
+         * Загрузить данные реализации из Ozon API за выбранный диапазон дат.
+         * Читает даты из date-input полей и отправляет на /api/finance/realization.
          */
         async function loadRealizationData() {
-            const select = document.getElementById('real-month-select');
-            const month = select ? select.value : '';
+            const fromEl = document.getElementById('real-date-from');
+            const toEl = document.getElementById('real-date-to');
+            const dateFrom = fromEl ? fromEl.value : '';
+            const dateTo = toEl ? toEl.value : '';
+
+            if (!dateFrom || !dateTo) {
+                alert('Укажите обе даты');
+                return;
+            }
 
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
@@ -12576,7 +12651,9 @@ HTML_TEMPLATE = '''
             if (btnText) { btnText.textContent = 'Загрузка...'; }
 
             try {
-                const resp = await authFetch('/api/finance/realization?month=' + encodeURIComponent(month));
+                const url = '/api/finance/realization?date_from=' + encodeURIComponent(dateFrom) +
+                            '&date_to=' + encodeURIComponent(dateTo);
+                const resp = await authFetch(url);
                 const data = await resp.json();
 
                 document.getElementById('real-loading').style.display = 'none';
@@ -12587,10 +12664,10 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
-                // Период — показываем диапазон операций
+                // Период — показываем выбранный диапазон
                 const periodInfo = document.getElementById('real-period-info');
                 if (periodInfo && data.period) {
-                    periodInfo.textContent = 'Операции: ' + data.period.operations_from + ' \u2014 ' + data.period.operations_to;
+                    periodInfo.textContent = data.period.date_from + ' \u2014 ' + data.period.date_to;
                     periodInfo.style.display = 'inline';
                 }
 
@@ -27055,65 +27132,50 @@ def api_finance_categories_update():
 @require_auth()
 def api_finance_realization():
     """
-    Получить данные реализации из Ozon Finance API за указанный месяц выплаты.
-    Показывает КАССОВУЮ картину: операции, которые попали в выплаты этого месяца.
+    Получить данные реализации из Ozon Finance API за произвольный диапазон дат.
 
-    Ozon платит с лагом ~3-4 недели, поэтому для «месяца выплаты M»
-    мы загружаем операции за (M-1, 1-е число) — (M, 10-е число).
-    Январские выплаты = операции с ~1 декабря по ~7 января.
+    Пользователь сам выбирает даты — без привязки к месяцу и без «угадывания»
+    кассового периода. Показывает все операции Ozon за указанный диапазон.
 
     Аргументы (query params):
-        month (str): Месяц ВЫПЛАТЫ в формате YYYY-MM (например, 2026-01)
+        date_from (str): Начало периода в формате YYYY-MM-DD
+        date_to   (str): Конец периода в формате YYYY-MM-DD (включительно)
 
     Возвращает:
         JSON со сводкой, агрегацией по типам, по товарам (SKU), транзакциями.
     """
-    import calendar
-
-    month_str = request.args.get('month', '')
-    if not month_str:
-        from datetime import datetime as dt_cls
-        now = dt_cls.now()
-        month_str = now.strftime('%Y-%m')
-
-    try:
-        year, month = map(int, month_str.split('-'))
-
-        # ── Расчёт диапазона дат операций для кассового месяца ──
-        # Ozon выплачивает с лагом ~3-4 недели. Выплаты в январе
-        # покрывают операции примерно с 1 декабря по 7 января.
-        # Поэтому для «месяца выплаты M» загружаем операции:
-        #   date_from = 1-е число ПРЕДЫДУЩЕГО месяца (M-1)
-        #   date_to   = 10-е число ТЕКУЩЕГО месяца (M)
-
-        # Предыдущий месяц (без dateutil)
-        if month == 1:
-            prev_year, prev_month = year - 1, 12
-        else:
-            prev_year, prev_month = year, month - 1
-
-        date_from = f"{prev_year}-{prev_month:02d}-01T00:00:00.000Z"
-        date_to = f"{year}-{month:02d}-10T00:00:00.000Z"
-
-        # Для отображения в UI
-        period_display_from = f"{prev_year}-{prev_month:02d}-01"
-        period_display_to = f"{year}-{month:02d}-09"
-    except (ValueError, TypeError):
-        return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
-
-    # ── Загрузка всех транзакций за период из Ozon API ──
-    # Ozon API ограничивает период ОДНИМ месяцем за запрос и часто падает
-    # с 500/504 на полномесячных диапазонах из-за большого объёма данных.
-    # Решение: разбиваем на 10-дневные чанки — каждый гарантированно ≤ 1 месяца
-    # и достаточно маленький для стабильной работы API.
-    #
-    # Для кассового месяца M (напр. Январь 2026):
-    #   Чанк 1: Dec 1–10, Чанк 2: Dec 11–20, Чанк 3: Dec 21–Jan 1
-    #   Чанк 4: Jan 1–10
-    # Каждый чанк пагинируется отдельно. При 500/504 — ретрай до 3 раз.
-
     import time as _time
     from datetime import datetime as _dt, timedelta as _td
+
+    # ── Парсинг дат из параметров запроса ──
+    date_from_str = request.args.get('date_from', '')
+    date_to_str = request.args.get('date_to', '')
+
+    # Если даты не указаны — берём текущий месяц
+    if not date_from_str or not date_to_str:
+        now = _dt.now()
+        date_from_str = now.strftime('%Y-%m-01')
+        date_to_str = now.strftime('%Y-%m-%d')
+
+    try:
+        dt_from = _dt.strptime(date_from_str, '%Y-%m-%d')
+        dt_to = _dt.strptime(date_to_str, '%Y-%m-%d')
+
+        # Валидация: дата начала не позже даты конца
+        if dt_from > dt_to:
+            return jsonify({'success': False, 'error': 'Дата начала не может быть позже даты конца'}), 400
+
+        # Валидация: максимум 365 дней
+        if (dt_to - dt_from).days > 365:
+            return jsonify({'success': False, 'error': 'Максимальный период — 365 дней'}), 400
+
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Неверный формат дат. Используйте YYYY-MM-DD'}), 400
+
+    # ── Загрузка транзакций из Ozon API ──
+    # Ozon API ограничивает период ОДНИМ месяцем за запрос и часто падает
+    # на больших диапазонах. Разбиваем на 10-дневные чанки для стабильности.
+    # Каждый чанк пагинируется отдельно. При 500/504 — ретрай до 3 раз.
 
     headers = get_ozon_headers()
     all_operations = []
@@ -27121,15 +27183,17 @@ def api_finance_realization():
     max_pages = 50
     max_retries = 3
 
-    # Генерируем 10-дневные чанки от 1-го предыдущего месяца до 10-го текущего
-    chunk_start = _dt(prev_year, prev_month, 1)
-    chunk_end_limit = _dt(year, month, 10)
+    # Конец диапазона для API (следующий день, т.к. API использует «до, не включая»)
+    api_end = dt_to + _td(days=1)
+
+    # Генерируем 10-дневные чанки
+    chunk_start = dt_from
     date_chunks = []
 
-    while chunk_start < chunk_end_limit:
+    while chunk_start < api_end:
         chunk_end = chunk_start + _td(days=10)
-        if chunk_end > chunk_end_limit:
-            chunk_end = chunk_end_limit
+        if chunk_end > api_end:
+            chunk_end = api_end
         date_chunks.append((
             chunk_start.strftime('%Y-%m-%dT00:00:00.000Z'),
             chunk_end.strftime('%Y-%m-%dT00:00:00.000Z')
@@ -27360,10 +27424,9 @@ def api_finance_realization():
         return jsonify({
             'success': True,
             'period': {
-                'payout_month': month_str,
-                'operations_from': period_display_from,
-                'operations_to': period_display_to,
-                'note': f'Операции {period_display_from} — {period_display_to}, выплаченные в {month_str}'
+                'date_from': date_from_str,
+                'date_to': date_to_str,
+                'note': f'Операции за {date_from_str} — {date_to_str}'
             },
             'summary': {
                 'gross_sales': round(gross_sales, 2),
