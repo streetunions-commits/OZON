@@ -11961,7 +11961,11 @@ HTML_TEMPLATE = '''
 
                 const name = document.createElement('span');
                 name.style.cssText = 'flex: 1; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;';
-                const nameText = document.createTextNode(cat.name);
+                const nameText = document.createElement('span');
+                nameText.textContent = cat.name;
+                nameText.style.cursor = 'pointer';
+                nameText.title = 'Нажмите для переименования';
+                nameText.onclick = () => renameFinanceCategory(cat.id, cat.name);
                 name.appendChild(nameText);
                 const badge = document.createElement('span');
                 badge.textContent = cat.record_type === 'income' ? '📈 Доход' : '📉 Расход';
@@ -12019,6 +12023,15 @@ HTML_TEMPLATE = '''
                 }
                 row.appendChild(name);
 
+                const renBtn = document.createElement('button');
+                renBtn.textContent = '✏️';
+                renBtn.title = 'Переименовать категорию';
+                renBtn.style.cssText = 'background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #999; cursor: pointer; padding: 4px 8px; font-size: 13px; transition: all 0.2s;';
+                renBtn.onmouseenter = () => { renBtn.style.borderColor = '#3b82f6'; };
+                renBtn.onmouseleave = () => { renBtn.style.borderColor = '#e0e0e0'; };
+                renBtn.onclick = () => renameFinanceCategory(cat.id, cat.name);
+                row.appendChild(renBtn);
+
                 const delBtn = document.createElement('button');
                 delBtn.textContent = '✕';
                 delBtn.title = 'Удалить категорию';
@@ -12030,6 +12043,35 @@ HTML_TEMPLATE = '''
 
                 container.appendChild(row);
             });
+        }
+
+        /**
+         * Переименовать финансовую категорию (с подтверждением).
+         */
+        async function renameFinanceCategory(id, currentName) {
+            const newName = prompt('Введите новое название для категории "' + currentName + '":', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            if (!confirm('Вы уверены, что хотите переименовать категорию «' + currentName + '» в «' + newName.trim() + '»?\n\nНазвание изменится во всех существующих записях.')) return;
+
+            try {
+                const resp = await authFetch('/api/finance/categories/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, name: newName.trim() })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    await loadFinanceCategories();
+                    renderFinanceCategoriesList();
+                    loadFinanceRecords();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка переименования категории:', e);
+            }
         }
 
         /**
@@ -26098,8 +26140,8 @@ def api_finance_record_distributions(record_id):
 @require_auth(['admin'])
 def api_finance_categories_update():
     """
-    Обновить категорию (флаги is_container_linked и requires_yuan).
-    Payload: {'id': 5, 'is_container_linked': true, 'requires_yuan': true}
+    Обновить категорию (название, флаги is_container_linked и requires_yuan).
+    Payload: {'id': 5, 'name': 'Новое название', 'is_container_linked': true, 'requires_yuan': true}
     """
     try:
         data = request.json
@@ -26112,7 +26154,7 @@ def api_finance_categories_update():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('SELECT id, record_type FROM finance_categories WHERE id = ?', (cat_id,))
+        cursor.execute('SELECT id, name, record_type FROM finance_categories WHERE id = ?', (cat_id,))
         row = cursor.fetchone()
         if not row:
             conn.close()
@@ -26121,6 +26163,21 @@ def api_finance_categories_update():
         # Обновляем только переданные поля
         updates = []
         params_upd = []
+        new_name = None
+
+        # Переименование категории
+        if 'name' in data:
+            new_name = (data.get('name') or '').strip()
+            if not new_name:
+                conn.close()
+                return jsonify({'success': False, 'error': 'Название не может быть пустым'}), 400
+            # Проверка на дублирование имени
+            cursor.execute('SELECT id FROM finance_categories WHERE name = ? AND id != ?', (new_name, cat_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({'success': False, 'error': 'Категория с таким названием уже существует'}), 400
+            updates.append('name = ?')
+            params_upd.append(new_name)
 
         # is_container_linked имеет смысл только для расходных категорий
         if 'is_container_linked' in data:
@@ -26140,6 +26197,11 @@ def api_finance_categories_update():
 
         params_upd.append(cat_id)
         cursor.execute(f'UPDATE finance_categories SET {", ".join(updates)} WHERE id = ?', params_upd)
+
+        # При переименовании — обновляем category_name в существующих записях
+        if new_name:
+            cursor.execute('UPDATE finance_records SET category_name = ? WHERE category_id = ?', (new_name, cat_id))
+
         conn.commit()
         conn.close()
 
