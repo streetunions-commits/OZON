@@ -27155,16 +27155,24 @@ def api_finance_realization():
         # Группы: продажи, возвраты, комиссии, логистика, услуги, штрафы, прочее.
 
         # Ключевые слова для классификации (в нижнем регистре)
+        # Проверяем combined = (operation_type_name + ' ' + operation_type).lower()
+        # ВАЖНО: порядок проверки имеет значение — первое совпадение побеждает.
+        # Убрали 'operationitem' из SALES — он ловил OperationItemReturn (возвраты).
         SALES_KW = ['оплата товар', 'за продаж', 'начислен', 'deliveredtocustomer',
-                     'agentdelivered', 'itemservices', 'operationitem', 'сбп']
-        RETURNS_KW = ['возврат', 'return', 'отмен', 'cancell', 'returngoods']
+                     'agentdelivered', 'itemservices', 'сбп']
+        RETURNS_KW = ['возврат', 'return', 'отмен', 'cancell', 'returngoods',
+                      'operationitemreturn']
         COMMISSION_KW = ['комисси', 'commission', 'реклам', 'adv', 'promotion',
-                         'marketplaceservice', 'marketingservice']
+                         'marketplaceservice', 'marketingservice', 'costperclick',
+                         'оплата за клик', 'продвижени']
         LOGISTICS_KW = ['логистик', 'доставк', 'магистрал', 'последн', 'logistic',
-                        'delivery', 'crossdock', 'fulfillment', 'фулфил']
+                        'delivery', 'crossdock', 'кросс-док', 'fulfillment', 'фулфил',
+                        'вывоз товар']
         SERVICES_KW = ['эквайринг', 'хранение', 'размещение', 'подписк', 'service',
-                       'processing', 'корректир', 'adjustment', 'бронирование']
-        PENALTIES_KW = ['штраф', 'компенсац', 'penalty', 'fine', 'netting']
+                       'processing', 'корректир', 'adjustment', 'бронирование',
+                       'подготовк']
+        PENALTIES_KW = ['штраф', 'компенсац', 'penalty', 'fine', 'netting',
+                        'потер']
 
         type_totals = {}
         gross_sales = 0.0
