@@ -12052,7 +12052,7 @@ HTML_TEMPLATE = '''
             const newName = prompt('Введите новое название для категории "' + currentName + '":', currentName);
             if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
 
-            if (!confirm('Вы уверены, что хотите переименовать категорию «' + currentName + '» в «' + newName.trim() + '»?\n\nНазвание изменится во всех существующих записях.')) return;
+            if (!confirm('Вы уверены, что хотите переименовать категорию «' + currentName + '» в «' + newName.trim() + '»?\\n\\nНазвание изменится во всех существующих записях.')) return;
 
             try {
                 const resp = await authFetch('/api/finance/categories/update', {
