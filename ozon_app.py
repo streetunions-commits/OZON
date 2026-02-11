@@ -19736,11 +19736,10 @@ HTML_TEMPLATE = '''
 
         /**
          * Загрузка всех записей плана с сервера.
-         * Рендерит таблицу и обновляет сводку.
+         * Группирует по артикулу и рендерит аккордеон.
          */
         async function loadPlanData() {
             try {
-                // Загружаем товары параллельно с данными плана
                 if (planProducts.length === 0) loadPlanProducts();
 
                 const resp = await authFetch('/api/plan/items');
@@ -19748,72 +19747,120 @@ HTML_TEMPLATE = '''
                 if (!data.success) return;
 
                 const items = data.items || [];
-                const tbody = document.getElementById('plan-tbody');
-                const wrapper = document.getElementById('plan-table-wrapper');
+                const container = document.getElementById('plan-groups-container');
                 const empty = document.getElementById('plan-empty');
-                const tfoot = document.getElementById('plan-tfoot');
 
                 if (items.length === 0) {
-                    wrapper.style.display = 'none';
+                    container.style.display = 'none';
                     empty.style.display = 'block';
-                    tfoot.style.display = 'none';
-                } else {
-                    wrapper.style.display = 'block';
-                    empty.style.display = 'none';
-                    tfoot.style.display = 'table-footer-group';
+                    return;
                 }
 
-                // Считаем итоги
-                let sumQty = 0, sumTotalYuan = 0, sumInTransit = 0, sumArrived = 0;
-                let sumPaidInvYuan = 0, sumPaidInvRub = 0, sumPaidDeltaYuan = 0, sumPaidDeltaRub = 0;
+                container.style.display = 'block';
+                empty.style.display = 'none';
 
-                tbody.innerHTML = items.map((item, idx) => {
-                    const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
+                /* Группируем записи по артикулу (product_name) */
+                const groups = {};
+                const groupOrder = [];
+                items.forEach(item => {
+                    const key = item.product_name || 'Без артикула';
+                    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+                    groups[key].push(item);
+                });
 
-                    sumQty += item.planned_qty || 0;
-                    sumTotalYuan += totalYuan;
-                    sumInTransit += item.qty_in_transit || 0;
-                    sumArrived += item.qty_arrived || 0;
-                    sumPaidInvYuan += item.paid_invoice_yuan || 0;
-                    sumPaidInvRub += item.paid_invoice_rub || 0;
-                    sumPaidDeltaYuan += item.paid_delta_yuan || 0;
-                    sumPaidDeltaRub += item.paid_delta_rub || 0;
+                /* Рендерим аккордеон */
+                let html = '';
+                groupOrder.forEach(artName => {
+                    const rows = groups[artName];
+                    const isOpen = !!planOpenGroups[artName];
 
-                    // Двойной клик — открыть редактирование, только кнопка удаления остаётся
-                    return '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor: pointer;" title="Двойной клик для редактирования">' +
-                        '<td>' + (idx + 1) + '</td>' +
-                        '<td class="product-name-cell" title="' + escapeHtml(item.product_name) + '">' + escapeHtml(item.product_name) + '</td>' +
-                        '<td>' + formatPlanDate(item.planned_release_date) + '</td>' +
-                        '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>' +
-                        '<td class="number-cell">' + fmtNum(item.planned_qty) + '</td>' +
-                        '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + '</td>' +
-                        '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + '</td>' +
-                        '<td class="yuan-cell" style="font-weight:700;">' + fmtMoney(totalYuan) + '</td>' +
-                        '<td class="number-cell">' + fmtNum(item.qty_in_transit) + '</td>' +
-                        '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>' +
-                        '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + '</td>' +
-                        '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + '</td>' +
-                        '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + '</td>' +
-                        '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + '</td>' +
-                        '<td class="actions-cell admin-only">' +
-                            '<button class="plan-delete-btn" onclick="event.stopPropagation(); deletePlanItem(' + item.id + ')">🗑</button>' +
-                        '</td>' +
-                    '</tr>';
-                }).join('');
+                    /* Итоги группы */
+                    let gQty = 0, gTotal = 0, gTransit = 0, gArrived = 0;
+                    let gPaidInvY = 0, gPaidInvR = 0, gPaidDY = 0, gPaidDR = 0;
+                    rows.forEach(r => {
+                        const t = (r.planned_qty || 0) * ((r.price_yuan_invoice || 0) + (r.price_yuan_delta_invoice || 0));
+                        gQty += r.planned_qty || 0;
+                        gTotal += t;
+                        gTransit += r.qty_in_transit || 0;
+                        gArrived += r.qty_arrived || 0;
+                        gPaidInvY += r.paid_invoice_yuan || 0;
+                        gPaidInvR += r.paid_invoice_rub || 0;
+                        gPaidDY += r.paid_delta_yuan || 0;
+                        gPaidDR += r.paid_delta_rub || 0;
+                    });
 
-                // Обновляем итоговую строку
-                document.getElementById('plan-foot-qty').textContent = fmtNum(sumQty);
-                document.getElementById('plan-foot-total-yuan').textContent = fmtMoney(sumTotalYuan);
-                document.getElementById('plan-foot-in-transit').textContent = fmtNum(sumInTransit);
-                document.getElementById('plan-foot-arrived').textContent = fmtNum(sumArrived);
-                document.getElementById('plan-foot-paid-inv-yuan').textContent = fmtMoney(sumPaidInvYuan);
-                document.getElementById('plan-foot-paid-inv-rub').textContent = fmtMoney(sumPaidInvRub);
-                document.getElementById('plan-foot-paid-delta-yuan').textContent = fmtMoney(sumPaidDeltaYuan);
-                document.getElementById('plan-foot-paid-delta-rub').textContent = fmtMoney(sumPaidDeltaRub);
+                    html += '<div class="plan-group' + (isOpen ? ' open' : '') + '">';
 
+                    /* Заголовок группы */
+                    html += '<div class="plan-group-header" onclick="togglePlanGroup(this)">';
+                    html += '<span class="plan-group-arrow">&#9654;</span>';
+                    html += '<span class="plan-group-name">' + escapeHtml(artName) + '</span>';
+                    html += '<span class="plan-group-stats">';
+                    html += '<span>Строк: ' + rows.length + '</span>';
+                    html += '<span>Кол-во: ' + fmtNum(gQty) + '</span>';
+                    html += '<span class="yuan">Сумма: ' + fmtMoney(gTotal) + ' &yen;</span>';
+                    html += '<span>В пути: ' + fmtNum(gTransit) + '</span>';
+                    html += '<span>Пришло: ' + fmtNum(gArrived) + '</span>';
+                    html += '<span class="yuan">Опл.инв: ' + fmtMoney(gPaidInvY) + ' &yen;</span>';
+                    html += '<span class="rub">Опл.инв: ' + fmtMoney(gPaidInvR) + ' &#8381;</span>';
+                    if (gPaidDY) html += '<span class="yuan">Опл.&#916;: ' + fmtMoney(gPaidDY) + ' &yen;</span>';
+                    if (gPaidDR) html += '<span class="rub">Опл.&#916;: ' + fmtMoney(gPaidDR) + ' &#8381;</span>';
+                    html += '</span>';
+                    html += '</div>';
+
+                    /* Тело группы */
+                    html += '<div class="plan-group-body">';
+                    html += '<div class="plan-group-table-wrap">';
+                    html += '<table class="plan-group-table"><thead><tr>';
+                    html += '<th>#</th><th>Дата выхода</th><th>Прим. приход</th><th>Кол-во</th>';
+                    html += '<th>Цена инв &yen;</th><th>Цена &#916; &yen;</th><th>Сумма &yen;</th>';
+                    html += '<th>В пути</th><th>Пришло</th>';
+                    html += '<th>Опл.инв &yen;</th><th>Опл.инв &#8381;</th><th>Опл.&#916; &yen;</th><th>Опл.&#916; &#8381;</th>';
+                    html += '<th class="admin-only"></th>';
+                    html += '</tr></thead><tbody>';
+
+                    rows.forEach((item, idx) => {
+                        const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
+                        html += '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor:pointer" title="Двойной клик для редактирования">';
+                        html += '<td>' + (idx + 1) + '</td>';
+                        html += '<td>' + formatPlanDate(item.planned_release_date) + '</td>';
+                        html += '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>';
+                        html += '<td class="number-cell">' + fmtNum(item.planned_qty) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + '</td>';
+                        html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalYuan) + '</td>';
+                        html += '<td class="number-cell">' + fmtNum(item.qty_in_transit) + '</td>';
+                        html += '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + '</td>';
+                        html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + '</td>';
+                        html += '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + '</td>';
+                        html += '<td class="actions-cell admin-only">';
+                        html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">&#128465;</button>';
+                        html += '</td></tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                    /* Кнопка добавления строки внутри группы */
+                    html += '<div style="padding:10px 16px;text-align:left;">';
+                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\'' + escapeHtml(artName).replace(/'/g, "\\\\'") + '\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
+                    html += '</div>';
+                    html += '</div>'; /* /plan-group-body */
+                    html += '</div>'; /* /plan-group */
+                });
+
+                container.innerHTML = html;
             } catch (err) {
                 console.error('Ошибка загрузки плана:', err);
             }
+        }
+
+        /** Раскрыть/свернуть группу аккордеона */
+        function togglePlanGroup(headerEl) {
+            const group = headerEl.closest('.plan-group');
+            const artName = group.querySelector('.plan-group-name').textContent;
+            group.classList.toggle('open');
+            planOpenGroups[artName] = group.classList.contains('open');
         }
 
         /** Форматирование даты для таблицы плана (YYYY-MM-DD → DD.MM.YYYY) */
@@ -19842,29 +19889,46 @@ HTML_TEMPLATE = '''
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        /** Открыть модальное окно для новой записи */
-        function openPlanModal() {
-            document.getElementById('plan-modal-title').textContent = 'Добавить позицию';
+        /**
+         * Открыть модальное окно для добавления строки внутри конкретной группы.
+         * Артикул фиксирован — select заблокирован.
+         */
+        function openPlanModalForGroup(articulName) {
+            document.getElementById('plan-modal-title').textContent = 'Добавить строку — ' + articulName;
             document.getElementById('plan-edit-id').value = '';
-            // Очищаем все поля
-            document.getElementById('plan-product-name').value = '';
             ['plan-release-date', 'plan-arrival-date', 'plan-qty',
              'plan-price-invoice', 'plan-price-delta', 'plan-in-transit', 'plan-arrived',
              'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
             ].forEach(id => document.getElementById(id).value = '');
-            // Обновляем список товаров перед открытием
+            loadPlanProducts();
+            const sel = document.getElementById('plan-product-name');
+            sel.value = articulName;
+            sel.disabled = true;
+            document.getElementById('plan-modal-overlay').classList.add('active');
+        }
+
+        /** Открыть модальное окно для новой позиции (артикул выбирается) */
+        function openPlanModal() {
+            document.getElementById('plan-modal-title').textContent = 'Добавить позицию';
+            document.getElementById('plan-edit-id').value = '';
+            document.getElementById('plan-product-name').value = '';
+            document.getElementById('plan-product-name').disabled = false;
+            ['plan-release-date', 'plan-arrival-date', 'plan-qty',
+             'plan-price-invoice', 'plan-price-delta', 'plan-in-transit', 'plan-arrived',
+             'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
+            ].forEach(id => document.getElementById(id).value = '');
             loadPlanProducts();
             document.getElementById('plan-modal-overlay').classList.add('active');
         }
 
         /** Закрыть модальное окно */
         function closePlanModal() {
+            document.getElementById('plan-product-name').disabled = false;
             document.getElementById('plan-modal-overlay').classList.remove('active');
         }
 
         /** Загрузить данные записи в форму для редактирования (по двойному клику) */
         async function editPlanItem(id) {
-            // Только admin может редактировать
             if (currentUser.role !== 'admin') return;
             try {
                 const resp = await authFetch('/api/plan/items');
@@ -19874,12 +19938,13 @@ HTML_TEMPLATE = '''
                 const item = data.items.find(i => i.id === id);
                 if (!item) return;
 
-                // Обновляем список товаров перед открытием
                 await loadPlanProducts();
 
                 document.getElementById('plan-modal-title').textContent = 'Редактировать позицию';
                 document.getElementById('plan-edit-id').value = id;
-                document.getElementById('plan-product-name').value = item.product_name || '';
+                const sel = document.getElementById('plan-product-name');
+                sel.value = item.product_name || '';
+                sel.disabled = true;
                 document.getElementById('plan-release-date').value = item.planned_release_date || '';
                 document.getElementById('plan-arrival-date').value = item.estimated_arrival_date || '';
                 document.getElementById('plan-qty').value = item.planned_qty || '';
