@@ -279,6 +279,35 @@ def create_finance_record(record_data: dict) -> dict:
         return {'success': False, 'error': str(e)}
 
 
+def create_finance_record_with_files(record_data: dict, files: list) -> dict:
+    """
+    Создать финансовую запись с файлами через multipart API.
+
+    Аргументы:
+        record_data: Данные записи (record_type, amount, account_id, description, и т.д.)
+        files: Список файлов [{'data': bytes, 'filename': str}, ...]
+
+    Возвращает:
+        {'success': True, 'id': 123} или {'success': False, 'error': 'текст'}
+    """
+    try:
+        form_data = {k: str(v) for k, v in record_data.items()}
+        form_data['token'] = TELEGRAM_BOT_SECRET
+
+        file_tuples = [('files', (f['filename'], f['data'])) for f in files]
+
+        response = requests.post(
+            f'{API_BASE_URL}/api/telegram/finance/add',
+            data=form_data,
+            files=file_tuples,
+            timeout=30
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка создания финансовой записи с файлами: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 def format_amount(amount: float) -> str:
     """
     Форматирует число с пробелами между разрядами.
@@ -1999,6 +2028,8 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'description': None,
         'yuan_amount': None,
         'requires_yuan': 0,
+        'requires_description': 0,
+        'files': [],
         'telegram_chat_id': chat_id,
         'telegram_username': display_name
     }
@@ -2138,9 +2169,10 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
         cat_name = cat['name'][:25]
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
+        desc_req = cat.get('requires_description', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2173,17 +2205,19 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan
-    parts = query.data.split(':', 4)
+    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan:requires_description
+    parts = query.data.split(':', 5)
     category_id = int(parts[1])
     category_name = parts[2] if len(parts) > 2 else ''
     is_container_linked = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
     requires_yuan = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
+    requires_description = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
 
     context.user_data['finance']['category_id'] = category_id
     context.user_data['finance']['category_name'] = category_name
     context.user_data['finance']['is_container_linked'] = is_container_linked
     context.user_data['finance']['requires_yuan'] = requires_yuan
+    context.user_data['finance']['requires_description'] = requires_description
 
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
@@ -2204,10 +2238,17 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
         )
         return STATE_FIN_YUAN_AMOUNT
 
-    # Комментарий обязателен при "Другое" или при контейнерной категории
+    # Комментарий обязателен при requires_description, "Другое" или при контейнерной категории
     is_other = category_name.lower() == 'другое'
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
-    if is_container_linked:
+    if requires_description:
+        comment_prompt = (
+            "📝 *Описание обязательно!*\n\n"
+            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            "Введите описание или отправьте фото/документ:"
+        )
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    elif is_container_linked:
         comment_prompt = (
             "📝 *Комментарий обязателен!*\n\n"
             "Распишите какие суммы за что были оплачены.\n"
@@ -2261,10 +2302,18 @@ async def finance_yuan_amount_entered(update: Update, context: ContextTypes.DEFA
     yuan_formatted = format_amount(yuan_amount)
     category_name = fin.get('category_name', '')
     is_container_linked = fin.get('is_container_linked', 0)
+    requires_description = fin.get('requires_description', 0)
     is_other = category_name.lower() == 'другое'
 
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_yuan")]
-    if is_container_linked:
+    if requires_description:
+        comment_prompt = (
+            "📝 *Описание обязательно!*\n\n"
+            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            "Введите описание или отправьте фото/документ:"
+        )
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    elif is_container_linked:
         comment_prompt = (
             "📝 *Комментарий обязателен!*\n\n"
             "Распишите какие суммы за что были оплачены.\n"
@@ -2322,9 +2371,16 @@ async def finance_back_to_yuan(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Пропуск комментария (доступно только если категория НЕ "Другое").
+    Пропуск комментария (доступно только если категория НЕ "Другое" и НЕ requires_description).
     """
     query = update.callback_query
+
+    # Блокируем пропуск для категорий с обязательным описанием
+    fin = context.user_data.get('finance', {})
+    if fin.get('requires_description'):
+        await query.answer("Описание обязательно для данной категории", show_alert=True)
+        return STATE_FIN_DESCRIPTION
+
     await query.answer()
 
     context.user_data['finance']['description'] = ''
@@ -2349,6 +2405,9 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
     if fin.get('yuan_amount'):
         yuan_line = f"Юани: *{escape_md(format_amount(fin['yuan_amount']))} ¥*\n"
 
+    files_count = len(fin.get('files', []))
+    files_line = f"📎 Файлов: {files_count}\n" if files_count else ''
+
     await query.edit_message_text(
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
@@ -2356,6 +2415,7 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
         f"{yuan_line}"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
+        f"{files_line}"
         "Всё верно?",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2372,6 +2432,12 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     fin = context.user_data['finance']
     is_other = (fin.get('category_name') or '').lower() == 'другое'
     is_container_linked = fin.get('is_container_linked', 0)
+    requires_description = fin.get('requires_description', 0)
+
+    # Валидация обязательного описания
+    if requires_description and not description:
+        await update.message.reply_text("❌ Описание обязательно для этой категории.")
+        return STATE_FIN_DESCRIPTION
 
     if is_other and not description:
         await update.message.reply_text(
@@ -2413,6 +2479,9 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     if description:
         comment_line = f"Комментарий: {escape_md(description)}\n"
 
+    files_count = len(fin.get('files', []))
+    files_line = f"📎 Файлов: {files_count}\n" if files_count else ''
+
     await update.message.reply_text(
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
@@ -2420,7 +2489,8 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         f"{yuan_line}"
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
-        f"{comment_line}\n"
+        f"{comment_line}"
+        f"{files_line}\n"
         "Всё верно?",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2545,9 +2615,10 @@ async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT
         cat_name = cat['name'][:25]
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
+        desc_req = cat.get('requires_description', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2585,12 +2656,20 @@ async def finance_back_to_description(update: Update, context: ContextTypes.DEFA
     # Определяем, обязателен ли комментарий
     is_other = (fin.get('category_name') or '').lower() == 'другое'
     is_container_linked = fin.get('is_container_linked', 0)
+    requires_description = fin.get('requires_description', 0)
     requires_yuan = fin.get('requires_yuan', 0)
     # Кнопка «Назад» ведёт на шаг юаней или категории
     back_callback = "fin_back_yuan" if requires_yuan else "fin_back_category"
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)]
 
-    if is_container_linked:
+    if requires_description:
+        comment_prompt = (
+            "📝 *Описание обязательно!*\n\n"
+            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            "Введите описание или отправьте фото/документ:"
+        )
+        reply_markup = InlineKeyboardMarkup([back_btn])
+    elif is_container_linked:
         comment_prompt = (
             "📝 *Комментарий обязателен!*\n\n"
             "Распишите какие суммы за что были оплачены.\n"
@@ -2650,7 +2729,13 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         record_data['category_id'] = fin['category_id']
     if fin.get('yuan_amount'):
         record_data['yuan_amount'] = fin['yuan_amount']
-    result = create_finance_record(record_data)
+
+    # Если есть файлы — отправляем через multipart, иначе обычный JSON
+    files = fin.get('files', [])
+    if files:
+        result = create_finance_record_with_files(record_data, files)
+    else:
+        result = create_finance_record(record_data)
 
     if result.get('success'):
         type_emoji = "📉" if fin['record_type'] == 'expense' else "📈"
@@ -2661,9 +2746,11 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         yuan_line = ""
         if fin.get('yuan_amount'):
             yuan_line = f"\n💴 {escape_markdown(format_amount(fin['yuan_amount']))} ¥"
+        files_count = len(files)
+        files_line = f"\n📎 Файлов: {files_count}" if files_count else ""
         await query.edit_message_text(
             f"✅ *Запись сохранена\\!*\n\n"
-            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}{cat_line}{yuan_line}\n"
+            f"{type_emoji} {escape_markdown(formatted)} ₽ — {escape_markdown(fin['account_name'])}{cat_line}{yuan_line}{escape_markdown(files_line)}\n"
             f"📝 {escape_markdown(fin['description'])}",
             parse_mode='MarkdownV2'
         )
@@ -2678,6 +2765,93 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup=get_main_menu()
     )
     return ConversationHandler.END
+
+
+async def finance_file_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработчик файлов/фото на шаге описания финансовой записи.
+    Принимает фото или документ, сохраняет в контекст, при наличии caption использует как описание.
+    Если описание обязательно и не заполнено — просит ввести текстом.
+    """
+    message = update.message
+    fin = context.user_data.get('finance', {})
+
+    caption = message.caption or ''
+
+    try:
+        if message.photo:
+            file_obj = await message.photo[-1].get_file()
+            filename = f"photo_{message.photo[-1].file_unique_id}.jpg"
+        elif message.document:
+            file_obj = await message.document.get_file()
+            filename = message.document.file_name or f"file_{message.document.file_unique_id}"
+        else:
+            await message.reply_text("❌ Неподдерживаемый тип файла.")
+            return STATE_FIN_DESCRIPTION
+
+        file_bytes = await file_obj.download_as_bytearray()
+
+        if 'files' not in fin:
+            fin['files'] = []
+        fin['files'].append({
+            'data': bytes(file_bytes),
+            'filename': filename
+        })
+
+        if caption:
+            fin['description'] = caption
+
+        context.user_data['finance'] = fin
+
+        requires_description = fin.get('requires_description', 0)
+        is_other = (fin.get('category_name') or '').lower() == 'другое'
+        is_container_linked = fin.get('is_container_linked', 0)
+
+        if (requires_description or is_other or is_container_linked) and not fin.get('description'):
+            await message.reply_text("✅ Файл принят! Но описание обязательно.\nВведите описание текстом:")
+            return STATE_FIN_DESCRIPTION
+
+        # Формируем сообщение подтверждения (аналогично finance_description_entered)
+        description = fin.get('description', '')
+        record_type = fin.get('record_type', '')
+        amount = fin.get('amount', 0)
+        account_name = fin.get('account_name', '')
+        category_name = fin.get('category_name', '')
+
+        type_emoji = '📈' if record_type == 'income' else '📉'
+        type_label = 'Доход' if record_type == 'income' else 'Расход'
+
+        yuan_line = ''
+        yuan_amount = fin.get('yuan_amount')
+        if yuan_amount:
+            yuan_line = f"\n💴 Юани: {format_amount(yuan_amount)} ¥"
+
+        files_count = len(fin.get('files', []))
+        files_line = f"\n📎 Файлов: {files_count}" if files_count else ''
+
+        formatted = format_amount(amount)
+        confirm_text = (
+            f"📋 *Проверьте данные:*\n\n"
+            f"{type_emoji} Тип: {escape_md(type_label)}\n"
+            f"💰 Сумма: {escape_md(formatted)} ₽\n"
+            f"🏦 Счёт: {escape_md(account_name)}\n"
+            f"📂 Категория: {escape_md(category_name)}\n"
+            f"📝 Описание: {escape_md(description) if description else '—'}"
+            f"{yuan_line}{files_line}\n\n"
+            f"Всё верно?"
+        )
+
+        keyboard = [
+            [InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes")],
+            [InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")]
+        ]
+
+        await message.reply_text(confirm_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        return STATE_FIN_CONFIRM
+    except Exception as e:
+        logger.error(f"Ошибка обработки файла: {e}")
+        await message.reply_text(f"❌ Ошибка обработки файла: {e}")
+        return STATE_FIN_DESCRIPTION
 
 
 async def finance_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -2862,6 +3036,7 @@ def main():
                 CallbackQueryHandler(finance_back_to_category, pattern=r'^fin_back_category$'),
                 CallbackQueryHandler(finance_back_to_yuan, pattern=r'^fin_back_yuan$'),
                 CallbackQueryHandler(finance_skip_comment, pattern=r'^fin_skip_comment$'),
+                MessageHandler(filters.PHOTO | filters.Document.ALL, finance_file_entered),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
             ],
             STATE_FIN_CONFIRM: [
