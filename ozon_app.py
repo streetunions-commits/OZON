@@ -1060,6 +1060,32 @@ def init_database():
         print("✅ Добавлена колонка is_container_linked в finance_categories")
 
     # ============================================================================
+    # ТАБЛИЦА: ПЛАН ЗАКУПОК (plan_items)
+    # ============================================================================
+    # Хранит плановые данные по закупкам товаров: даты, количества, цены в юанях,
+    # суммы оплат по инвойсам и дельта-инвойсам.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS plan_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_name TEXT NOT NULL,
+            planned_release_date TEXT,
+            estimated_arrival_date TEXT,
+            planned_qty INTEGER DEFAULT 0,
+            price_yuan_invoice REAL DEFAULT 0,
+            price_yuan_delta_invoice REAL DEFAULT 0,
+            total_yuan REAL DEFAULT 0,
+            qty_in_transit INTEGER DEFAULT 0,
+            qty_arrived INTEGER DEFAULT 0,
+            paid_invoice_yuan REAL DEFAULT 0,
+            paid_invoice_rub REAL DEFAULT 0,
+            paid_delta_yuan REAL DEFAULT 0,
+            paid_delta_rub REAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
     # Сиротские отгрузки — записи в warehouse_shipments без связанного документа
@@ -7447,6 +7473,351 @@ HTML_TEMPLATE = '''
             background: #f1f3f5;
             color: #333;
         }
+
+        /* ============================================================================
+           ПЛАН ЗАКУПОК — стили таблицы и формы
+           ============================================================================ */
+        .plan-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .plan-header h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+
+        .plan-add-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .plan-add-btn:hover {
+            background: #5a6fd6;
+        }
+
+        .plan-table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        }
+
+        .plan-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 1200px;
+        }
+
+        .plan-table thead th {
+            background: #f8f9fa;
+            padding: 10px 12px;
+            text-align: center;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 2px solid #e9ecef;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .plan-table tbody td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f0f0f0;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .plan-table tbody tr:hover {
+            background: #f8f9ff;
+        }
+
+        .plan-table .product-name-cell {
+            text-align: left;
+            font-weight: 500;
+            color: #333;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .plan-table .number-cell {
+            font-variant-numeric: tabular-nums;
+            color: #444;
+        }
+
+        .plan-table .yuan-cell {
+            color: #e67e22;
+            font-weight: 500;
+        }
+
+        .plan-table .rub-cell {
+            color: #27ae60;
+            font-weight: 500;
+        }
+
+        .plan-table .actions-cell {
+            white-space: nowrap;
+        }
+
+        .plan-table .actions-cell button {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin: 0 2px;
+            transition: background 0.2s;
+        }
+
+        .plan-edit-btn {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .plan-edit-btn:hover {
+            background: #bbdefb;
+        }
+
+        .plan-delete-btn {
+            background: #fce4ec;
+            color: #c62828;
+        }
+
+        .plan-delete-btn:hover {
+            background: #ffcdd2;
+        }
+
+        .plan-empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+            font-size: 15px;
+        }
+
+        .plan-empty p:first-child {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        /* Сводка по плану */
+        .plan-summary {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .plan-summary-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            flex: 1;
+            min-width: 160px;
+        }
+
+        .plan-summary-card .label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .plan-summary-card .value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .plan-summary-card.total-yuan .value {
+            color: #e67e22;
+        }
+
+        .plan-summary-card.total-paid .value {
+            color: #27ae60;
+        }
+
+        .plan-summary-card.total-items .value {
+            color: #667eea;
+        }
+
+        /* Модальное окно добавления/редактирования записи плана */
+        .plan-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px 16px;
+            overflow-y: auto;
+        }
+
+        .plan-modal-overlay.active {
+            display: flex;
+        }
+
+        .plan-modal {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 700px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+
+        .plan-modal h3 {
+            margin: 0 0 24px 0;
+            font-size: 20px;
+            color: #333;
+        }
+
+        .plan-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .plan-form-grid .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .plan-form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .plan-form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .plan-form-group input {
+            padding: 10px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .plan-form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .plan-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .plan-modal-actions button {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .plan-save-btn {
+            background: #667eea;
+            color: white;
+        }
+
+        .plan-save-btn:hover {
+            background: #5a6fd6;
+        }
+
+        .plan-cancel-btn {
+            background: #f1f3f5;
+            color: #333;
+        }
+
+        .plan-cancel-btn:hover {
+            background: #e9ecef;
+        }
+
+        /* Итоговая строка таблицы */
+        .plan-table tfoot td {
+            padding: 12px;
+            font-weight: 700;
+            background: #f8f9fa;
+            border-top: 2px solid #e9ecef;
+            font-size: 13px;
+        }
+
+        /* Мобильная адаптация плана */
+        @media (max-width: 768px) {
+            .plan-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .plan-add-btn {
+                width: 100%;
+                text-align: center;
+            }
+
+            .plan-summary {
+                flex-direction: column;
+            }
+
+            .plan-summary-card {
+                min-width: unset;
+            }
+
+            .plan-table-wrapper {
+                margin: 0 -12px;
+                border-radius: 0;
+            }
+
+            .plan-modal {
+                padding: 20px 16px;
+                border-radius: 12px;
+            }
+
+            .plan-modal-overlay {
+                padding: 20px 8px;
+            }
+
+            .plan-form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .plan-modal h3 {
+                font-size: 18px;
+            }
+
+            .plan-modal-actions {
+                flex-direction: column;
+            }
+
+            .plan-modal-actions button {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -7588,6 +7959,7 @@ HTML_TEMPLATE = '''
         <div class="table-container">
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab(event, 'history')">OZON</button>
+                <button class="tab-button" onclick="switchTab(event, 'plan')">ПЛАН</button>
                 <button class="tab-button" onclick="switchTab(event, 'warehouse')" id="warehouse-tab-btn">СКЛАД</button>
                 <button class="tab-button" onclick="switchTab(event, 'ved')">ВЭД</button>
                 <button class="tab-button" onclick="switchTab(event, 'finance')">ФИНАНСЫ</button>
@@ -8551,6 +8923,145 @@ HTML_TEMPLATE = '''
 
             </div>
 
+            <!-- ТАБ: ПЛАН ЗАКУПОК -->
+            <div id="plan" class="tab-content">
+                <!-- Сводка по плану -->
+                <div class="plan-summary">
+                    <div class="plan-summary-card total-items">
+                        <div class="label">Всего позиций</div>
+                        <div class="value" id="plan-total-items">0</div>
+                    </div>
+                    <div class="plan-summary-card total-yuan">
+                        <div class="label">Общая сумма (юань)</div>
+                        <div class="value" id="plan-total-yuan">0 ¥</div>
+                    </div>
+                    <div class="plan-summary-card total-paid">
+                        <div class="label">Оплачено (юань)</div>
+                        <div class="value" id="plan-total-paid">0 ¥</div>
+                    </div>
+                </div>
+
+                <!-- Кнопка добавления -->
+                <div class="plan-header">
+                    <h3>План закупок</h3>
+                    <button class="plan-add-btn admin-only" onclick="openPlanModal()">+ Добавить позицию</button>
+                </div>
+
+                <!-- Таблица -->
+                <div class="plan-table-wrapper" id="plan-table-wrapper" style="display: none;">
+                    <table class="plan-table" id="plan-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;">№</th>
+                                <th style="min-width: 160px; text-align: left;">Товар</th>
+                                <th>Дата выхода план</th>
+                                <th>Примерный приход</th>
+                                <th>Кол-во план</th>
+                                <th>Цена ¥ инвойс</th>
+                                <th>Цена ¥ дельта</th>
+                                <th>Общая сумма ¥</th>
+                                <th>В пути</th>
+                                <th>Пришло</th>
+                                <th>Оплач. инвойс ¥</th>
+                                <th>Оплач. инвойс ₽</th>
+                                <th>Оплач. дельта ¥</th>
+                                <th>Оплач. дельта ₽</th>
+                                <th style="width: 80px;" class="admin-only"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="plan-tbody"></tbody>
+                        <tfoot id="plan-tfoot" style="display: none;">
+                            <tr>
+                                <td></td>
+                                <td style="text-align: left; font-weight: 700;">ИТОГО</td>
+                                <td></td>
+                                <td></td>
+                                <td id="plan-foot-qty">0</td>
+                                <td></td>
+                                <td></td>
+                                <td id="plan-foot-total-yuan" class="yuan-cell">0</td>
+                                <td id="plan-foot-in-transit">0</td>
+                                <td id="plan-foot-arrived">0</td>
+                                <td id="plan-foot-paid-inv-yuan" class="yuan-cell">0</td>
+                                <td id="plan-foot-paid-inv-rub" class="rub-cell">0</td>
+                                <td id="plan-foot-paid-delta-yuan" class="yuan-cell">0</td>
+                                <td id="plan-foot-paid-delta-rub" class="rub-cell">0</td>
+                                <td class="admin-only"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Пустое состояние -->
+                <div class="plan-empty" id="plan-empty">
+                    <p>📋</p>
+                    <p>Нет записей в плане закупок</p>
+                    <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Добавьте первую позицию кнопкой выше</p>
+                </div>
+            </div>
+
+            <!-- Модальное окно добавления/редактирования записи плана -->
+            <div class="plan-modal-overlay" id="plan-modal-overlay" onclick="if(event.target===this)closePlanModal()">
+                <div class="plan-modal">
+                    <h3 id="plan-modal-title">Добавить позицию</h3>
+                    <input type="hidden" id="plan-edit-id" value="">
+                    <div class="plan-form-grid">
+                        <div class="plan-form-group full-width">
+                            <label>Товар</label>
+                            <input type="text" id="plan-product-name" placeholder="Название товара">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Дата выхода план</label>
+                            <input type="date" id="plan-release-date" onclick="this.showPicker()">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Примерный приход дата</label>
+                            <input type="date" id="plan-arrival-date" onclick="this.showPicker()">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Кол-во план</label>
+                            <input type="number" id="plan-qty" placeholder="0" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Цена юань инвойс</label>
+                            <input type="number" id="plan-price-invoice" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Цена юань дельта-инвойс</label>
+                            <input type="number" id="plan-price-delta" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Кол-во в пути</label>
+                            <input type="number" id="plan-in-transit" placeholder="0" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Кол-во пришло</label>
+                            <input type="number" id="plan-arrived" placeholder="0" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Оплачено инвойс юань</label>
+                            <input type="number" id="plan-paid-inv-yuan" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Оплачено инвойс рубли</label>
+                            <input type="number" id="plan-paid-inv-rub" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Оплачено дельта юань</label>
+                            <input type="number" id="plan-paid-delta-yuan" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                        <div class="plan-form-group">
+                            <label>Оплачено дельта рубли</label>
+                            <input type="number" id="plan-paid-delta-rub" placeholder="0.00" step="0.01" min="0">
+                        </div>
+                    </div>
+                    <div class="plan-modal-actions">
+                        <button class="plan-cancel-btn" onclick="closePlanModal()">Отмена</button>
+                        <button class="plan-save-btn" onclick="savePlanItem()">Сохранить</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- ТАБ: Сообщения (чат с Telegram) -->
             <div id="messages" class="tab-content">
                 <div class="messages-tab">
@@ -8828,7 +9339,7 @@ HTML_TEMPLATE = '''
                 location.hash = hashValue;
             }
             const [savedTab, savedSubtab, savedDocId] = hashValue.split(':');
-            const validTabs = ['history', 'warehouse', 'ved', 'finance', 'users'];
+            const validTabs = ['history', 'warehouse', 'ved', 'finance', 'plan', 'messages', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
             const validVedSubtabs = ['ved-containers', 'ved-receipts', 'ved-supplies'];
             const validFinanceSubtabs = ['finance-records', 'finance-pendel'];
@@ -8897,6 +9408,10 @@ HTML_TEMPLATE = '''
                             activateFinanceSubtab(savedSubtab);
                         }, 50);
                     }
+                } else if (savedTab === 'plan') {
+                    loadPlanData();
+                } else if (savedTab === 'messages') {
+                    loadAllMessages();
                 } else if (savedTab === 'users') {
                     loadUsers();
                 }
@@ -9003,6 +9518,10 @@ HTML_TEMPLATE = '''
             // Если открыли финансы — загружаем данные
             if (tab === 'finance') {
                 loadFinance();
+            }
+            // Если открыли план - загружаем данные
+            if (tab === 'plan') {
+                loadPlanData();
             }
             // Если открыли сообщения - загружаем список
             if (tab === 'messages') {
@@ -18522,6 +19041,238 @@ HTML_TEMPLATE = '''
             }
         }
 
+        // ====================================================================
+        // ПЛАН ЗАКУПОК — JavaScript функции для CRUD операций
+        // ====================================================================
+
+        /**
+         * Загрузка всех записей плана с сервера.
+         * Рендерит таблицу и обновляет сводку.
+         */
+        async function loadPlanData() {
+            try {
+                const resp = await fetch('/api/plan/items');
+                const data = await resp.json();
+                if (!data.success) return;
+
+                const items = data.items || [];
+                const tbody = document.getElementById('plan-tbody');
+                const wrapper = document.getElementById('plan-table-wrapper');
+                const empty = document.getElementById('plan-empty');
+                const tfoot = document.getElementById('plan-tfoot');
+
+                if (items.length === 0) {
+                    wrapper.style.display = 'none';
+                    empty.style.display = 'block';
+                    tfoot.style.display = 'none';
+                } else {
+                    wrapper.style.display = 'block';
+                    empty.style.display = 'none';
+                    tfoot.style.display = 'table-footer-group';
+                }
+
+                // Считаем итоги
+                let sumQty = 0, sumTotalYuan = 0, sumInTransit = 0, sumArrived = 0;
+                let sumPaidInvYuan = 0, sumPaidInvRub = 0, sumPaidDeltaYuan = 0, sumPaidDeltaRub = 0;
+
+                tbody.innerHTML = items.map((item, idx) => {
+                    // Автоматический расчёт общей суммы юань
+                    const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
+
+                    sumQty += item.planned_qty || 0;
+                    sumTotalYuan += totalYuan;
+                    sumInTransit += item.qty_in_transit || 0;
+                    sumArrived += item.qty_arrived || 0;
+                    sumPaidInvYuan += item.paid_invoice_yuan || 0;
+                    sumPaidInvRub += item.paid_invoice_rub || 0;
+                    sumPaidDeltaYuan += item.paid_delta_yuan || 0;
+                    sumPaidDeltaRub += item.paid_delta_rub || 0;
+
+                    return '<tr>' +
+                        '<td>' + (idx + 1) + '</td>' +
+                        '<td class="product-name-cell" title="' + escapeHtml(item.product_name) + '">' + escapeHtml(item.product_name) + '</td>' +
+                        '<td>' + formatPlanDate(item.planned_release_date) + '</td>' +
+                        '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>' +
+                        '<td class="number-cell">' + fmtNum(item.planned_qty) + '</td>' +
+                        '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + '</td>' +
+                        '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + '</td>' +
+                        '<td class="yuan-cell" style="font-weight:700;">' + fmtMoney(totalYuan) + '</td>' +
+                        '<td class="number-cell">' + fmtNum(item.qty_in_transit) + '</td>' +
+                        '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>' +
+                        '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + '</td>' +
+                        '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + '</td>' +
+                        '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + '</td>' +
+                        '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + '</td>' +
+                        '<td class="actions-cell admin-only">' +
+                            '<button class="plan-edit-btn" onclick="editPlanItem(' + item.id + ')">✏️</button>' +
+                            '<button class="plan-delete-btn" onclick="deletePlanItem(' + item.id + ')">🗑</button>' +
+                        '</td>' +
+                    '</tr>';
+                }).join('');
+
+                // Обновляем итоговую строку
+                document.getElementById('plan-foot-qty').textContent = fmtNum(sumQty);
+                document.getElementById('plan-foot-total-yuan').textContent = fmtMoney(sumTotalYuan);
+                document.getElementById('plan-foot-in-transit').textContent = fmtNum(sumInTransit);
+                document.getElementById('plan-foot-arrived').textContent = fmtNum(sumArrived);
+                document.getElementById('plan-foot-paid-inv-yuan').textContent = fmtMoney(sumPaidInvYuan);
+                document.getElementById('plan-foot-paid-inv-rub').textContent = fmtMoney(sumPaidInvRub);
+                document.getElementById('plan-foot-paid-delta-yuan').textContent = fmtMoney(sumPaidDeltaYuan);
+                document.getElementById('plan-foot-paid-delta-rub').textContent = fmtMoney(sumPaidDeltaRub);
+
+                // Обновляем сводку
+                document.getElementById('plan-total-items').textContent = items.length;
+                document.getElementById('plan-total-yuan').textContent = fmtMoney(sumTotalYuan) + ' ¥';
+                document.getElementById('plan-total-paid').textContent = fmtMoney(sumPaidInvYuan + sumPaidDeltaYuan) + ' ¥';
+
+            } catch (err) {
+                console.error('Ошибка загрузки плана:', err);
+            }
+        }
+
+        /** Форматирование даты для таблицы плана (YYYY-MM-DD → DD.MM.YYYY) */
+        function formatPlanDate(dateStr) {
+            if (!dateStr) return '—';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) return parts[2] + '.' + parts[1] + '.' + parts[0];
+            return dateStr;
+        }
+
+        /** Форматирование числа (без дробной части для целых) */
+        function fmtNum(val) {
+            if (!val && val !== 0) return '0';
+            return Number(val).toLocaleString('ru-RU');
+        }
+
+        /** Форматирование денег (2 знака после запятой) */
+        function fmtMoney(val) {
+            if (!val && val !== 0) return '0';
+            return Number(val).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        }
+
+        /** Экранирование HTML для защиты от XSS */
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        /** Открыть модальное окно для новой записи */
+        function openPlanModal() {
+            document.getElementById('plan-modal-title').textContent = 'Добавить позицию';
+            document.getElementById('plan-edit-id').value = '';
+            // Очищаем все поля
+            ['plan-product-name', 'plan-release-date', 'plan-arrival-date', 'plan-qty',
+             'plan-price-invoice', 'plan-price-delta', 'plan-in-transit', 'plan-arrived',
+             'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
+            ].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('plan-modal-overlay').classList.add('active');
+        }
+
+        /** Закрыть модальное окно */
+        function closePlanModal() {
+            document.getElementById('plan-modal-overlay').classList.remove('active');
+        }
+
+        /** Загрузить данные записи в форму для редактирования */
+        async function editPlanItem(id) {
+            try {
+                const resp = await fetch('/api/plan/items');
+                const data = await resp.json();
+                if (!data.success) return;
+
+                const item = data.items.find(i => i.id === id);
+                if (!item) return;
+
+                document.getElementById('plan-modal-title').textContent = 'Редактировать позицию';
+                document.getElementById('plan-edit-id').value = id;
+                document.getElementById('plan-product-name').value = item.product_name || '';
+                document.getElementById('plan-release-date').value = item.planned_release_date || '';
+                document.getElementById('plan-arrival-date').value = item.estimated_arrival_date || '';
+                document.getElementById('plan-qty').value = item.planned_qty || '';
+                document.getElementById('plan-price-invoice').value = item.price_yuan_invoice || '';
+                document.getElementById('plan-price-delta').value = item.price_yuan_delta_invoice || '';
+                document.getElementById('plan-in-transit').value = item.qty_in_transit || '';
+                document.getElementById('plan-arrived').value = item.qty_arrived || '';
+                document.getElementById('plan-paid-inv-yuan').value = item.paid_invoice_yuan || '';
+                document.getElementById('plan-paid-inv-rub').value = item.paid_invoice_rub || '';
+                document.getElementById('plan-paid-delta-yuan').value = item.paid_delta_yuan || '';
+                document.getElementById('plan-paid-delta-rub').value = item.paid_delta_rub || '';
+
+                document.getElementById('plan-modal-overlay').classList.add('active');
+            } catch (err) {
+                console.error('Ошибка загрузки записи плана:', err);
+            }
+        }
+
+        /** Сохранить запись плана (создать или обновить) */
+        async function savePlanItem() {
+            const productName = document.getElementById('plan-product-name').value.trim();
+            if (!productName) {
+                alert('Укажите название товара');
+                return;
+            }
+
+            const editId = document.getElementById('plan-edit-id').value;
+            const payload = {
+                product_name: productName,
+                planned_release_date: document.getElementById('plan-release-date').value || null,
+                estimated_arrival_date: document.getElementById('plan-arrival-date').value || null,
+                planned_qty: parseInt(document.getElementById('plan-qty').value) || 0,
+                price_yuan_invoice: parseFloat(document.getElementById('plan-price-invoice').value) || 0,
+                price_yuan_delta_invoice: parseFloat(document.getElementById('plan-price-delta').value) || 0,
+                qty_in_transit: parseInt(document.getElementById('plan-in-transit').value) || 0,
+                qty_arrived: parseInt(document.getElementById('plan-arrived').value) || 0,
+                paid_invoice_yuan: parseFloat(document.getElementById('plan-paid-inv-yuan').value) || 0,
+                paid_invoice_rub: parseFloat(document.getElementById('plan-paid-inv-rub').value) || 0,
+                paid_delta_yuan: parseFloat(document.getElementById('plan-paid-delta-yuan').value) || 0,
+                paid_delta_rub: parseFloat(document.getElementById('plan-paid-delta-rub').value) || 0
+            };
+
+            // Автоматический расчёт общей суммы юань
+            payload.total_yuan = payload.planned_qty * (payload.price_yuan_invoice + payload.price_yuan_delta_invoice);
+
+            const url = editId ? '/api/plan/items/update' : '/api/plan/items/add';
+            if (editId) payload.id = parseInt(editId);
+
+            try {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    closePlanModal();
+                    loadPlanData();
+                } else {
+                    alert(data.error || 'Ошибка сохранения');
+                }
+            } catch (err) {
+                console.error('Ошибка сохранения записи плана:', err);
+                alert('Ошибка сети');
+            }
+        }
+
+        /** Удалить запись плана */
+        async function deletePlanItem(id) {
+            if (!confirm('Удалить эту позицию из плана?')) return;
+            try {
+                const resp = await fetch('/api/plan/items/delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({id: id})
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    loadPlanData();
+                } else {
+                    alert(data.error || 'Ошибка удаления');
+                }
+            } catch (err) {
+                console.error('Ошибка удаления записи плана:', err);
+            }
+        }
+
     </script>
 </body>
 </html>
@@ -25382,6 +26133,172 @@ def api_telegram_finance_add():
         conn.close()
 
         return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
+# ПЛАН ЗАКУПОК — API эндпоинты
+# ============================================================================
+
+@app.route('/api/plan/items')
+@require_auth(['admin', 'viewer'])
+def get_plan_items():
+    """
+    Получить все записи плана закупок.
+    Возвращает список всех позиций, отсортированных по дате создания (новые первые).
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT * FROM plan_items
+            ORDER BY created_at DESC
+        ''')
+        items = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'items': items})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'items': []})
+
+
+@app.route('/api/plan/items/add', methods=['POST'])
+@require_auth(['admin'])
+def add_plan_item():
+    """
+    Добавить новую позицию в план закупок.
+    Принимает JSON с полями: product_name, planned_release_date, estimated_arrival_date,
+    planned_qty, price_yuan_invoice, price_yuan_delta_invoice, total_yuan,
+    qty_in_transit, qty_arrived, paid_invoice_yuan, paid_invoice_rub,
+    paid_delta_yuan, paid_delta_rub.
+    """
+    try:
+        data = request.get_json()
+        product_name = data.get('product_name', '').strip()
+        if not product_name:
+            return jsonify({'success': False, 'error': 'Название товара обязательно'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            INSERT INTO plan_items (
+                product_name, planned_release_date, estimated_arrival_date,
+                planned_qty, price_yuan_invoice, price_yuan_delta_invoice, total_yuan,
+                qty_in_transit, qty_arrived,
+                paid_invoice_yuan, paid_invoice_rub,
+                paid_delta_yuan, paid_delta_rub
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            product_name,
+            data.get('planned_release_date'),
+            data.get('estimated_arrival_date'),
+            data.get('planned_qty', 0),
+            data.get('price_yuan_invoice', 0),
+            data.get('price_yuan_delta_invoice', 0),
+            data.get('total_yuan', 0),
+            data.get('qty_in_transit', 0),
+            data.get('qty_arrived', 0),
+            data.get('paid_invoice_yuan', 0),
+            data.get('paid_invoice_rub', 0),
+            data.get('paid_delta_yuan', 0),
+            data.get('paid_delta_rub', 0)
+        ))
+
+        new_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/plan/items/update', methods=['POST'])
+@require_auth(['admin'])
+def update_plan_item():
+    """
+    Обновить существующую позицию плана закупок.
+    Принимает JSON с полем id и обновляемыми полями.
+    """
+    try:
+        data = request.get_json()
+        item_id = data.get('id')
+        if not item_id:
+            return jsonify({'success': False, 'error': 'ID позиции обязателен'})
+
+        product_name = data.get('product_name', '').strip()
+        if not product_name:
+            return jsonify({'success': False, 'error': 'Название товара обязательно'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE plan_items SET
+                product_name = ?,
+                planned_release_date = ?,
+                estimated_arrival_date = ?,
+                planned_qty = ?,
+                price_yuan_invoice = ?,
+                price_yuan_delta_invoice = ?,
+                total_yuan = ?,
+                qty_in_transit = ?,
+                qty_arrived = ?,
+                paid_invoice_yuan = ?,
+                paid_invoice_rub = ?,
+                paid_delta_yuan = ?,
+                paid_delta_rub = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            product_name,
+            data.get('planned_release_date'),
+            data.get('estimated_arrival_date'),
+            data.get('planned_qty', 0),
+            data.get('price_yuan_invoice', 0),
+            data.get('price_yuan_delta_invoice', 0),
+            data.get('total_yuan', 0),
+            data.get('qty_in_transit', 0),
+            data.get('qty_arrived', 0),
+            data.get('paid_invoice_yuan', 0),
+            data.get('paid_invoice_rub', 0),
+            data.get('paid_delta_yuan', 0),
+            data.get('paid_delta_rub', 0),
+            item_id
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/plan/items/delete', methods=['POST'])
+@require_auth(['admin'])
+def delete_plan_item():
+    """
+    Удалить позицию из плана закупок по ID.
+    Принимает JSON с полем id.
+    """
+    try:
+        data = request.get_json()
+        item_id = data.get('id')
+        if not item_id:
+            return jsonify({'success': False, 'error': 'ID позиции обязателен'})
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM plan_items WHERE id = ?', (item_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
