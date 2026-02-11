@@ -19907,10 +19907,10 @@ HTML_TEMPLATE = '''
                     html += '<div class="plan-group-body">';
                     html += '<div class="plan-group-table-wrap">';
                     html += '<table class="plan-group-table"><thead><tr>';
-                    html += '<th>#</th><th>Дата выхода</th><th>Прим. приход</th><th>Кол-во</th>';
-                    html += '<th>Цена инв &yen;</th><th>Цена &#916; &yen;</th><th>Сумма &yen;</th>';
-                    html += '<th>В пути</th><th>Пришло</th>';
-                    html += '<th>Опл.инв &yen;</th><th>Опл.инв &#8381;</th><th>Опл.&#916; &yen;</th><th>Опл.&#916; &#8381;</th>';
+                    html += '<th>#</th><th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
+                    html += '<th>Цена юань<br>инвойс</th><th>Цена юань<br>дельта-инвойс</th><th>Общая<br>сумма юань</th>';
+                    html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
+                    html += '<th>Оплачено<br>инвойс юань</th><th>Оплачено<br>инвойс рубли</th><th>Оплачено<br>дельта юань</th><th>Оплачено<br>дельта рубли</th>';
                     html += '<th class="admin-only"></th>';
                     html += '</tr></thead><tbody>';
 
