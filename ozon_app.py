@@ -6064,6 +6064,147 @@ HTML_TEMPLATE = '''
         .pendel-accordion-loading { text-align: center; padding: 20px; color: #888; font-size: 13px; }
         .pendel-empty { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
 
+        /* ============================================================================
+           СТИЛИ ПОДВКЛАДКИ «РЕАЛИЗАЦИЯ» (Ozon Finance API)
+           ============================================================================ */
+        /* --- Фильтры --- */
+        .real-filters {
+            display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+            background: #f8f9fa; border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap;
+        }
+        .real-filter-group { display: flex; align-items: center; gap: 8px; }
+        .real-filter-label { font-size: 13px; font-weight: 500; color: #555; white-space: nowrap; }
+        .real-month-select {
+            padding: 8px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+            background: #fff; cursor: pointer; min-width: 180px;
+        }
+        .real-load-btn {
+            padding: 10px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+        }
+        .real-load-btn:hover { background: #5a6fd6; }
+        .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
+        .real-period-info { font-size: 13px; color: #888; margin-left: 8px; }
+
+        /* --- Сводные карточки --- */
+        .real-summary {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+        }
+        .real-card {
+            padding: 16px 18px; border-radius: 12px; background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #ddd;
+        }
+        .real-card-label { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .real-card-value { font-size: 20px; font-weight: 700; }
+        .real-card-sales { border-left-color: #38a169; }
+        .real-card-sales .real-card-value { color: #38a169; }
+        .real-card-returns { border-left-color: #e53e3e; }
+        .real-card-returns .real-card-value { color: #e53e3e; }
+        .real-card-net { border-left-color: #3182ce; }
+        .real-card-net .real-card-value { color: #3182ce; }
+        .real-card-commission { border-left-color: #d69e2e; }
+        .real-card-commission .real-card-value { color: #d69e2e; }
+        .real-card-logistics { border-left-color: #805ad5; }
+        .real-card-logistics .real-card-value { color: #805ad5; }
+        .real-card-services { border-left-color: #718096; }
+        .real-card-services .real-card-value { color: #718096; }
+        .real-card-penalties { border-left-color: #c53030; }
+        .real-card-penalties .real-card-value { color: #c53030; }
+        .real-card-payout { border-left-color: #667eea; background: #f0f4ff; }
+        .real-card-payout .real-card-value { color: #667eea; font-size: 24px; }
+
+        /* --- Статистика --- */
+        .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
+
+        /* --- Заголовки секций --- */
+        .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
+        .real-section-hint { font-size: 12px; color: #999; font-weight: 400; }
+
+        /* --- Таблица типов операций --- */
+        .real-types-table {
+            width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
+            overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .real-types-table thead th {
+            background: #667eea; color: #fff; padding: 12px 16px; font-size: 13px;
+            font-weight: 500; text-align: left;
+        }
+        .real-types-table thead th:nth-child(2),
+        .real-types-table thead th:nth-child(3) { text-align: right; }
+        .real-types-table tbody td {
+            padding: 12px 16px; border-bottom: 1px solid #e9ecef; font-size: 14px;
+        }
+        .real-types-table tbody td:nth-child(2),
+        .real-types-table tbody td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+        .real-types-table tbody tr:hover { background: #f8f9fa; }
+        .real-types-table tbody tr:last-child td { border-bottom: none; }
+        .real-types-total-row td {
+            background: #f0f4ff; padding: 12px 16px; font-size: 14px; border-top: 2px solid #667eea;
+        }
+        .real-types-total-row td:nth-child(2),
+        .real-types-total-row td:nth-child(3) { text-align: right; }
+        .real-amount-positive { color: #38a169; font-weight: 600; }
+        .real-amount-negative { color: #e53e3e; font-weight: 600; }
+
+        /* --- Таблица транзакций --- */
+        .real-trans-table {
+            width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
+            overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); font-size: 13px;
+        }
+        .real-trans-table thead th {
+            background: #f1f3f5; color: #555; padding: 10px 12px; font-weight: 500;
+            font-size: 12px; text-align: left; position: sticky; top: 0;
+        }
+        .real-trans-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+        .real-trans-table tbody tr:hover { background: #f8f9fa; }
+        .real-trans-table tbody tr:last-child td { border-bottom: none; }
+        .real-trans-date { white-space: nowrap; color: #666; }
+        .real-trans-type { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .real-trans-item { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #555; }
+        .real-transactions-wrapper { margin-top: 8px; }
+
+        /* --- Пустое состояние и загрузка --- */
+        .real-empty { text-align: center; padding: 60px 20px; color: #999; font-size: 15px; }
+        .real-loading { text-align: center; padding: 60px 20px; color: #888; }
+        .real-spinner {
+            display: inline-block; width: 36px; height: 36px; border: 3px solid #e9ecef;
+            border-top-color: #667eea; border-radius: 50%; animation: realSpin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes realSpin { to { transform: rotate(360deg); } }
+        .real-error { text-align: center; padding: 40px 20px; color: #e53e3e; font-size: 14px; }
+
+        /* --- Mobile responsive --- */
+        @media (max-width: 1024px) {
+            .real-summary { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 768px) {
+            .real-filters { padding: 12px 14px; gap: 10px; }
+            .real-month-select { min-width: 140px; font-size: 13px; }
+            .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
+            .real-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .real-card { padding: 12px 14px; }
+            .real-card-value { font-size: 17px; }
+            .real-card-payout .real-card-value { font-size: 20px; }
+            .real-types-table thead th,
+            .real-types-table tbody td { padding: 10px 12px; font-size: 13px; }
+            .real-trans-table { font-size: 12px; }
+            .real-trans-table thead th,
+            .real-trans-table tbody td { padding: 8px 10px; }
+            .real-section-title { font-size: 15px; }
+        }
+        @media (max-width: 480px) {
+            .real-summary { grid-template-columns: 1fr; gap: 8px; }
+            .real-card { padding: 10px 12px; }
+            .real-card-label { font-size: 11px; }
+            .real-card-value { font-size: 16px; }
+            .real-card-payout .real-card-value { font-size: 18px; }
+            .real-filters { flex-direction: column; align-items: stretch; }
+            .real-filter-group { width: 100%; }
+            .real-month-select { width: 100%; min-width: 0; }
+            .real-period-info { margin-left: 0; }
+        }
+
         /* ====== Стили для распределения расходов по контейнерам ====== */
         #finance-container-section {
             margin-top: 16px;
@@ -7550,150 +7691,33 @@ HTML_TEMPLATE = '''
             background: #5a6fd6;
         }
 
-        .plan-table-wrapper {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            border-radius: 12px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-        }
-
-        .plan-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            min-width: 1200px;
-        }
-
-        .plan-table thead th {
-            background: #f8f9fa;
-            padding: 10px 12px;
-            text-align: center;
-            font-weight: 600;
-            color: #555;
-            border-bottom: 2px solid #e9ecef;
-            white-space: nowrap;
-            font-size: 12px;
-        }
-
-        .plan-table tbody td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #f0f0f0;
-            text-align: center;
-            vertical-align: middle;
-        }
-
-        .plan-table tbody tr:hover {
-            background: #f0f4ff;
-        }
-
-        .plan-table .product-name-cell {
-            text-align: left;
-            font-weight: 500;
-            color: #333;
-            max-width: 200px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .plan-table .number-cell {
-            font-variant-numeric: tabular-nums;
-            color: #444;
-        }
-
-        .plan-table .yuan-cell {
-            color: #e67e22;
-            font-weight: 500;
-        }
-
-        .plan-table .rub-cell {
-            color: #27ae60;
-            font-weight: 500;
-        }
-
-        .plan-table .actions-cell {
-            white-space: nowrap;
-        }
-
-        .plan-table .actions-cell button {
-            padding: 4px 8px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            margin: 0 2px;
-            transition: background 0.2s;
-        }
-
-        .plan-edit-btn {
-            background: #e3f2fd;
-            color: #1976d2;
-        }
-
-        .plan-edit-btn:hover {
-            background: #bbdefb;
-        }
-
-        .plan-delete-btn {
-            background: #fce4ec;
-            color: #c62828;
-        }
-
-        .plan-delete-btn:hover {
-            background: #ffcdd2;
-        }
-
-        .plan-empty {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
-            font-size: 15px;
-        }
-
-        .plan-empty p:first-child {
-            font-size: 40px;
-            margin-bottom: 12px;
-        }
-
-        /* Сводка по плану */
-        .plan-summary {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-
-        .plan-summary-card {
-            background: white;
-            border-radius: 12px;
-            padding: 16px 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            flex: 1;
-            min-width: 160px;
-        }
-
-        .plan-summary-card .label {
-            font-size: 12px;
-            color: #888;
-            margin-bottom: 4px;
-        }
-
-        .plan-summary-card .value {
-            font-size: 20px;
-            font-weight: 700;
-        }
-
-        .plan-summary-card.total-yuan .value {
-            color: #e67e22;
-        }
-
-        .plan-summary-card.total-paid .value {
-            color: #27ae60;
-        }
-
-        .plan-summary-card.total-items .value {
-            color: #667eea;
-        }
+        .plan-group { background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 12px; overflow: hidden; }
+        .plan-group-header { display: flex; align-items: center; padding: 14px 20px; cursor: pointer; user-select: none; transition: background 0.15s; gap: 16px; flex-wrap: wrap; }
+        .plan-group-header:hover { background: #f0f4ff; }
+        .plan-group-arrow { font-size: 12px; color: #999; transition: transform 0.2s; flex-shrink: 0; }
+        .plan-group.open .plan-group-arrow { transform: rotate(90deg); }
+        .plan-group-name { font-size: 15px; font-weight: 700; color: #333; min-width: 140px; }
+        .plan-group-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #777; }
+        .plan-group-stats span { white-space: nowrap; }
+        .plan-group-stats .yuan { color: #e67e22; font-weight: 600; }
+        .plan-group-stats .rub { color: #27ae60; font-weight: 600; }
+        .plan-group-body { display: none; border-top: 1px solid #eee; }
+        .plan-group.open .plan-group-body { display: block; }
+        .plan-group-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1050px; }
+        .plan-group-table thead th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #555; border-bottom: 2px solid #e9ecef; white-space: nowrap; font-size: 11px; }
+        .plan-group-table tbody td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
+        .plan-group-table tbody tr:hover { background: #f8f9ff; }
+        .plan-group-table .yuan-cell { color: #e67e22; font-weight: 500; }
+        .plan-group-table .rub-cell { color: #27ae60; font-weight: 500; }
+        .plan-group-table .number-cell { font-variant-numeric: tabular-nums; color: #444; }
+        .plan-delete-btn { padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; background: #fce4ec; color: #c62828; transition: background 0.2s; }
+        .plan-delete-btn:hover { background: #ffcdd2; }
+        .plan-add-row-wrap { padding: 10px 20px 14px; }
+        .plan-add-row-btn { padding: 6px 16px; background: #e8eaf6; color: #667eea; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .plan-add-row-btn:hover { background: #c5cae9; }
+        .plan-empty { text-align: center; padding: 60px 20px; color: #999; font-size: 15px; }
+        .plan-empty p:first-child { font-size: 40px; margin-bottom: 12px; }
 
         /* Модальное окно добавления/редактирования записи плана */
         .plan-modal-overlay {
@@ -7822,18 +7846,9 @@ HTML_TEMPLATE = '''
                 text-align: center;
             }
 
-            .plan-summary {
-                flex-direction: column;
-            }
-
-            .plan-summary-card {
-                min-width: unset;
-            }
-
-            .plan-table-wrapper {
-                margin: 0 -12px;
-                border-radius: 0;
-            }
+            .plan-group-header { padding: 12px 14px; gap: 8px; }
+            .plan-group-name { font-size: 14px; min-width: unset; }
+            .plan-group-stats { gap: 8px; font-size: 11px; }
 
             .plan-modal {
                 padding: 20px 16px;
@@ -8719,6 +8734,7 @@ HTML_TEMPLATE = '''
                 <div class="finance-subtabs">
                     <button class="finance-subtab-btn active" onclick="switchFinanceSubtab(event, 'finance-records')">ДДС</button>
                     <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-pendel')">P&amp;L</button>
+                    <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-realization')">Реализация</button>
                 </div>
 
                 <!-- Подвкладка: Записи (существующий контент) -->
@@ -8794,6 +8810,10 @@ HTML_TEMPLATE = '''
                             <input type="checkbox" id="finance-new-category-requires-yuan">
                             Сумма в юанях
                         </label>
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-category-requires-description">
+                            Описание обязат.
+                        </label>
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
@@ -8841,10 +8861,20 @@ HTML_TEMPLATE = '''
                             <input type="number" id="finance-yuan-amount" class="wh-input" placeholder="0" min="0" step="0.01" style="border-color: #f59e0b;">
                         </div>
                         <div class="finance-form-field" style="flex: 1; min-width: 200px;">
-                            <label>Комментарий</label>
+                            <label id="finance-description-label">Комментарий</label>
                             <input type="text" id="finance-description" class="wh-input"
                                    placeholder="Например: Закупка упаковки">
                         </div>
+                        <div class="finance-form-field" style="flex: 0 0 200px;">
+                            <label>Файлы</label>
+                            <input type="file" id="finance-files" class="wh-input" multiple
+                                   accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+                                   style="padding: 6px; font-size: 12px;">
+                        </div>
+                    </div>
+                    <div id="finance-existing-files" style="display: none; margin: 8px 0; padding: 8px 12px; background: #f8f9fa; border-radius: 8px;">
+                        <label style="font-size: 13px; color: #666; margin-bottom: 6px; display: block;">Прикрепленные файлы:</label>
+                        <div id="finance-existing-files-list"></div>
                     </div>
                     <!-- Секция распределения по контейнерам (видна при контейнерных категориях) -->
                     <div id="finance-container-section" style="display: none;">
@@ -8919,6 +8949,7 @@ HTML_TEMPLATE = '''
                                 <th style="width: 140px; text-align: left;">Счёт / Источник</th>
                                 <th style="width: 140px; text-align: left;">Категория</th>
                                 <th style="text-align: left;">Комментарий</th>
+                                <th style="width: 50px;">Файлы</th>
                                 <th style="width: 120px;">Создал</th>
                                 <th style="width: 100px;">Источник</th>
                                 <th style="width: 80px;" class="admin-only"></th>
@@ -8976,6 +9007,125 @@ HTML_TEMPLATE = '''
                     </div>
                 </div><!-- /finance-pendel -->
 
+                <!-- Подвкладка: Реализация — данные из Ozon Finance API -->
+                <div id="finance-realization" class="finance-subtab-content">
+
+                    <!-- Фильтр по месяцу и кнопка загрузки -->
+                    <div class="real-filters">
+                        <div class="real-filter-group">
+                            <label class="real-filter-label">Месяц:</label>
+                            <select id="real-month-select" class="real-month-select"></select>
+                        </div>
+                        <button class="real-load-btn" onclick="loadRealizationData()">
+                            <span id="real-load-btn-text">Загрузить из Ozon</span>
+                        </button>
+                        <div class="real-period-info" id="real-period-info" style="display: none;"></div>
+                    </div>
+
+                    <!-- Сводные карточки -->
+                    <div class="real-summary" id="real-summary" style="display: none;">
+                        <div class="real-card real-card-sales">
+                            <div class="real-card-label">Продажи (gross)</div>
+                            <div class="real-card-value" id="real-gross-sales">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-returns">
+                            <div class="real-card-label">Возвраты</div>
+                            <div class="real-card-value" id="real-returns">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-net">
+                            <div class="real-card-label">Чистые продажи</div>
+                            <div class="real-card-value" id="real-net-sales">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-commission">
+                            <div class="real-card-label">Комиссия</div>
+                            <div class="real-card-value" id="real-commission">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-logistics">
+                            <div class="real-card-label">Логистика</div>
+                            <div class="real-card-value" id="real-logistics">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-services">
+                            <div class="real-card-label">Услуги</div>
+                            <div class="real-card-value" id="real-services">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-penalties">
+                            <div class="real-card-label">Штрафы</div>
+                            <div class="real-card-value" id="real-penalties">0 ₽</div>
+                        </div>
+                        <div class="real-card real-card-payout">
+                            <div class="real-card-label">Итого к выплате</div>
+                            <div class="real-card-value" id="real-payout-total">0 ₽</div>
+                        </div>
+                    </div>
+
+                    <!-- Информация о загрузке -->
+                    <div class="real-stats" id="real-stats" style="display: none;">
+                        <span id="real-total-ops">0</span> операций загружено
+                    </div>
+
+                    <!-- Таблица по типам операций -->
+                    <div class="real-types-wrapper" id="real-types-wrapper" style="display: none;">
+                        <h3 class="real-section-title">По типам операций</h3>
+                        <div style="overflow-x: auto;">
+                            <table class="real-types-table">
+                                <thead>
+                                    <tr>
+                                        <th>Тип операции</th>
+                                        <th>Кол-во</th>
+                                        <th>Сумма, ₽</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="real-types-tbody"></tbody>
+                                <tfoot>
+                                    <tr class="real-types-total-row">
+                                        <td><strong>ИТОГО</strong></td>
+                                        <td id="real-types-total-count"><strong>0</strong></td>
+                                        <td id="real-types-total-sum"><strong>0 ₽</strong></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Детальная таблица транзакций -->
+                    <div class="real-transactions-wrapper" id="real-transactions-wrapper" style="display: none;">
+                        <h3 class="real-section-title">Последние транзакции <span class="real-section-hint">(макс. 200)</span></h3>
+                        <div style="overflow-x: auto;">
+                            <table class="real-trans-table">
+                                <thead>
+                                    <tr>
+                                        <th>Дата</th>
+                                        <th>Тип</th>
+                                        <th>Сумма</th>
+                                        <th>Отправление</th>
+                                        <th>Товар</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="real-trans-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Пустое состояние -->
+                    <div class="real-empty" id="real-empty">
+                        <p>Выберите месяц и нажмите «Загрузить из Ozon»</p>
+                        <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Данные загружаются напрямую из Ozon Finance API (транзакции по выплатам)</p>
+                    </div>
+
+                    <!-- Состояние загрузки -->
+                    <div class="real-loading" id="real-loading" style="display: none;">
+                        <div class="real-spinner"></div>
+                        <p>Загрузка данных из Ozon API...</p>
+                        <p style="font-size: 12px; color: #999;">Это может занять несколько секунд</p>
+                    </div>
+
+                    <!-- Ошибка -->
+                    <div class="real-error" id="real-error" style="display: none;">
+                        <p id="real-error-text">Ошибка загрузки</p>
+                    </div>
+
+                </div><!-- /finance-realization -->
+
             </div>
 
             <!-- ТАБ: ПЛАН ЗАКУПОК -->
@@ -8985,50 +9135,8 @@ HTML_TEMPLATE = '''
                     <button class="plan-add-btn admin-only" onclick="openPlanModal()">+ Добавить позицию</button>
                 </div>
 
-                <!-- Таблица -->
-                <div class="plan-table-wrapper" id="plan-table-wrapper" style="display: none;">
-                    <table class="plan-table" id="plan-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 40px;">№</th>
-                                <th style="min-width: 160px; text-align: left;">Артикул</th>
-                                <th>Дата выхода план</th>
-                                <th>Примерный приход</th>
-                                <th>Кол-во план</th>
-                                <th>Цена ¥ инвойс</th>
-                                <th>Цена ¥ дельта</th>
-                                <th>Общая сумма ¥</th>
-                                <th>В пути</th>
-                                <th>Пришло</th>
-                                <th>Оплач. инвойс ¥</th>
-                                <th>Оплач. инвойс ₽</th>
-                                <th>Оплач. дельта ¥</th>
-                                <th>Оплач. дельта ₽</th>
-                                <th style="width: 50px;" class="admin-only"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="plan-tbody"></tbody>
-                        <tfoot id="plan-tfoot" style="display: none;">
-                            <tr>
-                                <td></td>
-                                <td style="text-align: left; font-weight: 700;">ИТОГО</td>
-                                <td></td>
-                                <td></td>
-                                <td id="plan-foot-qty">0</td>
-                                <td></td>
-                                <td></td>
-                                <td id="plan-foot-total-yuan" class="yuan-cell">0</td>
-                                <td id="plan-foot-in-transit">0</td>
-                                <td id="plan-foot-arrived">0</td>
-                                <td id="plan-foot-paid-inv-yuan" class="yuan-cell">0</td>
-                                <td id="plan-foot-paid-inv-rub" class="rub-cell">0</td>
-                                <td id="plan-foot-paid-delta-yuan" class="yuan-cell">0</td>
-                                <td id="plan-foot-paid-delta-rub" class="rub-cell">0</td>
-                                <td class="admin-only"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
+                <!-- Аккордеон-список групп по артикулу (генерируется JS) -->
+                <div id="plan-groups-container" style="display: none;"></div>
 
                 <!-- Пустое состояние -->
                 <div class="plan-empty" id="plan-empty">
@@ -9382,7 +9490,7 @@ HTML_TEMPLATE = '''
             const validTabs = ['history', 'warehouse', 'ved', 'finance', 'plan', 'messages', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
             const validVedSubtabs = ['ved-containers', 'ved-receipts', 'ved-supplies'];
-            const validFinanceSubtabs = ['finance-records', 'finance-pendel'];
+            const validFinanceSubtabs = ['finance-records', 'finance-pendel', 'finance-realization'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
@@ -11023,6 +11131,7 @@ HTML_TEMPLATE = '''
             resetFinanceContainerSection();
             // Скрываем поле юаней при смене типа
             checkFinanceYuanField();
+            checkFinanceDescriptionField();
         }
 
         /**
@@ -11284,6 +11393,23 @@ HTML_TEMPLATE = '''
                 tdDesc.title = rec.description || '';
                 tr.appendChild(tdDesc);
 
+                // Файлы
+                const tdFiles = document.createElement('td');
+                tdFiles.style.textAlign = 'center';
+                if (rec.file_count > 0) {
+                    const fileLink = document.createElement('a');
+                    fileLink.href = '#';
+                    fileLink.textContent = rec.file_count;
+                    fileLink.title = 'Файлы: ' + rec.file_count;
+                    fileLink.style.cssText = 'color: #3b82f6; text-decoration: none; font-weight: 600;';
+                    fileLink.onclick = (e) => { e.preventDefault(); e.stopPropagation(); toggleFinanceFilesRow(rec.id, tr); };
+                    tdFiles.appendChild(fileLink);
+                } else {
+                    tdFiles.textContent = '';
+                    tdFiles.style.color = '#ccc';
+                }
+                tr.appendChild(tdFiles);
+
                 // Создал
                 const tdCreated = document.createElement('td');
                 tdCreated.textContent = rec.created_by || '—';
@@ -11348,7 +11474,7 @@ HTML_TEMPLATE = '''
                     accordionTr.className = 'finance-dist-accordion';
                     accordionTr.id = `finance-dist-accordion-${rec.id}`;
                     const accordionTd = document.createElement('td');
-                    accordionTd.colSpan = 11;
+                    accordionTd.colSpan = 12;
                     accordionTd.className = 'finance-dist-accordion-cell';
                     const accordionContent = document.createElement('div');
                     accordionContent.className = 'finance-dist-accordion-content';
@@ -11395,6 +11521,7 @@ HTML_TEMPLATE = '''
             // Сбрасываем секцию контейнеров и поле юаней
             resetFinanceContainerSection();
             checkFinanceYuanField();
+            checkFinanceDescriptionField();
 
             if (editId) {
                 // Находим запись для редактирования
@@ -11419,11 +11546,14 @@ HTML_TEMPLATE = '''
                     checkFinanceContainerSection();
                     // Проверяем, нужно ли показать поле юаней
                     checkFinanceYuanField();
+            checkFinanceDescriptionField();
 
                     // Если есть распределения — загружаем их
                     if (rec.has_distributions) {
                         loadFinanceDistributionsForEdit(editId);
                     }
+                    // Загружаем файлы для редактирования
+                    loadFinanceEditFiles(editId);
                 }
                 document.getElementById('finance-save-btn').textContent = 'Обновить';
             } else {
@@ -11442,6 +11572,14 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-form').style.display = 'none';
             document.getElementById('finance-yuan-amount').value = '';
             document.getElementById('finance-yuan-field').style.display = 'none';
+            const fileInput = document.getElementById('finance-files');
+            if (fileInput) fileInput.value = '';
+            const existFiles = document.getElementById('finance-existing-files');
+            if (existFiles) existFiles.style.display = 'none';
+            const descInput = document.getElementById('finance-description');
+            if (descInput) { descInput.style.borderColor = ''; descInput.placeholder = 'Например: Закупка упаковки'; }
+            const descLabel = document.getElementById('finance-description-label');
+            if (descLabel) descLabel.textContent = 'Комментарий';
             currentFinanceEditId = null;
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
@@ -11505,6 +11643,11 @@ HTML_TEMPLATE = '''
                 document.getElementById('finance-description').focus();
                 return;
             }
+            if (selectedCat?.requires_description && !description) {
+                alert('Для данной категории необходимо указать описание (за какие товары и для какого поставщика была оплата с разбивкой на суммы)');
+                document.getElementById('finance-description').focus();
+                return;
+            }
 
             // Валидация суммы в юанях (обязательна для категорий с requires_yuan)
             const yuanAmountStr = document.getElementById('finance-yuan-amount').value;
@@ -11564,11 +11707,33 @@ HTML_TEMPLATE = '''
                     payload.id = currentFinanceEditId;
                 }
 
-                const resp = await authFetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                const fileInput = document.getElementById('finance-files');
+                const files = fileInput ? fileInput.files : [];
+                let resp;
+
+                if (files.length > 0) {
+                    const formData = new FormData();
+                    for (const [key, value] of Object.entries(payload)) {
+                        if (key === 'distributions') {
+                            formData.append(key, JSON.stringify(value));
+                        } else {
+                            formData.append(key, value);
+                        }
+                    }
+                    for (const file of files) {
+                        formData.append('files', file);
+                    }
+                    resp = await authFetch(url, {
+                        method: 'POST',
+                        body: formData
+                    });
+                } else {
+                    resp = await authFetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                }
                 const data = await resp.json();
 
                 if (data.success) {
@@ -11916,6 +12081,7 @@ HTML_TEMPLATE = '''
             checkFinanceContainerSection();
             // Проверяем, нужно ли показать поле суммы в юанях
             checkFinanceYuanField();
+            checkFinanceDescriptionField();
         }
 
         /**
@@ -12032,6 +12198,30 @@ HTML_TEMPLATE = '''
                     yuanLabel.appendChild(yuanCb);
                     yuanLabel.appendChild(document.createTextNode(' Юани'));
                     name.appendChild(yuanLabel);
+
+                    // Чекбокс «Описание» — обязательное описание
+                    const descLabel = document.createElement('label');
+                    descLabel.className = 'finance-category-container-link';
+                    const descCb = document.createElement('input');
+                    descCb.type = 'checkbox';
+                    descCb.checked = !!cat.requires_description;
+                    descCb.onchange = async () => {
+                        try {
+                            const resp = await authFetch('/api/finance/categories/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: cat.id, requires_description: descCb.checked })
+                            });
+                            const result = await resp.json();
+                            if (result.success) {
+                                cat.requires_description = descCb.checked ? 1 : 0;
+                                await loadFinanceCategories();
+                            }
+                        } catch(e) { console.error(e); }
+                    };
+                    descLabel.appendChild(descCb);
+                    descLabel.appendChild(document.createTextNode(' Описание'));
+                    name.appendChild(descLabel);
                 }
                 row.appendChild(name);
 
@@ -12134,7 +12324,8 @@ HTML_TEMPLATE = '''
                         name: name,
                         record_type: catType,
                         is_container_linked: document.getElementById('finance-new-category-container-linked')?.checked ? true : false,
-                        requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false
+                        requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false,
+                        requires_description: document.getElementById('finance-new-category-requires-description')?.checked ? true : false
                     })
                 });
                 const data = await resp.json();
@@ -12145,6 +12336,8 @@ HTML_TEMPLATE = '''
                     if (cb) cb.checked = false;
                     const yuanCb = document.getElementById('finance-new-category-requires-yuan');
                     if (yuanCb) yuanCb.checked = false;
+                    const descCb = document.getElementById('finance-new-category-requires-description');
+                    if (descCb) descCb.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -12162,9 +12355,10 @@ HTML_TEMPLATE = '''
 
         let pendelDataLoaded = false;
         let pendelCache = {};
+        let realizationInitialized = false;  // Флаг: выпадающий месяц уже заполнен
 
         /**
-         * Переключение подвкладок финансов (Записи / Пендель).
+         * Переключение подвкладок финансов (Записи / Пендель / Реализация).
          */
         function switchFinanceSubtab(e, subtab) {
             document.querySelectorAll('.finance-subtab-content').forEach(el => el.classList.remove('active'));
@@ -12173,9 +12367,11 @@ HTML_TEMPLATE = '''
             e.target.classList.add('active');
             location.hash = 'finance:' + subtab;
 
-            // Загружаем данные Пендель при первом открытии
             if (subtab === 'finance-pendel' && !pendelDataLoaded) {
                 loadPendelData();
+            }
+            if (subtab === 'finance-realization' && !realizationInitialized) {
+                initRealizationMonthSelect();
             }
         }
 
@@ -12200,6 +12396,189 @@ HTML_TEMPLATE = '''
             if (subtab === 'finance-pendel' && !pendelDataLoaded) {
                 loadPendelData();
             }
+            if (subtab === 'finance-realization' && !realizationInitialized) {
+                initRealizationMonthSelect();
+            }
+        }
+
+        // ============================================================================
+        // РЕАЛИЗАЦИЯ — данные из Ozon Finance API
+        // ============================================================================
+        // Подвкладка «Реализация» загружает транзакции из Ozon Seller API
+        // /v3/finance/transaction/list за выбранный месяц, агрегирует по типам
+        // операций и показывает сводные карточки + таблицы.
+        // ============================================================================
+
+        /**
+         * Инициализировать выпадающий список месяцев.
+         * Заполняет select текущим + 11 предыдущих месяцев.
+         */
+        function initRealizationMonthSelect() {
+            const select = document.getElementById('real-month-select');
+            if (!select) return;
+
+            const now = new Date();
+            const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+            select.innerHTML = '';
+
+            for (let i = 0; i < 12; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+                const label = months[d.getMonth()] + ' ' + d.getFullYear();
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                select.appendChild(opt);
+            }
+
+            realizationInitialized = true;
+        }
+
+        /**
+         * Форматировать число как деньги: 12 345.67 ₽
+         */
+        function fmtRealMoney(val) {
+            if (val == null || isNaN(val)) return '0 ₽';
+            return val.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
+        }
+
+        /**
+         * Загрузить данные реализации из API за выбранный месяц.
+         */
+        async function loadRealizationData() {
+            const select = document.getElementById('real-month-select');
+            const month = select ? select.value : '';
+
+            // Показать загрузку, скрыть остальное
+            document.getElementById('real-empty').style.display = 'none';
+            document.getElementById('real-error').style.display = 'none';
+            document.getElementById('real-summary').style.display = 'none';
+            document.getElementById('real-stats').style.display = 'none';
+            document.getElementById('real-types-wrapper').style.display = 'none';
+            document.getElementById('real-transactions-wrapper').style.display = 'none';
+            document.getElementById('real-loading').style.display = 'block';
+
+            const btn = document.querySelector('.real-load-btn');
+            if (btn) { btn.disabled = true; }
+            const btnText = document.getElementById('real-load-btn-text');
+            if (btnText) { btnText.textContent = 'Загрузка...'; }
+
+            try {
+                const resp = await authFetch('/api/finance/realization?month=' + encodeURIComponent(month));
+                const data = await resp.json();
+
+                document.getElementById('real-loading').style.display = 'none';
+
+                if (!data.success) {
+                    document.getElementById('real-error-text').textContent = data.error || 'Неизвестная ошибка';
+                    document.getElementById('real-error').style.display = 'block';
+                    return;
+                }
+
+                // Период
+                const periodInfo = document.getElementById('real-period-info');
+                if (periodInfo && data.period) {
+                    periodInfo.textContent = data.period.from + ' — ' + data.period.to;
+                    periodInfo.style.display = 'inline';
+                }
+
+                // Сводные карточки
+                const s = data.summary || {};
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
+                document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
+                document.getElementById('real-net-sales').textContent = fmtRealMoney(s.net_sales);
+                document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
+                document.getElementById('real-logistics').textContent = fmtRealMoney(s.logistics);
+                document.getElementById('real-services').textContent = fmtRealMoney(s.services);
+                document.getElementById('real-penalties').textContent = fmtRealMoney(s.penalties);
+                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.payout_total);
+                document.getElementById('real-summary').style.display = 'grid';
+
+                // Статистика
+                document.getElementById('real-total-ops').textContent = data.total_operations || 0;
+                document.getElementById('real-stats').style.display = 'block';
+
+                // Таблица по типам операций
+                renderRealizationTypesTable(data.operations_by_type || []);
+
+                // Детальная таблица транзакций
+                renderRealizationTransactions(data.transactions || []);
+
+            } catch (e) {
+                document.getElementById('real-loading').style.display = 'none';
+                document.getElementById('real-error-text').textContent = 'Ошибка сети: ' + e.message;
+                document.getElementById('real-error').style.display = 'block';
+            } finally {
+                if (btn) { btn.disabled = false; }
+                if (btnText) { btnText.textContent = 'Загрузить из Ozon'; }
+            }
+        }
+
+        /**
+         * Отрисовать таблицу по типам операций.
+         */
+        function renderRealizationTypesTable(types) {
+            const tbody = document.getElementById('real-types-tbody');
+            if (!tbody) return;
+
+            if (types.length === 0) {
+                document.getElementById('real-types-wrapper').style.display = 'none';
+                return;
+            }
+
+            let totalCount = 0;
+            let totalSum = 0;
+
+            tbody.innerHTML = types.map(t => {
+                totalCount += t.count;
+                totalSum += t.total;
+                const cls = t.total >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                return '<tr>' +
+                    '<td>' + escapeHtml(t.type_name) + '</td>' +
+                    '<td>' + t.count + '</td>' +
+                    '<td class="' + cls + '">' + fmtRealMoney(t.total) + '</td>' +
+                '</tr>';
+            }).join('');
+
+            document.getElementById('real-types-total-count').innerHTML = '<strong>' + totalCount + '</strong>';
+            const totalCls = totalSum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+            document.getElementById('real-types-total-sum').innerHTML = '<strong class="' + totalCls + '">' + fmtRealMoney(totalSum) + '</strong>';
+            document.getElementById('real-types-wrapper').style.display = 'block';
+        }
+
+        /**
+         * Отрисовать детальную таблицу транзакций.
+         */
+        function renderRealizationTransactions(transactions) {
+            const tbody = document.getElementById('real-trans-tbody');
+            if (!tbody) return;
+
+            if (transactions.length === 0) {
+                document.getElementById('real-transactions-wrapper').style.display = 'none';
+                return;
+            }
+
+            tbody.innerHTML = transactions.map(t => {
+                // Форматируем дату
+                let dateStr = '';
+                if (t.date) {
+                    try {
+                        const d = new Date(t.date);
+                        dateStr = d.toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
+                    } catch(e) { dateStr = t.date; }
+                }
+                const cls = t.amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                return '<tr>' +
+                    '<td class="real-trans-date">' + dateStr + '</td>' +
+                    '<td class="real-trans-type" title="' + escapeHtml(t.type) + '">' + escapeHtml(t.type) + '</td>' +
+                    '<td class="' + cls + '">' + fmtRealMoney(t.amount) + '</td>' +
+                    '<td>' + escapeHtml(t.posting_number || '—') + '</td>' +
+                    '<td class="real-trans-item" title="' + escapeHtml(t.item_name || '') + '">' + escapeHtml(t.item_name || '—') + '</td>' +
+                '</tr>';
+            }).join('');
+
+            document.getElementById('real-transactions-wrapper').style.display = 'block';
         }
 
         // ============================================================================
@@ -12265,6 +12644,72 @@ HTML_TEMPLATE = '''
                 const input = document.getElementById('finance-yuan-amount');
                 if (input) input.value = '';
             }
+        }
+
+        /**
+         * Подсветить/сбросить обязательность поля описания.
+         */
+        function checkFinanceDescriptionField() {
+            const descInput = document.getElementById('finance-description');
+            const descLabel = document.getElementById('finance-description-label');
+            if (!descInput) return;
+
+            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            if (cat && cat.requires_description) {
+                descInput.placeholder = 'Обязательно: за что оплата, поставщик, суммы';
+                descInput.style.borderColor = '#ef4444';
+                if (descLabel) descLabel.textContent = 'Комментарий *';
+            } else {
+                descInput.placeholder = 'Например: Закупка упаковки';
+                descInput.style.borderColor = '';
+                if (descLabel) descLabel.textContent = 'Комментарий';
+            }
+        }
+
+        /**
+         * Загрузить и показать файлы записи (при редактировании).
+         */
+        async function loadFinanceEditFiles(recordId) {
+            const container = document.getElementById('finance-existing-files');
+            const list = document.getElementById('finance-existing-files-list');
+            if (!container || !list) return;
+            try {
+                const resp = await authFetch('/api/finance/records/' + recordId + '/files');
+                const data = await resp.json();
+                if (data.success && data.files && data.files.length > 0) {
+                    container.style.display = '';
+                    list.innerHTML = '';
+                    data.files.forEach(f => {
+                        const item = document.createElement('div');
+                        item.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 4px 0;';
+                        const link = document.createElement('a');
+                        link.href = '/api/finance/files/' + f.id + '?view=1';
+                        link.target = '_blank';
+                        link.textContent = f.filename;
+                        link.style.cssText = 'color: #3b82f6; font-size: 13px;';
+                        item.appendChild(link);
+                        const size = document.createElement('span');
+                        size.textContent = f.file_size > 1024*1024 ? (f.file_size/1024/1024).toFixed(1) + ' MB' : (f.file_size/1024).toFixed(0) + ' KB';
+                        size.style.cssText = 'color: #999; font-size: 12px;';
+                        item.appendChild(size);
+                        const delBtn = document.createElement('button');
+                        delBtn.textContent = 'x';
+                        delBtn.style.cssText = 'background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; padding: 0 4px;';
+                        delBtn.onclick = async () => {
+                            if (!confirm('Удалить файл ' + f.filename + '?')) return;
+                            try {
+                                await authFetch('/api/finance/files/' + f.id, { method: 'DELETE' });
+                                item.remove();
+                                if (list.children.length === 0) container.style.display = 'none';
+                            } catch(e) { console.error(e); }
+                        };
+                        item.appendChild(delBtn);
+                        list.appendChild(item);
+                    });
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch(e) { container.style.display = 'none'; }
         }
 
         /**
@@ -12585,6 +13030,34 @@ HTML_TEMPLATE = '''
          * Переключить аккордеон распределения в таблице записей.
          * Загружает данные при первом раскрытии, кэширует результат.
          */
+        async function toggleFinanceFilesRow(recordId, parentRow) {
+            const existingRow = document.getElementById('finance-files-row-' + recordId);
+            if (existingRow) {
+                existingRow.remove();
+                return;
+            }
+            try {
+                const resp = await authFetch('/api/finance/records/' + recordId + '/files');
+                const data = await resp.json();
+                if (!data.success || !data.files.length) return;
+                const filesRow = document.createElement('tr');
+                filesRow.id = 'finance-files-row-' + recordId;
+                const td = document.createElement('td');
+                td.colSpan = 12;
+                td.style.cssText = 'padding: 8px 16px; background: #f8f9fa;';
+                data.files.forEach(f => {
+                    const link = document.createElement('a');
+                    link.href = '/api/finance/files/' + f.id + '?view=1';
+                    link.target = '_blank';
+                    link.textContent = f.filename;
+                    link.style.cssText = 'color: #3b82f6; margin-right: 16px; font-size: 13px;';
+                    td.appendChild(link);
+                });
+                filesRow.appendChild(td);
+                parentRow.after(filesRow);
+            } catch(e) { console.error(e); }
+        }
+
         async function toggleFinanceDistAccordion(recordId) {
             const accordion = document.getElementById(`finance-dist-accordion-${recordId}`);
             if (!accordion) return;
@@ -19238,6 +19711,8 @@ HTML_TEMPLATE = '''
 
         /** Кэш товаров для выпадающего списка плана */
         let planProducts = [];
+        /** Состояние раскрытых групп аккордеона (ключ — артикул) */
+        let planOpenGroups = {};
 
         /**
          * Загрузка списка товаров аккаунта для выпадающего списка.
@@ -25577,8 +26052,21 @@ def api_finance_records():
             for row in cursor.fetchall():
                 dist_counts[row['finance_record_id']] = row['cnt']
 
+        # Подсчитываем файлы для каждой записи
+        file_counts = {}
+        if record_ids:
+            cursor.execute(f'''
+                SELECT finance_record_id, COUNT(*) as cnt
+                FROM finance_record_files
+                WHERE finance_record_id IN ({placeholders})
+                GROUP BY finance_record_id
+            ''', record_ids)
+            for row in cursor.fetchall():
+                file_counts[row['finance_record_id']] = row['cnt']
+
         for rec in records:
             rec['has_distributions'] = dist_counts.get(rec['id'], 0) > 0
+            rec['file_count'] = file_counts.get(rec['id'], 0)
 
         # Рассчитываем сводку с теми же фильтрами
         summary_query = f'''
@@ -25662,6 +26150,9 @@ def api_finance_records_add():
         if not category_id:
             return jsonify({'success': False, 'error': 'Выберите категорию'}), 400
 
+        account_id = int(account_id)
+        category_id = int(category_id)
+
         if not record_date:
             record_date = get_snapshot_date()
 
@@ -25681,7 +26172,7 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -25690,6 +26181,7 @@ def api_finance_records_add():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
         requires_yuan = cat_row[2] or 0
+        requires_description = cat_row[3] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -25698,6 +26190,9 @@ def api_finance_records_add():
         if is_container_linked and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
+        if requires_description and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать описание'}), 400
 
         # Обработка суммы в юанях
         yuan_amount = data.get('yuan_amount')
@@ -25734,6 +26229,10 @@ def api_finance_records_add():
                 user_info.get('username', ''), record_date
             )
 
+        # Сохраняем прикрепленные файлы
+        if uploaded_files:
+            save_finance_files(cursor, new_id, uploaded_files)
+
         conn.commit()
         conn.close()
 
@@ -25751,12 +26250,20 @@ def api_finance_records_update():
     Payload: то же, что и add, плюс 'id'.
     """
     try:
-        data = request.json
+        # Поддержка multipart/form-data (когда есть файлы) и JSON
+        uploaded_files = []
+        if request.content_type and 'multipart' in request.content_type:
+            data = request.form.to_dict()
+            uploaded_files = request.files.getlist('files')
+        else:
+            data = request.json
+
         record_id = data.get('id')
 
         if not record_id:
             return jsonify({'success': False, 'error': 'Укажите ID записи'}), 400
 
+        record_id = int(record_id)
         record_type = data.get('record_type', '')
         amount = data.get('amount', 0)
         account_id = data.get('account_id')
@@ -25780,6 +26287,9 @@ def api_finance_records_update():
         if not category_id:
             return jsonify({'success': False, 'error': 'Выберите категорию'}), 400
 
+        account_id = int(account_id)
+        category_id = int(category_id)
+
         if not record_date:
             record_date = get_snapshot_date()
 
@@ -25800,7 +26310,7 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -25809,6 +26319,7 @@ def api_finance_records_update():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
         requires_yuan = cat_row[2] or 0
+        requires_description = cat_row[3] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -25817,6 +26328,9 @@ def api_finance_records_update():
         if is_container_linked and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
+        if requires_description and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать описание'}), 400
 
         # Обработка суммы в юанях
         yuan_amount = data.get('yuan_amount')
@@ -25863,6 +26377,10 @@ def api_finance_records_update():
                     user_info.get('username', ''), record_date
                 )
 
+        # Сохраняем прикрепленные файлы
+        if uploaded_files:
+            save_finance_files(cursor, record_id, uploaded_files)
+
         conn.commit()
         conn.close()
 
@@ -25894,6 +26412,14 @@ def api_finance_records_delete():
 
         # Удаляем уведомление о распределении (если есть)
         _delete_finance_distribution_notification(cursor, record_id)
+
+        # Удаляем прикрепленные файлы
+        cursor.execute('SELECT stored_filename FROM finance_record_files WHERE finance_record_id = ?', (record_id,))
+        for f_row in cursor.fetchall():
+            f_path = os.path.join(FINANCE_UPLOAD_FOLDER, str(record_id), f_row['stored_filename'])
+            if os.path.exists(f_path):
+                os.remove(f_path)
+        cursor.execute('DELETE FROM finance_record_files WHERE finance_record_id = ?', (record_id,))
 
         cursor.execute('DELETE FROM finance_records WHERE id = ?', (record_id,))
 
@@ -26268,6 +26794,338 @@ def api_finance_categories_update():
 
 
 # ============================================================================
+# API ФИНАНСЫ — РЕАЛИЗАЦИЯ (данные из Ozon Finance API)
+# ============================================================================
+# Подвкладка «Реализация» тянет транзакции из Ozon Seller API
+# /v3/finance/transaction/list и агрегирует по типам операций.
+# Показывает кассовую выручку за выбранный месяц (по дате выплат).
+# ============================================================================
+
+@app.route('/api/finance/realization')
+@require_auth()
+def api_finance_realization():
+    """
+    Получить данные реализации из Ozon Finance API за указанный месяц.
+
+    Аргументы (query params):
+        month (str): Месяц в формате YYYY-MM (например, 2026-02)
+
+    Возвращает:
+        JSON с агрегированными данными по типам операций,
+        сводными карточками и списком транзакций.
+    """
+    import calendar
+    from datetime import datetime as dt_cls
+
+    month_str = request.args.get('month', '')
+    if not month_str:
+        now = dt_cls.now()
+        month_str = now.strftime('%Y-%m')
+
+    try:
+        year, month = map(int, month_str.split('-'))
+        date_from = f"{year}-{month:02d}-01T00:00:00.000Z"
+        if month == 12:
+            date_to = f"{year + 1}-01-01T00:00:00.000Z"
+        else:
+            date_to = f"{year}-{month + 1:02d}-01T00:00:00.000Z"
+        last_day = calendar.monthrange(year, month)[1]
+        period_display_to = f"{year}-{month:02d}-{last_day:02d}"
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
+
+    headers = get_ozon_headers()
+    all_operations = []
+    page = 1
+    page_size = 1000
+    max_pages = 50
+
+    try:
+        while page <= max_pages:
+            payload = {
+                "filter": {
+                    "date": {
+                        "from": date_from,
+                        "to": date_to
+                    },
+                    "operation_type": [],
+                    "posting_number": "",
+                    "transaction_type": "all"
+                },
+                "page": page,
+                "page_size": page_size
+            }
+
+            resp = requests.post(
+                f"{OZON_HOST}/v3/finance/transaction/list",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+
+            if resp.status_code != 200:
+                print(f"  ❌ Ozon Finance API ошибка: {resp.status_code}")
+                print(f"  📋 Ответ: {resp.text[:500]}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Ошибка Ozon API: {resp.status_code}'
+                }), 502
+
+            data = resp.json()
+            result_data = data.get('result', {})
+            operations = result_data.get('operations', [])
+
+            if not operations:
+                break
+
+            all_operations.extend(operations)
+            page_count = result_data.get('page_count', 1)
+
+            if page >= page_count:
+                break
+            page += 1
+
+        # Агрегация по типам операций
+        type_totals = {}
+        gross_sales = 0.0
+        returns_total = 0.0
+        commission_total = 0.0
+        logistics_total = 0.0
+        services_total = 0.0
+        penalties_total = 0.0
+        other_total = 0.0
+
+        for op in all_operations:
+            op_type = op.get('operation_type_name', 'Неизвестно')
+            amount = op.get('amount', 0)
+
+            if op_type not in type_totals:
+                type_totals[op_type] = {'total': 0.0, 'count': 0}
+            type_totals[op_type]['total'] += amount
+            type_totals[op_type]['count'] += 1
+
+            # Классификация для сводных карточек по ключевым словам
+            op_type_lower = op_type.lower()
+            if any(kw in op_type_lower for kw in ['оплата товар', 'за продаж', 'itemservices', 'operationitem']):
+                gross_sales += amount
+            elif any(kw in op_type_lower for kw in ['возврат', 'return', 'отмен']):
+                returns_total += amount
+            elif any(kw in op_type_lower for kw in ['комисси', 'commission', 'реклам']):
+                commission_total += amount
+            elif any(kw in op_type_lower for kw in ['логистик', 'доставк', 'магистрал', 'последн', 'logistic', 'delivery']):
+                logistics_total += amount
+            elif any(kw in op_type_lower for kw in ['штраф', 'компенсац', 'penalty']):
+                penalties_total += amount
+            elif any(kw in op_type_lower for kw in ['эквайринг', 'хранение', 'размещение', 'подписк', 'service']):
+                services_total += amount
+            else:
+                other_total += amount
+
+        net_sales = gross_sales + returns_total
+        payout_total = gross_sales + returns_total + commission_total + logistics_total + services_total + penalties_total + other_total
+
+        operations_by_type = []
+        for type_name, tdata in sorted(type_totals.items(), key=lambda x: abs(x[1]['total']), reverse=True):
+            operations_by_type.append({
+                'type_name': type_name,
+                'count': tdata['count'],
+                'total': round(tdata['total'], 2)
+            })
+
+        transactions = []
+        for op in all_operations[:200]:
+            items = op.get('items', [])
+            item_names = ', '.join(i.get('name', '')[:60] for i in items) if items else '—'
+            item_skus = ', '.join(str(i.get('sku', '')) for i in items) if items else ''
+            posting = op.get('posting', {})
+            services = op.get('services', [])
+            services_sum = sum(s.get('price', 0) for s in services)
+
+            transactions.append({
+                'date': op.get('operation_date', ''),
+                'type': op.get('operation_type_name', ''),
+                'amount': op.get('amount', 0),
+                'posting_number': posting.get('posting_number', ''),
+                'item_name': item_names[:100],
+                'sku': item_skus,
+                'accruals_for_sale': op.get('accruals_for_sale', 0),
+                'sale_commission': op.get('sale_commission', 0),
+                'services_total': services_sum
+            })
+
+        return jsonify({
+            'success': True,
+            'period': {
+                'from': f"{year}-{month:02d}-01",
+                'to': period_display_to,
+                'month': month_str
+            },
+            'summary': {
+                'gross_sales': round(gross_sales, 2),
+                'returns': round(returns_total, 2),
+                'net_sales': round(net_sales, 2),
+                'commission': round(commission_total, 2),
+                'logistics': round(logistics_total, 2),
+                'services': round(services_total, 2),
+                'penalties': round(penalties_total, 2),
+                'other': round(other_total, 2),
+                'payout_total': round(payout_total, 2)
+            },
+            'operations_by_type': operations_by_type,
+            'total_operations': len(all_operations),
+            'transactions': transactions
+        })
+
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Таймаут запроса к Ozon API'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Не удалось подключиться к Ozon API'}), 502
+    except Exception as e:
+        print(f"  ❌ Ошибка реализации: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# API ФИНАНСЫ — ФАЙЛЫ
+# ============================================================================
+
+def save_finance_files(cursor, finance_record_id, files):
+    """
+    Сохранить файлы, прикрепленные к финансовой записи.
+    Файлы хранятся в FINANCE_UPLOAD_FOLDER/{finance_record_id}/.
+    """
+    mime_types = {
+        'pdf': 'application/pdf',
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'txt': 'text/plain',
+        'zip': 'application/zip',
+        'rar': 'application/x-rar-compressed'
+    }
+
+    folder = os.path.join(FINANCE_UPLOAD_FOLDER, str(finance_record_id))
+    os.makedirs(folder, exist_ok=True)
+
+    for f in files:
+        if not f or not f.filename:
+            continue
+        if not allowed_file(f.filename):
+            continue
+
+        ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+        stored_filename = f"{uuid.uuid4().hex}.{ext}" if ext else f"{uuid.uuid4().hex}"
+        file_type = mime_types.get(ext, 'application/octet-stream')
+
+        file_path = os.path.join(folder, stored_filename)
+        f.save(file_path)
+
+        file_size = os.path.getsize(file_path)
+
+        cursor.execute('''
+            INSERT INTO finance_record_files
+            (finance_record_id, filename, stored_filename, file_type, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (finance_record_id, f.filename, stored_filename, file_type, file_size))
+
+
+@app.route('/api/finance/records/<int:record_id>/files')
+@require_auth(['admin', 'viewer'])
+def api_finance_record_files(record_id):
+    """Получить список файлов финансовой записи."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, filename, file_type, file_size, uploaded_at
+            FROM finance_record_files
+            WHERE finance_record_id = ?
+            ORDER BY uploaded_at
+        ''', (record_id,))
+        files = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        return jsonify({'success': True, 'files': files})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/files/<int:file_id>')
+@require_auth(['admin', 'viewer'])
+def download_finance_file(file_id):
+    """Скачать или просмотреть файл финансовой записи. ?view=1 для inline."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, finance_record_id, filename, stored_filename, file_type
+            FROM finance_record_files WHERE id = ?
+        ''', (file_id,))
+        file_info = cursor.fetchone()
+        conn.close()
+
+        if not file_info:
+            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
+
+        file_path = os.path.join(
+            FINANCE_UPLOAD_FOLDER,
+            str(file_info['finance_record_id']),
+            file_info['stored_filename']
+        )
+
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Файл не найден на диске'}), 404
+
+        view_inline = request.args.get('view', '0') == '1'
+
+        if view_inline and file_info['file_type'].startswith(('image/', 'application/pdf')):
+            return send_file(file_path, mimetype=file_info['file_type'])
+        else:
+            return send_file(file_path, as_attachment=True, download_name=file_info['filename'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/finance/files/<int:file_id>', methods=['DELETE'])
+@require_auth(['admin'])
+def delete_finance_file(file_id):
+    """Удалить файл финансовой записи."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id, finance_record_id, stored_filename FROM finance_record_files WHERE id = ?', (file_id,))
+        file_info = cursor.fetchone()
+        if not file_info:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
+
+        # Удаляем с диска
+        file_path = os.path.join(FINANCE_UPLOAD_FOLDER, str(file_info['finance_record_id']), file_info['stored_filename'])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # Удаляем из БД
+        cursor.execute('DELETE FROM finance_record_files WHERE id = ?', (file_id,))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Файл удален'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ============================================================================
 # API ФИНАНСЫ — ЭНДПОИНТЫ ДЛЯ TELEGRAM-БОТА
 # ============================================================================
 # Отдельные эндпоинты для Telegram-бота с авторизацией через TELEGRAM_BOT_SECRET.
@@ -26338,19 +27196,16 @@ def api_telegram_finance_add():
     """
     Создать финансовую запись из Telegram-бота.
     Авторизация через TELEGRAM_BOT_SECRET в теле запроса.
-
-    Payload: {
-        'token': 'secret',
-        'record_type': 'expense',
-        'amount': 5000,
-        'account_id': 2,
-        'description': 'Обед для команды',
-        'telegram_chat_id': 123456789,
-        'telegram_username': '@username'
-    }
+    Поддерживает multipart/form-data для загрузки файлов.
     """
     try:
-        data = request.json
+        # Поддержка multipart/form-data (когда есть файлы) и JSON
+        uploaded_files = []
+        if request.content_type and 'multipart' in request.content_type:
+            data = request.form.to_dict()
+            uploaded_files = request.files.getlist('files')
+        else:
+            data = request.json
 
         # Проверяем токен
         token = data.get('token', '')
@@ -26395,7 +27250,7 @@ def api_telegram_finance_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -26404,6 +27259,7 @@ def api_telegram_finance_add():
         category_name = cat_row[0]
         is_container_linked = cat_row[1] or 0
         requires_yuan = cat_row[2] or 0
+        requires_description = cat_row[3] or 0
 
         # При категории "Другое" или контейнерной категории комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -26412,6 +27268,9 @@ def api_telegram_finance_add():
         if is_container_linked and not description:
             conn.close()
             return jsonify({'success': False, 'error': 'Для категории закупки необходимо указать комментарий (какие суммы за что оплачены)'}), 400
+        if requires_description and not description:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Для данной категории необходимо указать описание'}), 400
 
         # Обработка суммы в юанях
         yuan_amount = data.get('yuan_amount')
@@ -26455,6 +27314,10 @@ def api_telegram_finance_add():
                 cursor, new_id, amount, category_name, description,
                 created_by, record_date
             )
+
+        # Сохраняем прикрепленные файлы
+        if uploaded_files:
+            save_finance_files(cursor, new_id, uploaded_files)
 
         conn.commit()
         conn.close()
