@@ -6078,38 +6078,33 @@ HTML_TEMPLATE = '''
             padding: 12px 18px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
             font-size: 13px; color: #4338ca; margin-bottom: 16px; line-height: 1.5;
         }
-        /* --- Быстрые кнопки периодов --- */
-        .real-quick-periods {
-            display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
-        }
-        .real-quick-btn {
-            padding: 6px 14px; background: #fff; color: #667eea; border: 1px solid #667eea;
-            border-radius: 20px; font-size: 13px; font-weight: 500; cursor: pointer;
-            transition: all 0.2s; white-space: nowrap;
-        }
-        .real-quick-btn:hover { background: #667eea; color: #fff; }
-        .real-quick-btn.active { background: #667eea; color: #fff; }
-        /* --- Фильтры --- */
+        /* --- Фильтры (месяц + кнопка) --- */
         .real-filters {
             display: flex; align-items: center; gap: 12px; padding: 16px 20px;
             background: #f8f9fa; border-radius: 12px; margin-bottom: 20px; flex-wrap: wrap;
         }
         .real-filter-group { display: flex; align-items: center; gap: 8px; }
         .real-filter-label { font-size: 13px; font-weight: 500; color: #555; white-space: nowrap; }
-        .real-date-input {
-            padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
-            background: #fff; cursor: pointer; min-width: 150px; height: 38px;
+        .real-month-select {
+            padding: 8px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+            background: #fff; cursor: pointer; min-width: 180px; height: 38px;
+            appearance: auto;
         }
-        .real-date-input:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
+        .real-month-select:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
         .real-load-btn {
             padding: 10px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px;
             font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap;
         }
         .real-load-btn:hover { background: #5a6fd6; }
         .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
-        .real-period-info { font-size: 13px; color: #888; margin-left: 8px; }
 
-        /* --- Главная карточка «Пришло на счёт» --- */
+        /* --- Информация об акте --- */
+        .real-doc-header {
+            padding: 10px 16px; background: #f0f4ff; border-radius: 8px;
+            font-size: 13px; color: #4338ca; margin-bottom: 16px;
+        }
+
+        /* --- Главная карточка «К получению» --- */
         .real-payout-hero {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px;
             padding: 28px 32px; color: #fff; margin-bottom: 20px;
@@ -6124,7 +6119,7 @@ HTML_TEMPLATE = '''
 
         /* --- Сводные карточки --- */
         .real-summary {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;
         }
         .real-card {
             padding: 16px 18px; border-radius: 12px; background: #fff;
@@ -6132,20 +6127,19 @@ HTML_TEMPLATE = '''
         }
         .real-card-label { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
         .real-card-value { font-size: 20px; font-weight: 700; }
+        .real-card-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
         .real-card-sales { border-left-color: #38a169; }
         .real-card-sales .real-card-value { color: #38a169; }
         .real-card-returns { border-left-color: #e53e3e; }
         .real-card-returns .real-card-value { color: #e53e3e; }
         .real-card-commission { border-left-color: #d69e2e; }
         .real-card-commission .real-card-value { color: #d69e2e; }
-        .real-card-logistics { border-left-color: #805ad5; }
-        .real-card-logistics .real-card-value { color: #805ad5; }
-        .real-card-services { border-left-color: #718096; }
-        .real-card-services .real-card-value { color: #718096; }
-        .real-card-penalties { border-left-color: #c53030; }
-        .real-card-penalties .real-card-value { color: #c53030; }
-        .real-card-other { border-left-color: #a0aec0; }
-        .real-card-other .real-card-value { color: #a0aec0; }
+        .real-card-bonus { border-left-color: #667eea; }
+        .real-card-bonus .real-card-value { color: #667eea; }
+        .real-card-fee { border-left-color: #805ad5; }
+        .real-card-fee .real-card-value { color: #805ad5; }
+        .real-card-stars { border-left-color: #ed8936; }
+        .real-card-stars .real-card-value { color: #ed8936; }
 
         /* --- Статистика --- */
         .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
@@ -6154,7 +6148,7 @@ HTML_TEMPLATE = '''
         .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
         .real-section-hint { font-size: 12px; color: #999; font-weight: 400; }
 
-        /* --- Таблица (общая для типов операций и товаров) --- */
+        /* --- Таблица товаров --- */
         .real-types-table {
             width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
             overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -6168,30 +6162,10 @@ HTML_TEMPLATE = '''
         }
         .real-types-table tbody tr:hover { background: #f8f9fa; }
         .real-types-table tbody tr:last-child td { border-bottom: none; }
-        .real-types-total-row td {
-            background: #f0f4ff; padding: 12px 16px; font-size: 14px; border-top: 2px solid #667eea;
-        }
         .real-amount-positive { color: #38a169; font-weight: 600; }
         .real-amount-negative { color: #e53e3e; font-weight: 600; }
         .real-amount-right { text-align: right; font-variant-numeric: tabular-nums; }
         .real-product-name { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-        /* --- Таблица транзакций --- */
-        .real-trans-table {
-            width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
-            overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); font-size: 13px;
-        }
-        .real-trans-table thead th {
-            background: #f1f3f5; color: #555; padding: 10px 12px; font-weight: 500;
-            font-size: 12px; text-align: left; position: sticky; top: 0;
-        }
-        .real-trans-table tbody td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
-        .real-trans-table tbody tr:hover { background: #f8f9fa; }
-        .real-trans-table tbody tr:last-child td { border-bottom: none; }
-        .real-trans-date { white-space: nowrap; color: #666; }
-        .real-trans-type { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .real-trans-item { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #555; }
-        .real-transactions-wrapper { margin-top: 8px; }
 
         /* --- Пустое состояние и загрузка --- */
         .real-empty { text-align: center; padding: 60px 20px; color: #999; font-size: 15px; }
@@ -6210,10 +6184,8 @@ HTML_TEMPLATE = '''
         }
         @media (max-width: 768px) {
             .real-info-banner { font-size: 12px; padding: 10px 14px; }
-            .real-quick-periods { gap: 6px; }
-            .real-quick-btn { padding: 5px 10px; font-size: 12px; }
             .real-filters { padding: 12px 14px; gap: 10px; }
-            .real-date-input { min-width: 120px; font-size: 13px; }
+            .real-month-select { min-width: 140px; font-size: 13px; }
             .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
             .real-payout-hero { padding: 20px 22px; }
             .real-payout-hero-value { font-size: 28px; }
@@ -6224,9 +6196,6 @@ HTML_TEMPLATE = '''
             .real-card-value { font-size: 17px; }
             .real-types-table thead th,
             .real-types-table tbody td { padding: 10px 12px; font-size: 13px; }
-            .real-trans-table { font-size: 12px; }
-            .real-trans-table thead th,
-            .real-trans-table tbody td { padding: 8px 10px; }
             .real-section-title { font-size: 15px; }
         }
         @media (max-width: 480px) {
@@ -6239,11 +6208,9 @@ HTML_TEMPLATE = '''
             .real-payout-hero-value { font-size: 24px; }
             .real-payout-hero-details { flex-direction: column; gap: 4px; }
             .real-hero-separator { display: none; }
-            .real-quick-periods { justify-content: center; }
             .real-filters { flex-direction: column; align-items: stretch; }
             .real-filter-group { width: 100%; }
-            .real-date-input { width: 100%; min-width: 0; }
-            .real-period-info { margin-left: 0; }
+            .real-month-select { width: 100%; min-width: 0; }
             .real-product-name { max-width: 150px; }
         }
 
@@ -9053,89 +9020,78 @@ HTML_TEMPLATE = '''
                     </div>
                 </div><!-- /finance-pendel -->
 
-                <!-- Подвкладка: Реализация — данные из Ozon Finance API (кассовый метод) -->
+                <!-- Подвкладка: Реализация — акт реализации из Ozon /v2/finance/realization -->
                 <div id="finance-realization" class="finance-subtab-content">
 
                     <!-- Пояснение -->
                     <div class="real-info-banner">
-                        Данные из Ozon Finance API: все операции (продажи, возвраты, комиссии, логистика и т.д.) за выбранный период.
-                        Выберите <strong>любой диапазон дат</strong> или воспользуйтесь быстрыми кнопками.
+                        Акт реализации — данные из раздела <strong>«Начисления»</strong> Ozon.
+                        Гросс-продажи, комиссии, возвраты. Числа совпадают с кабинетом Ozon.
                     </div>
 
-                    <!-- Быстрые кнопки периодов -->
-                    <div class="real-quick-periods">
-                        <button class="real-quick-btn" onclick="setRealizationPeriod('this_month')">Этот месяц</button>
-                        <button class="real-quick-btn" onclick="setRealizationPeriod('last_month')">Прошлый месяц</button>
-                        <button class="real-quick-btn" onclick="setRealizationPeriod('7d')">7 дней</button>
-                        <button class="real-quick-btn" onclick="setRealizationPeriod('30d')">30 дней</button>
-                        <button class="real-quick-btn" onclick="setRealizationPeriod('90d')">90 дней</button>
-                    </div>
-
-                    <!-- Фильтр по датам и кнопка загрузки -->
+                    <!-- Фильтр: выбор месяца + кнопка загрузки -->
                     <div class="real-filters">
                         <div class="real-filter-group">
-                            <label class="real-filter-label">С:</label>
-                            <input type="date" id="real-date-from" class="real-date-input">
-                        </div>
-                        <div class="real-filter-group">
-                            <label class="real-filter-label">По:</label>
-                            <input type="date" id="real-date-to" class="real-date-input">
+                            <label class="real-filter-label">Месяц:</label>
+                            <select id="real-month-select" class="real-month-select"></select>
                         </div>
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
                         </button>
-                        <div class="real-period-info" id="real-period-info" style="display: none;"></div>
                     </div>
 
-                    <!-- Главная карточка: Итого за период -->
+                    <!-- Информация об акте (номер, даты) -->
+                    <div class="real-doc-header" id="real-doc-header" style="display: none;">
+                        <span id="real-doc-info"></span>
+                    </div>
+
+                    <!-- Главная карточка: К получению -->
                     <div class="real-payout-hero" id="real-payout-hero" style="display: none;">
-                        <div class="real-payout-hero-label">Итого за период</div>
+                        <div class="real-payout-hero-label">К получению (за вычетом комиссий)</div>
                         <div class="real-payout-hero-value" id="real-payout-total">0 ₽</div>
                         <div class="real-payout-hero-details">
-                            <span class="real-hero-detail">Начислено: <strong id="real-hero-net">0 ₽</strong></span>
+                            <span class="real-hero-detail">Доставок: <strong id="real-hero-deliveries">0</strong></span>
                             <span class="real-hero-separator">&mdash;</span>
-                            <span class="real-hero-detail">Удержано: <strong id="real-hero-deductions">0 ₽</strong></span>
+                            <span class="real-hero-detail">Возвратов: <strong id="real-hero-returns-count">0</strong></span>
+                            <span class="real-hero-separator">&mdash;</span>
+                            <span class="real-hero-detail">Средняя комиссия: <strong id="real-hero-avg-commission">0%</strong></span>
                         </div>
                     </div>
 
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Начислено за товар</div>
+                            <div class="real-card-label">Продажи (гросс)</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
+                            <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
                         <div class="real-card real-card-returns">
-                            <div class="real-card-label">Возвраты / отмены</div>
+                            <div class="real-card-label">Возвраты</div>
                             <div class="real-card-value" id="real-returns">0 ₽</div>
+                            <div class="real-card-hint" id="real-returns-hint"></div>
                         </div>
                         <div class="real-card real-card-commission">
                             <div class="real-card-label">Комиссия Ozon</div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
+                            <div class="real-card-hint" id="real-commission-hint"></div>
                         </div>
-                        <div class="real-card real-card-logistics">
-                            <div class="real-card-label">Логистика</div>
-                            <div class="real-card-value" id="real-logistics">0 ₽</div>
+                        <div class="real-card real-card-bonus">
+                            <div class="real-card-label">Бонусы Ozon</div>
+                            <div class="real-card-value" id="real-bonuses">0 ₽</div>
                         </div>
-                        <div class="real-card real-card-services">
-                            <div class="real-card-label">Услуги / хранение</div>
-                            <div class="real-card-value" id="real-services">0 ₽</div>
+                        <div class="real-card real-card-fee">
+                            <div class="real-card-label">Стандартная комиссия</div>
+                            <div class="real-card-value" id="real-standard-fee">0 ₽</div>
                         </div>
-                        <div class="real-card real-card-penalties">
-                            <div class="real-card-label">Штрафы / компенсации</div>
-                            <div class="real-card-value" id="real-penalties">0 ₽</div>
-                        </div>
-                        <div class="real-card real-card-other">
-                            <div class="real-card-label">Прочее</div>
-                            <div class="real-card-value" id="real-other">0 ₽</div>
+                        <div class="real-card real-card-stars">
+                            <div class="real-card-label">Звёзды + банк</div>
+                            <div class="real-card-value" id="real-stars-bank">0 ₽</div>
                         </div>
                     </div>
 
-                    <!-- Предупреждение об ошибках API -->
-                    <div id="real-api-warnings" style="display: none; margin-bottom: 12px; padding: 8px 14px; background: #fef3cd; border-radius: 8px; font-size: 13px;"></div>
-
                     <!-- Информация о загрузке -->
                     <div class="real-stats" id="real-stats" style="display: none;">
-                        <span id="real-total-ops">0</span> операций &middot; <span id="real-total-products">0</span> товаров
+                        <span id="real-total-rows">0</span> строк в акте &middot; <span id="real-total-products">0</span> товаров
                     </div>
 
                     <!-- Таблица по товарам (SKU) -->
@@ -9146,12 +9102,14 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th>Товар</th>
-                                        <th>SKU</th>
-                                        <th>Продажи</th>
+                                        <th>Артикул</th>
+                                        <th>Цена</th>
+                                        <th>Комиссия %</th>
+                                        <th>Доставки</th>
                                         <th>Возвраты</th>
+                                        <th>Продажи (гросс)</th>
                                         <th>Комиссия</th>
-                                        <th>Итого</th>
-                                        <th>Операций</th>
+                                        <th>К получению</th>
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
@@ -9159,60 +9117,17 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
-                    <!-- Таблица по типам операций -->
-                    <div class="real-types-wrapper" id="real-types-wrapper" style="display: none;">
-                        <h3 class="real-section-title">Все типы операций (детализация)</h3>
-                        <div style="overflow-x: auto;">
-                            <table class="real-types-table">
-                                <thead>
-                                    <tr>
-                                        <th>Тип операции</th>
-                                        <th>Кол-во</th>
-                                        <th>Сумма, ₽</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="real-types-tbody"></tbody>
-                                <tfoot>
-                                    <tr class="real-types-total-row">
-                                        <td><strong>ИТОГО</strong></td>
-                                        <td id="real-types-total-count"><strong>0</strong></td>
-                                        <td id="real-types-total-sum"><strong>0 ₽</strong></td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Детальная таблица транзакций -->
-                    <div class="real-transactions-wrapper" id="real-transactions-wrapper" style="display: none;">
-                        <h3 class="real-section-title">Последние транзакции <span class="real-section-hint">(макс. 300)</span></h3>
-                        <div style="overflow-x: auto;">
-                            <table class="real-trans-table">
-                                <thead>
-                                    <tr>
-                                        <th>Дата</th>
-                                        <th>Тип</th>
-                                        <th>Сумма</th>
-                                        <th>Отправление</th>
-                                        <th>Товар</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="real-trans-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty">
                         <p>Выберите месяц и нажмите «Загрузить из Ozon»</p>
-                        <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Показывает деньги, которые реально поступили на р/с в выбранном месяце<br>(по дате выплаты Ozon, а не по дате заказа)</p>
+                        <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Акт реализации — данные как в разделе «Начисления» кабинета Ozon</p>
                     </div>
 
                     <!-- Состояние загрузки -->
                     <div class="real-loading" id="real-loading" style="display: none;">
                         <div class="real-spinner"></div>
-                        <p>Загрузка транзакций из Ozon...</p>
-                        <p style="font-size: 12px; color: #999;">Может занять 5-15 секунд при большом количестве операций</p>
+                        <p>Загрузка акта реализации из Ozon...</p>
+                        <p style="font-size: 12px; color: #999;">Обычно занимает 3-5 секунд</p>
                     </div>
 
                     <!-- Ошибка -->
@@ -12510,7 +12425,7 @@ HTML_TEMPLATE = '''
                 loadPendelData();
             }
             if (subtab === 'finance-realization' && !realizationInitialized) {
-                initRealizationDatePickers();
+                initRealizationMonthSelect();
             }
         }
 
@@ -12536,85 +12451,46 @@ HTML_TEMPLATE = '''
                 loadPendelData();
             }
             if (subtab === 'finance-realization' && !realizationInitialized) {
-                initRealizationDatePickers();
+                initRealizationMonthSelect();
             }
         }
 
         // ============================================================================
-        // РЕАЛИЗАЦИЯ — данные из Ozon Finance API
+        // РЕАЛИЗАЦИЯ — акт реализации из Ozon /v2/finance/realization
         // ============================================================================
-        // Подвкладка «Реализация» загружает транзакции из Ozon Seller API
-        // /v3/finance/transaction/list за произвольный диапазон дат, агрегирует
-        // по типам операций и показывает сводные карточки + таблицы.
+        // Подвкладка «Реализация» загружает акт реализации из Ozon Seller API
+        // /v2/finance/realization за выбранный месяц. Показывает гросс-продажи,
+        // комиссии, возвраты — числа совпадают с разделом «Начисления» Ozon.
         // ============================================================================
 
         /**
-         * Инициализировать date-пикеры значениями по умолчанию (текущий месяц).
+         * Инициализировать select месяца: последние 12 месяцев, текущий по умолчанию.
          */
-        function initRealizationDatePickers() {
-            const fromEl = document.getElementById('real-date-from');
-            const toEl = document.getElementById('real-date-to');
-            if (!fromEl || !toEl) return;
+        function initRealizationMonthSelect() {
+            const sel = document.getElementById('real-month-select');
+            if (!sel) return;
 
             const now = new Date();
-            // Дефолт: 1-е число текущего месяца — сегодня
-            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-            fromEl.value = firstDay.toISOString().slice(0, 10);
-            toEl.value = now.toISOString().slice(0, 10);
+            const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+            sel.innerHTML = '';
+            // Генерируем 12 месяцев: от текущего вниз
+            for (let i = 0; i < 12; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+                const label = months[d.getMonth()] + ' ' + d.getFullYear();
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                sel.appendChild(opt);
+            }
 
             realizationInitialized = true;
         }
 
         /**
-         * Быстрые кнопки периодов: заполнить даты и загрузить данные.
-         * type: 'this_month', 'last_month', '7d', '30d', '90d'
-         */
-        function setRealizationPeriod(type) {
-            const fromEl = document.getElementById('real-date-from');
-            const toEl = document.getElementById('real-date-to');
-            if (!fromEl || !toEl) return;
-
-            const now = new Date();
-            let from, to;
-
-            switch (type) {
-                case 'this_month':
-                    from = new Date(now.getFullYear(), now.getMonth(), 1);
-                    to = now;
-                    break;
-                case 'last_month':
-                    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                    to = new Date(now.getFullYear(), now.getMonth(), 0); // последний день прошлого месяца
-                    break;
-                case '7d':
-                    from = new Date(now.getTime() - 7 * 86400000);
-                    to = now;
-                    break;
-                case '30d':
-                    from = new Date(now.getTime() - 30 * 86400000);
-                    to = now;
-                    break;
-                case '90d':
-                    from = new Date(now.getTime() - 90 * 86400000);
-                    to = now;
-                    break;
-                default:
-                    return;
-            }
-
-            fromEl.value = from.toISOString().slice(0, 10);
-            toEl.value = to.toISOString().slice(0, 10);
-
-            // Подсветить активную кнопку
-            document.querySelectorAll('.real-quick-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
-
-            // Загрузить данные
-            loadRealizationData();
-        }
-
-        /**
-         * Форматировать число как деньги: 12 345.67 ₽
+         * Форматировать число как деньги: 12 345,67 ₽
          */
         function fmtRealMoney(val) {
             if (val == null || isNaN(val)) return '0 ₽';
@@ -12622,24 +12498,21 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Загрузить данные реализации из Ozon API за выбранный диапазон дат.
-         * Читает даты из date-input полей и отправляет на /api/finance/realization.
+         * Загрузить акт реализации из Ozon API за выбранный месяц.
+         * Читает месяц из select и отправляет на /api/finance/realization?month=YYYY-MM.
          */
         async function loadRealizationData() {
-            const fromEl = document.getElementById('real-date-from');
-            const toEl = document.getElementById('real-date-to');
-            const dateFrom = fromEl ? fromEl.value : '';
-            const dateTo = toEl ? toEl.value : '';
+            const sel = document.getElementById('real-month-select');
+            const month = sel ? sel.value : '';
 
-            if (!dateFrom || !dateTo) {
-                alert('Укажите обе даты');
+            if (!month) {
+                alert('Выберите месяц');
                 return;
             }
 
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
-             'real-types-wrapper', 'real-transactions-wrapper', 'real-payout-hero',
-             'real-products-wrapper', 'real-api-warnings'].forEach(id => {
+             'real-payout-hero', 'real-products-wrapper', 'real-doc-header'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -12651,8 +12524,7 @@ HTML_TEMPLATE = '''
             if (btnText) { btnText.textContent = 'Загрузка...'; }
 
             try {
-                const url = '/api/finance/realization?date_from=' + encodeURIComponent(dateFrom) +
-                            '&date_to=' + encodeURIComponent(dateTo);
+                const url = '/api/finance/realization?month=' + encodeURIComponent(month);
                 const resp = await authFetch(url);
                 const data = await resp.json();
 
@@ -12664,58 +12536,56 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
-                // Период — показываем выбранный диапазон
-                const periodInfo = document.getElementById('real-period-info');
-                if (periodInfo && data.period) {
-                    periodInfo.textContent = data.period.date_from + ' \u2014 ' + data.period.date_to;
-                    periodInfo.style.display = 'inline';
+                const s = data.summary || {};
+                const h = data.header || {};
+
+                // Информация об акте (номер, даты)
+                const docHeader = document.getElementById('real-doc-header');
+                const docInfo = document.getElementById('real-doc-info');
+                if (docHeader && docInfo && h.number) {
+                    let info = 'Акт № ' + h.number;
+                    if (h.start_date && h.stop_date) {
+                        info += ' | Период: ' + h.start_date + ' — ' + h.stop_date;
+                    }
+                    if (h.doc_date) {
+                        info += ' | Дата: ' + h.doc_date;
+                    }
+                    docInfo.textContent = info;
+                    docHeader.style.display = 'block';
                 }
 
-                const s = data.summary || {};
-
-                // Главная карточка «Пришло на счёт»
-                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.payout_total);
-                document.getElementById('real-hero-net').textContent = fmtRealMoney(s.net_sales);
-                document.getElementById('real-hero-deductions').textContent = fmtRealMoney(s.total_deductions);
+                // Главная карточка «К получению»
+                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.seller_receives);
+                document.getElementById('real-hero-deliveries').textContent = s.delivery_count || 0;
+                document.getElementById('real-hero-returns-count').textContent = s.return_count || 0;
+                document.getElementById('real-hero-avg-commission').textContent = (s.avg_commission_pct || 0) + '%';
                 document.getElementById('real-payout-hero').style.display = 'block';
 
                 // Сводные карточки
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
+                const grossHint = document.getElementById('real-gross-hint');
+                if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
+
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
+                const retHint = document.getElementById('real-returns-hint');
+                if (retHint) retHint.textContent = s.return_count + ' возвратов';
+
                 document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
-                document.getElementById('real-logistics').textContent = fmtRealMoney(s.logistics);
-                document.getElementById('real-services').textContent = fmtRealMoney(s.services);
-                document.getElementById('real-penalties').textContent = fmtRealMoney(s.penalties);
-                document.getElementById('real-other').textContent = fmtRealMoney(s.other);
+                const comHint = document.getElementById('real-commission-hint');
+                if (comHint) comHint.textContent = 'Средняя: ' + (s.avg_commission_pct || 0) + '%';
+
+                document.getElementById('real-bonuses').textContent = fmtRealMoney(s.bonuses);
+                document.getElementById('real-standard-fee').textContent = fmtRealMoney(s.standard_fee);
+                document.getElementById('real-stars-bank').textContent = fmtRealMoney((s.stars || 0) + (s.bank_coinvestment || 0));
                 document.getElementById('real-summary').style.display = 'grid';
 
-                // Предупреждение о частичных ошибках API
-                const warnEl = document.getElementById('real-api-warnings');
-                if (warnEl) {
-                    if (data.chunks_failed > 0) {
-                        warnEl.innerHTML = '<span style="color:#e67e22">⚠️ Часть данных не загружена (' +
-                            data.chunks_failed + ' из ' + data.chunks_total + ' чанков). ' +
-                            'Ozon API вернул ошибку для: ' + (data.api_errors || []).join(', ') +
-                            '. Попробуйте повторить позже.</span>';
-                        warnEl.style.display = 'block';
-                    } else {
-                        warnEl.style.display = 'none';
-                    }
-                }
-
                 // Статистика
-                document.getElementById('real-total-ops').textContent = data.total_operations || 0;
+                document.getElementById('real-total-rows').textContent = data.total_rows || 0;
                 document.getElementById('real-total-products').textContent = data.total_products || 0;
                 document.getElementById('real-stats').style.display = 'block';
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
-
-                // Таблица по типам операций
-                renderRealizationTypesTable(data.operations_by_type || []);
-
-                // Детальная таблица транзакций
-                renderRealizationTransactions(data.transactions || []);
 
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
@@ -12729,6 +12599,7 @@ HTML_TEMPLATE = '''
 
         /**
          * Отрисовать таблицу реализации по товарам (SKU).
+         * Колонки: товар, артикул, цена, комиссия %, доставки, возвраты, продажи, комиссия, к получению.
          */
         function renderRealizationProducts(products) {
             const tbody = document.getElementById('real-products-tbody');
@@ -12740,87 +12611,23 @@ HTML_TEMPLATE = '''
             }
 
             tbody.innerHTML = products.map(p => {
-                const saleCls = p.sale_amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                const retCls = p.return_amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                const netCls = p.net >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 return '<tr>' +
                     '<td class="real-product-name" title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</td>' +
-                    '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.sku) + '</td>' +
-                    '<td class="real-amount-right ' + saleCls + '">' + fmtRealMoney(p.sale_amount) + '</td>' +
-                    '<td class="real-amount-right ' + retCls + '">' + fmtRealMoney(p.return_amount) + '</td>' +
+                    '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
+                    '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + p.commission_ratio + '%</td>' +
+                    '<td class="real-amount-right" style="color:#38a169;">' + p.delivery_qty + '</td>' +
+                    '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
+                    '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
-                    '<td class="real-amount-right ' + netCls + '" style="font-weight:700;">' + fmtRealMoney(p.net) + '</td>' +
-                    '<td style="text-align:center; color:#888;">' + p.operations_count + '</td>' +
+                    '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
                 '</tr>';
             }).join('');
 
             document.getElementById('real-products-wrapper').style.display = 'block';
-        }
-
-        /**
-         * Отрисовать таблицу по типам операций.
-         */
-        function renderRealizationTypesTable(types) {
-            const tbody = document.getElementById('real-types-tbody');
-            if (!tbody) return;
-
-            if (types.length === 0) {
-                document.getElementById('real-types-wrapper').style.display = 'none';
-                return;
-            }
-
-            let totalCount = 0;
-            let totalSum = 0;
-
-            tbody.innerHTML = types.map(t => {
-                totalCount += t.count;
-                totalSum += t.total;
-                const cls = t.total >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                return '<tr>' +
-                    '<td>' + escapeHtml(t.type_name) + '</td>' +
-                    '<td class="real-amount-right">' + t.count + '</td>' +
-                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(t.total) + '</td>' +
-                '</tr>';
-            }).join('');
-
-            document.getElementById('real-types-total-count').innerHTML = '<strong>' + totalCount + '</strong>';
-            const totalCls = totalSum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-            document.getElementById('real-types-total-sum').innerHTML = '<strong class="' + totalCls + '">' + fmtRealMoney(totalSum) + '</strong>';
-            document.getElementById('real-types-wrapper').style.display = 'block';
-        }
-
-        /**
-         * Отрисовать детальную таблицу транзакций.
-         */
-        function renderRealizationTransactions(transactions) {
-            const tbody = document.getElementById('real-trans-tbody');
-            if (!tbody) return;
-
-            if (transactions.length === 0) {
-                document.getElementById('real-transactions-wrapper').style.display = 'none';
-                return;
-            }
-
-            tbody.innerHTML = transactions.map(t => {
-                let dateStr = '';
-                if (t.date) {
-                    try {
-                        const d = new Date(t.date);
-                        dateStr = d.toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit', year: 'numeric'});
-                    } catch(e) { dateStr = t.date; }
-                }
-                const cls = t.amount >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                return '<tr>' +
-                    '<td class="real-trans-date">' + dateStr + '</td>' +
-                    '<td class="real-trans-type" title="' + escapeHtml(t.type) + '">' + escapeHtml(t.type) + '</td>' +
-                    '<td class="' + cls + '">' + fmtRealMoney(t.amount) + '</td>' +
-                    '<td>' + escapeHtml(t.posting_number || '\u2014') + '</td>' +
-                    '<td class="real-trans-item" title="' + escapeHtml(t.item_name || '') + '">' + escapeHtml(t.item_name || '\u2014') + '</td>' +
-                '</tr>';
-            }).join('');
-
-            document.getElementById('real-transactions-wrapper').style.display = 'block';
         }
 
         // ============================================================================
@@ -27132,322 +26939,220 @@ def api_finance_categories_update():
 @require_auth()
 def api_finance_realization():
     """
-    Получить данные реализации из Ozon Finance API за произвольный диапазон дат.
+    Получить акт реализации из Ozon API (/v2/finance/realization).
 
-    Пользователь сам выбирает даты — без привязки к месяцу и без «угадывания»
-    кассового периода. Показывает все операции Ozon за указанный диапазон.
+    Использует эндпоинт /v2/finance/realization, который возвращает данные
+    акта реализации — гросс-продажи, детальную разбивку комиссий, возвраты.
+    Числа совпадают с разделом «Начисления» в кабинете Ozon.
+
+    API принимает только {year, month} — данные за целый месяц.
 
     Аргументы (query params):
-        date_from (str): Начало периода в формате YYYY-MM-DD
-        date_to   (str): Конец периода в формате YYYY-MM-DD (включительно)
+        month (str): Месяц в формате YYYY-MM (например, 2026-01)
 
     Возвращает:
-        JSON со сводкой, агрегацией по типам, по товарам (SKU), транзакциями.
+        JSON: header акта, сводка (продажи, возвраты, комиссии), таблица по товарам.
     """
-    import time as _time
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt
 
-    # ── Парсинг дат из параметров запроса ──
-    date_from_str = request.args.get('date_from', '')
-    date_to_str = request.args.get('date_to', '')
+    # ── Парсинг месяца из параметров запроса ──
+    month_str = request.args.get('month', '')
 
-    # Если даты не указаны — берём текущий месяц
-    if not date_from_str or not date_to_str:
+    # Если месяц не указан — берём текущий
+    if not month_str:
         now = _dt.now()
-        date_from_str = now.strftime('%Y-%m-01')
-        date_to_str = now.strftime('%Y-%m-%d')
+        month_str = now.strftime('%Y-%m')
 
     try:
-        dt_from = _dt.strptime(date_from_str, '%Y-%m-%d')
-        dt_to = _dt.strptime(date_to_str, '%Y-%m-%d')
-
-        # Валидация: дата начала не позже даты конца
-        if dt_from > dt_to:
-            return jsonify({'success': False, 'error': 'Дата начала не может быть позже даты конца'}), 400
-
-        # Валидация: максимум 365 дней
-        if (dt_to - dt_from).days > 365:
-            return jsonify({'success': False, 'error': 'Максимальный период — 365 дней'}), 400
-
+        dt = _dt.strptime(month_str, '%Y-%m')
+        year = dt.year
+        month = dt.month
     except (ValueError, TypeError):
-        return jsonify({'success': False, 'error': 'Неверный формат дат. Используйте YYYY-MM-DD'}), 400
+        return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
 
-    # ── Загрузка транзакций из Ozon API ──
-    # Ozon API ограничивает период ОДНИМ месяцем за запрос и часто падает
-    # на больших диапазонах. Разбиваем на 10-дневные чанки для стабильности.
-    # Каждый чанк пагинируется отдельно. При 500/504 — ретрай до 3 раз.
-
+    # ── Запрос к Ozon API /v2/finance/realization ──
     headers = get_ozon_headers()
-    all_operations = []
-    page_size = 1000
-    max_pages = 50
-    max_retries = 3
-
-    # Конец диапазона для API (следующий день, т.к. API использует «до, не включая»)
-    api_end = dt_to + _td(days=1)
-
-    # Генерируем 10-дневные чанки
-    chunk_start = dt_from
-    date_chunks = []
-
-    while chunk_start < api_end:
-        chunk_end = chunk_start + _td(days=10)
-        if chunk_end > api_end:
-            chunk_end = api_end
-        date_chunks.append((
-            chunk_start.strftime('%Y-%m-%dT00:00:00.000Z'),
-            chunk_end.strftime('%Y-%m-%dT00:00:00.000Z')
-        ))
-        chunk_start = chunk_end
-
-    api_errors = []
 
     try:
-        for chunk_idx, (d_from, d_to) in enumerate(date_chunks):
-            page = 1
-            chunk_ops = 0
-            while page <= max_pages:
-                payload = {
-                    "filter": {
-                        "date": {
-                            "from": d_from,
-                            "to": d_to
-                        },
-                        "operation_type": [],
-                        "posting_number": "",
-                        "transaction_type": "all"
-                    },
-                    "page": page,
-                    "page_size": page_size
-                }
+        payload = {"year": year, "month": month}
+        print(f"  📊 Запрос акта реализации: {year}-{month:02d}")
 
-                # Ретрай при 500/504 ошибках (Ozon API нестабилен на больших объёмах)
-                resp = None
-                for attempt in range(max_retries):
-                    try:
-                        resp = requests.post(
-                            f"{OZON_HOST}/v3/finance/transaction/list",
-                            json=payload,
-                            headers=headers,
-                            timeout=60
-                        )
-                        if resp.status_code in (500, 502, 503, 504):
-                            wait_sec = 2 ** attempt
-                            print(f"  ⚠️ Ozon API {resp.status_code} чанк {d_from[:10]}—{d_to[:10]} стр.{page}, ретрай {attempt+1}/{max_retries}")
-                            _time.sleep(wait_sec)
-                            continue
-                        break
-                    except requests.exceptions.Timeout:
-                        wait_sec = 2 ** attempt
-                        print(f"  ⚠️ Таймаут чанк {d_from[:10]}—{d_to[:10]} стр.{page}, ретрай {attempt+1}/{max_retries}")
-                        _time.sleep(wait_sec)
-                        continue
+        resp = requests.post(
+            f"{OZON_HOST}/v2/finance/realization",
+            json=payload,
+            headers=headers,
+            timeout=60
+        )
 
-                if resp is None or resp.status_code != 200:
-                    status = resp.status_code if resp else 'timeout'
-                    err_text = resp.text[:200] if resp else 'Таймаут'
-                    print(f"  ❌ Чанк {d_from[:10]}—{d_to[:10]}: ошибка {status} — {err_text}")
-                    api_errors.append(f"{d_from[:10]}—{d_to[:10]}: HTTP {status}")
-                    break  # Пропускаем этот чанк, переходим к следующему
+        if resp.status_code != 200:
+            err_text = resp.text[:300]
+            print(f"  ❌ Ozon API /v2/finance/realization: HTTP {resp.status_code} — {err_text}")
+            return jsonify({
+                'success': False,
+                'error': f'Ozon API вернул ошибку {resp.status_code}: {err_text[:200]}'
+            }), resp.status_code
 
-                data = resp.json()
-                result_data = data.get('result', {})
-                operations = result_data.get('operations', [])
+        data = resp.json()
+        result = data.get('result', {})
+        header = result.get('header', {})
+        rows = result.get('rows', [])
 
-                if not operations:
-                    break
+        print(f"  ✅ Получено {len(rows)} строк акта реализации за {year}-{month:02d}")
 
-                all_operations.extend(operations)
-                chunk_ops += len(operations)
-                page_count = result_data.get('page_count', 1)
+        # ── Агрегация данных по строкам ──
+        # Каждая строка — товарная позиция (может быть доставка и/или возврат).
+        # seller_price_per_instance — гросс-цена товара для покупателя.
+        # delivery_commission — данные по доставкам (продажам).
+        # return_commission — данные по возвратам (или null).
 
-                if page >= page_count:
-                    break
-                page += 1
-
-            if chunk_ops > 0:
-                print(f"  ✅ Чанк {d_from[:10]}—{d_to[:10]}: {chunk_ops} операций")
-
-        # ── Классификация операций ──
-        # Каждую операцию относим к одной из групп на основе operation_type и operation_type_name.
-        # Ozon использует англоязычные коды operation_type и русские operation_type_name.
-        # Группы: продажи, возвраты, комиссии, логистика, услуги, штрафы, прочее.
-
-        # Ключевые слова для классификации (в нижнем регистре)
-        # Проверяем combined = (operation_type_name + ' ' + operation_type).lower()
-        # ВАЖНО: порядок проверки имеет значение — первое совпадение побеждает.
-        # Убрали 'operationitem' из SALES — он ловил OperationItemReturn (возвраты).
-        SALES_KW = ['оплата товар', 'за продаж', 'начислен', 'deliveredtocustomer',
-                     'agentdelivered', 'itemservices', 'сбп']
-        RETURNS_KW = ['возврат', 'return', 'отмен', 'cancell', 'returngoods',
-                      'operationitemreturn']
-        COMMISSION_KW = ['комисси', 'commission', 'реклам', 'adv', 'promotion',
-                         'marketplaceservice', 'marketingservice', 'costperclick',
-                         'оплата за клик', 'продвижени']
-        LOGISTICS_KW = ['логистик', 'доставк', 'магистрал', 'последн', 'logistic',
-                        'delivery', 'crossdock', 'кросс-док', 'fulfillment', 'фулфил',
-                        'вывоз товар']
-        SERVICES_KW = ['эквайринг', 'хранение', 'размещение', 'подписк', 'service',
-                       'processing', 'корректир', 'adjustment', 'бронирование',
-                       'подготовк']
-        PENALTIES_KW = ['штраф', 'компенсац', 'penalty', 'fine', 'netting',
-                        'потер']
-
-        type_totals = {}
-        gross_sales = 0.0
-        returns_total = 0.0
-        commission_total = 0.0
-        logistics_total = 0.0
-        services_total = 0.0
-        penalties_total = 0.0
-        other_total = 0.0
+        gross_sales = 0.0           # Гросс-продажи (seller_price * delivery_qty)
+        returns_total = 0.0         # Возвраты (seller_price * return_qty, отрицательное)
+        commission_total = 0.0      # Полная комиссия Ozon (delivery + return .total)
+        seller_receives = 0.0       # К получению продавцом (delivery .amount)
+        bonuses_total = 0.0         # Бонусы Ozon
+        standard_fee_total = 0.0    # Стандартная комиссия
+        stars_total = 0.0           # Звёзды
+        bank_coinvest_total = 0.0   # Софинансирование банком
+        delivery_count = 0          # Количество доставок
+        return_count = 0            # Количество возвратов
+        commission_ratios = []      # Для расчёта средней комиссии %
 
         # Агрегация по товарам (SKU)
-        # Ключ: sku, значение: {name, sku, sale_amount, return_amount, commission, count}
         products_map = {}
 
-        for op in all_operations:
-            op_type_name = op.get('operation_type_name', 'Неизвестно')
-            op_type_code = op.get('operation_type', '').lower()
-            amount = op.get('amount', 0)
+        for row in rows:
+            seller_price = row.get('seller_price_per_instance', 0)
+            ratio = row.get('commission_ratio', 0)
+            item_info = row.get('item', {})
+            offer_id = item_info.get('offer_id', '')
+            sku = str(item_info.get('sku', ''))
+            name = item_info.get('name', 'Неизвестный товар')
+            barcode = item_info.get('barcode', '')
 
-            # Агрегация по типу операции
-            if op_type_name not in type_totals:
-                type_totals[op_type_name] = {'total': 0.0, 'count': 0}
-            type_totals[op_type_name]['total'] += amount
-            type_totals[op_type_name]['count'] += 1
+            dc = row.get('delivery_commission') or {}
+            rc = row.get('return_commission') or {}
 
-            # Классификация — проверяем и operation_type_name и operation_type (код)
-            combined = (op_type_name + ' ' + op_type_code).lower()
+            # Доставки (продажи)
+            d_qty = dc.get('quantity', 0)
+            d_amount = dc.get('amount', 0)          # К получению продавцом
+            d_total_comm = dc.get('total', 0)        # Полная комиссия Ozon
+            d_bonus = dc.get('bonus', 0)
+            d_std_fee = dc.get('standard_fee', 0)
+            d_stars = dc.get('stars', 0)
+            d_bank = dc.get('bank_coinvestment', 0)
 
-            if any(kw in combined for kw in SALES_KW):
-                gross_sales += amount
-                group = 'sale'
-            elif any(kw in combined for kw in RETURNS_KW):
-                returns_total += amount
-                group = 'return'
-            elif any(kw in combined for kw in COMMISSION_KW):
-                commission_total += amount
-                group = 'commission'
-            elif any(kw in combined for kw in LOGISTICS_KW):
-                logistics_total += amount
-                group = 'logistics'
-            elif any(kw in combined for kw in PENALTIES_KW):
-                penalties_total += amount
-                group = 'penalty'
-            elif any(kw in combined for kw in SERVICES_KW):
-                services_total += amount
-                group = 'service'
-            else:
-                other_total += amount
-                group = 'other'
+            # Возвраты
+            r_qty = rc.get('quantity', 0)
+            r_amount = rc.get('amount', 0)
+            r_total_comm = rc.get('total', 0)
+            r_bonus = rc.get('bonus', 0)
+            r_std_fee = rc.get('standard_fee', 0)
 
-            # Агрегация по товарам — собираем данные из items[]
-            items = op.get('items', [])
-            for item in items:
-                sku = str(item.get('sku', ''))
-                if not sku:
-                    continue
-                if sku not in products_map:
-                    products_map[sku] = {
-                        'name': item.get('name', 'Неизвестный товар')[:80],
+            # Гросс-продажи = цена продавца * кол-во доставок
+            row_gross_sales = seller_price * d_qty
+            # Возвраты = цена продавца * кол-во возвратов (отрицательное)
+            row_returns = seller_price * r_qty
+
+            gross_sales += row_gross_sales
+            returns_total += row_returns
+            commission_total += d_total_comm + r_total_comm
+            seller_receives += d_amount + r_amount
+            bonuses_total += d_bonus + r_bonus
+            standard_fee_total += d_std_fee + r_std_fee
+            stars_total += d_stars
+            bank_coinvest_total += d_bank
+            delivery_count += d_qty
+            return_count += r_qty
+
+            if ratio > 0:
+                commission_ratios.append(ratio)
+
+            # Агрегация по товарам
+            product_key = sku or offer_id or barcode
+            if product_key:
+                if product_key not in products_map:
+                    products_map[product_key] = {
+                        'name': name[:80],
                         'sku': sku,
-                        'sale_amount': 0.0,
-                        'return_amount': 0.0,
+                        'offer_id': offer_id,
+                        'seller_price': seller_price,
+                        'commission_ratio': ratio,
+                        'delivery_qty': 0,
+                        'return_qty': 0,
+                        'gross_sales': 0.0,
+                        'returns': 0.0,
                         'commission': 0.0,
-                        'other_amount': 0.0,
-                        'operations_count': 0
+                        'seller_receives': 0.0,
+                        'bonus': 0.0
                     }
-                products_map[sku]['operations_count'] += 1
-                if group == 'sale':
-                    products_map[sku]['sale_amount'] += amount
-                elif group == 'return':
-                    products_map[sku]['return_amount'] += amount
-                elif group == 'commission':
-                    products_map[sku]['commission'] += amount
-                else:
-                    products_map[sku]['other_amount'] += amount
+                p = products_map[product_key]
+                p['delivery_qty'] += d_qty
+                p['return_qty'] += r_qty
+                p['gross_sales'] += row_gross_sales
+                p['returns'] += row_returns
+                p['commission'] += d_total_comm + r_total_comm
+                p['seller_receives'] += d_amount + r_amount
+                p['bonus'] += d_bonus + r_bonus
 
         # ── Итоги ──
-        net_sales = gross_sales + returns_total  # returns_total обычно отрицательный
-        total_deductions = commission_total + logistics_total + services_total + penalties_total + other_total
-        payout_total = gross_sales + returns_total + total_deductions
-
-        # ── Таблица типов операций ──
-        operations_by_type = []
-        for type_name, tdata in sorted(type_totals.items(), key=lambda x: abs(x[1]['total']), reverse=True):
-            operations_by_type.append({
-                'type_name': type_name,
-                'count': tdata['count'],
-                'total': round(tdata['total'], 2)
-            })
+        # Итого начислено = к получению продавцом (сумма delivery_commission.amount + return_commission.amount)
+        net_total = seller_receives
+        avg_commission = sum(commission_ratios) / len(commission_ratios) if commission_ratios else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
-        for sku, pdata in sorted(products_map.items(),
-                                  key=lambda x: abs(x[1]['sale_amount']), reverse=True):
-            net = pdata['sale_amount'] + pdata['return_amount'] + pdata['commission'] + pdata['other_amount']
+        for key, pdata in sorted(products_map.items(),
+                                  key=lambda x: abs(x[1]['gross_sales']), reverse=True):
             products_list.append({
                 'sku': pdata['sku'],
+                'offer_id': pdata['offer_id'],
                 'name': pdata['name'],
-                'sale_amount': round(pdata['sale_amount'], 2),
-                'return_amount': round(pdata['return_amount'], 2),
+                'seller_price': round(pdata['seller_price'], 2),
+                'commission_ratio': round(pdata['commission_ratio'] * 100, 1),
+                'delivery_qty': pdata['delivery_qty'],
+                'return_qty': pdata['return_qty'],
+                'gross_sales': round(pdata['gross_sales'], 2),
+                'returns': round(pdata['returns'], 2),
                 'commission': round(pdata['commission'], 2),
-                'other_amount': round(pdata['other_amount'], 2),
-                'net': round(net, 2),
-                'operations_count': pdata['operations_count']
+                'seller_receives': round(pdata['seller_receives'], 2),
+                'bonus': round(pdata['bonus'], 2)
             })
 
-        # ── Последние транзакции (детальная таблица) ──
-        transactions = []
-        for op in all_operations[:300]:
-            items = op.get('items', [])
-            item_names = ', '.join(i.get('name', '')[:60] for i in items) if items else '—'
-            item_skus = ', '.join(str(i.get('sku', '')) for i in items) if items else ''
-            posting = op.get('posting', {})
-            services = op.get('services', [])
-            services_sum = sum(s.get('price', 0) for s in services)
-
-            transactions.append({
-                'date': op.get('operation_date', ''),
-                'type': op.get('operation_type_name', ''),
-                'type_code': op.get('operation_type', ''),
-                'amount': op.get('amount', 0),
-                'posting_number': posting.get('posting_number', ''),
-                'item_name': item_names[:100],
-                'sku': item_skus,
-                'accruals_for_sale': op.get('accruals_for_sale', 0),
-                'sale_commission': op.get('sale_commission', 0),
-                'services_total': services_sum
-            })
-
+        # ── Формируем ответ ──
         return jsonify({
             'success': True,
-            'period': {
-                'date_from': date_from_str,
-                'date_to': date_to_str,
-                'note': f'Операции за {date_from_str} — {date_to_str}'
+            'month': month_str,
+            'header': {
+                'number': header.get('number', ''),
+                'doc_date': header.get('doc_date', ''),
+                'start_date': header.get('start_date', ''),
+                'stop_date': header.get('stop_date', ''),
+                'contract_date': header.get('contract_date', ''),
+                'contract_number': header.get('contract_number', ''),
+                'payer_name': header.get('payer_name', ''),
+                'payer_inn': header.get('payer_inn', ''),
+                'payer_kpp': header.get('payer_kpp', ''),
+                'rcv_name': header.get('rcv_name', ''),
+                'rcv_inn': header.get('rcv_inn', ''),
+                'rcv_kpp': header.get('rcv_kpp', ''),
             },
             'summary': {
                 'gross_sales': round(gross_sales, 2),
                 'returns': round(returns_total, 2),
-                'net_sales': round(net_sales, 2),
                 'commission': round(commission_total, 2),
-                'logistics': round(logistics_total, 2),
-                'services': round(services_total, 2),
-                'penalties': round(penalties_total, 2),
-                'other': round(other_total, 2),
-                'total_deductions': round(total_deductions, 2),
-                'payout_total': round(payout_total, 2)
+                'seller_receives': round(seller_receives, 2),
+                'bonuses': round(bonuses_total, 2),
+                'standard_fee': round(standard_fee_total, 2),
+                'stars': round(stars_total, 2),
+                'bank_coinvestment': round(bank_coinvest_total, 2),
+                'net_total': round(net_total, 2),
+                'avg_commission_pct': round(avg_commission * 100, 1),
+                'delivery_count': delivery_count,
+                'return_count': return_count
             },
-            'operations_by_type': operations_by_type,
             'products': products_list,
-            'total_operations': len(all_operations),
-            'total_products': len(products_list),
-            'transactions': transactions,
-            'api_errors': api_errors,
-            'chunks_total': len(date_chunks),
-            'chunks_failed': len(api_errors)
+            'total_rows': len(rows),
+            'total_products': len(products_list)
         })
 
     except requests.exceptions.Timeout:
