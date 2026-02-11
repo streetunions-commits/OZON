@@ -9092,6 +9092,9 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
+                    <!-- Предупреждение об ошибках API -->
+                    <div id="real-api-warnings" style="display: none; margin-bottom: 12px; padding: 8px 14px; background: #fef3cd; border-radius: 8px; font-size: 13px;"></div>
+
                     <!-- Информация о загрузке -->
                     <div class="real-stats" id="real-stats" style="display: none;">
                         <span id="real-total-ops">0</span> операций &middot; <span id="real-total-products">0</span> товаров
@@ -12509,7 +12512,7 @@ HTML_TEMPLATE = '''
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
              'real-types-wrapper', 'real-transactions-wrapper', 'real-payout-hero',
-             'real-products-wrapper'].forEach(id => {
+             'real-products-wrapper', 'real-api-warnings'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -12556,6 +12559,20 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-penalties').textContent = fmtRealMoney(s.penalties);
                 document.getElementById('real-other').textContent = fmtRealMoney(s.other);
                 document.getElementById('real-summary').style.display = 'grid';
+
+                // Предупреждение о частичных ошибках API
+                const warnEl = document.getElementById('real-api-warnings');
+                if (warnEl) {
+                    if (data.chunks_failed > 0) {
+                        warnEl.innerHTML = '<span style="color:#e67e22">⚠️ Часть данных не загружена (' +
+                            data.chunks_failed + ' из ' + data.chunks_total + ' чанков). ' +
+                            'Ozon API вернул ошибку для: ' + (data.api_errors || []).join(', ') +
+                            '. Попробуйте повторить позже.</span>';
+                        warnEl.style.display = 'block';
+                    } else {
+                        warnEl.style.display = 'none';
+                    }
+                }
 
                 // Статистика
                 document.getElementById('real-total-ops').textContent = data.total_operations || 0;
@@ -27030,30 +27047,46 @@ def api_finance_realization():
         return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
 
     # ── Загрузка всех транзакций за период из Ozon API ──
-    # Ozon API ограничивает период ОДНИМ месяцем за запрос.
-    # Для кассового месяца M нужны операции за 2 месяца:
-    #   1) Предыдущий месяц целиком (M-1, 1-е — M, 1-е)
-    #   2) Начало текущего месяца (M, 1-е — M, 10-е)
-    # Делаем 2 раздельных серии запросов с пагинацией.
+    # Ozon API ограничивает период ОДНИМ месяцем за запрос и часто падает
+    # с 500/504 на полномесячных диапазонах из-за большого объёма данных.
+    # Решение: разбиваем на 10-дневные чанки — каждый гарантированно ≤ 1 месяца
+    # и достаточно маленький для стабильной работы API.
+    #
+    # Для кассового месяца M (напр. Январь 2026):
+    #   Чанк 1: Dec 1–10, Чанк 2: Dec 11–20, Чанк 3: Dec 21–Jan 1
+    #   Чанк 4: Jan 1–10
+    # Каждый чанк пагинируется отдельно. При 500/504 — ретрай до 3 раз.
+
+    import time as _time
+    from datetime import datetime as _dt, timedelta as _td
 
     headers = get_ozon_headers()
     all_operations = []
     page_size = 1000
     max_pages = 50
+    max_retries = 3
 
-    # Два диапазона дат (каждый ≤ 1 месяца для API)
-    date_ranges = [
-        # Предыдущий месяц целиком
-        (f"{prev_year}-{prev_month:02d}-01T00:00:00.000Z",
-         f"{year}-{month:02d}-01T00:00:00.000Z"),
-        # Начало текущего месяца (1—10 число)
-        (f"{year}-{month:02d}-01T00:00:00.000Z",
-         f"{year}-{month:02d}-10T00:00:00.000Z"),
-    ]
+    # Генерируем 10-дневные чанки от 1-го предыдущего месяца до 10-го текущего
+    chunk_start = _dt(prev_year, prev_month, 1)
+    chunk_end_limit = _dt(year, month, 10)
+    date_chunks = []
+
+    while chunk_start < chunk_end_limit:
+        chunk_end = chunk_start + _td(days=10)
+        if chunk_end > chunk_end_limit:
+            chunk_end = chunk_end_limit
+        date_chunks.append((
+            chunk_start.strftime('%Y-%m-%dT00:00:00.000Z'),
+            chunk_end.strftime('%Y-%m-%dT00:00:00.000Z')
+        ))
+        chunk_start = chunk_end
+
+    api_errors = []
 
     try:
-        for d_from, d_to in date_ranges:
+        for chunk_idx, (d_from, d_to) in enumerate(date_chunks):
             page = 1
+            chunk_ops = 0
             while page <= max_pages:
                 payload = {
                     "filter": {
@@ -27069,20 +27102,34 @@ def api_finance_realization():
                     "page_size": page_size
                 }
 
-                resp = requests.post(
-                    f"{OZON_HOST}/v3/finance/transaction/list",
-                    json=payload,
-                    headers=headers,
-                    timeout=30
-                )
+                # Ретрай при 500/504 ошибках (Ozon API нестабилен на больших объёмах)
+                resp = None
+                for attempt in range(max_retries):
+                    try:
+                        resp = requests.post(
+                            f"{OZON_HOST}/v3/finance/transaction/list",
+                            json=payload,
+                            headers=headers,
+                            timeout=60
+                        )
+                        if resp.status_code in (500, 502, 503, 504):
+                            wait_sec = 2 ** attempt
+                            print(f"  ⚠️ Ozon API {resp.status_code} чанк {d_from[:10]}—{d_to[:10]} стр.{page}, ретрай {attempt+1}/{max_retries}")
+                            _time.sleep(wait_sec)
+                            continue
+                        break
+                    except requests.exceptions.Timeout:
+                        wait_sec = 2 ** attempt
+                        print(f"  ⚠️ Таймаут чанк {d_from[:10]}—{d_to[:10]} стр.{page}, ретрай {attempt+1}/{max_retries}")
+                        _time.sleep(wait_sec)
+                        continue
 
-                if resp.status_code != 200:
-                    print(f"  ❌ Ozon Finance API ошибка: {resp.status_code}")
-                    print(f"  📋 Ответ: {resp.text[:500]}")
-                    return jsonify({
-                        'success': False,
-                        'error': f'Ошибка Ozon API: {resp.status_code}'
-                    }), 502
+                if resp is None or resp.status_code != 200:
+                    status = resp.status_code if resp else 'timeout'
+                    err_text = resp.text[:200] if resp else 'Таймаут'
+                    print(f"  ❌ Чанк {d_from[:10]}—{d_to[:10]}: ошибка {status} — {err_text}")
+                    api_errors.append(f"{d_from[:10]}—{d_to[:10]}: HTTP {status}")
+                    break  # Пропускаем этот чанк, переходим к следующему
 
                 data = resp.json()
                 result_data = data.get('result', {})
@@ -27092,11 +27139,15 @@ def api_finance_realization():
                     break
 
                 all_operations.extend(operations)
+                chunk_ops += len(operations)
                 page_count = result_data.get('page_count', 1)
 
                 if page >= page_count:
                     break
                 page += 1
+
+            if chunk_ops > 0:
+                print(f"  ✅ Чанк {d_from[:10]}—{d_to[:10]}: {chunk_ops} операций")
 
         # ── Классификация операций ──
         # Каждую операцию относим к одной из групп на основе operation_type и operation_type_name.
@@ -27267,7 +27318,10 @@ def api_finance_realization():
             'products': products_list,
             'total_operations': len(all_operations),
             'total_products': len(products_list),
-            'transactions': transactions
+            'transactions': transactions,
+            'api_errors': api_errors,
+            'chunks_total': len(date_chunks),
+            'chunks_failed': len(api_errors)
         })
 
     except requests.exceptions.Timeout:
