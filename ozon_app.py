@@ -19843,7 +19843,7 @@ HTML_TEMPLATE = '''
                     html += '</tbody></table></div>';
                     /* Кнопка добавления строки внутри группы */
                     html += '<div style="padding:10px 16px;text-align:left;">';
-                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\'' + escapeHtml(artName).replace(/'/g, "\\\\'") + '\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
+                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\\'' + escapeHtml(artName).replace(/'/g, "\\\\\\'") + '\\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
                     html += '</div>';
                     html += '</div>'; /* /plan-group-body */
                     html += '</div>'; /* /plan-group */
