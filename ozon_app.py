@@ -7556,7 +7556,7 @@ HTML_TEMPLATE = '''
         }
 
         .plan-table tbody tr:hover {
-            background: #f8f9ff;
+            background: #f0f4ff;
         }
 
         .plan-table .product-name-cell {
@@ -8971,7 +8971,6 @@ HTML_TEMPLATE = '''
 
                 <!-- Кнопка добавления -->
                 <div class="plan-header">
-                    <h3>План закупок</h3>
                     <button class="plan-add-btn admin-only" onclick="openPlanModal()">+ Добавить позицию</button>
                 </div>
 
@@ -8994,7 +8993,7 @@ HTML_TEMPLATE = '''
                                 <th>Оплач. инвойс ₽</th>
                                 <th>Оплач. дельта ¥</th>
                                 <th>Оплач. дельта ₽</th>
-                                <th style="width: 80px;" class="admin-only"></th>
+                                <th style="width: 50px;" class="admin-only"></th>
                             </tr>
                         </thead>
                         <tbody id="plan-tbody"></tbody>
@@ -9036,7 +9035,9 @@ HTML_TEMPLATE = '''
                     <div class="plan-form-grid">
                         <div class="plan-form-group full-width">
                             <label>Товар</label>
-                            <input type="text" id="plan-product-name" placeholder="Название товара">
+                            <select id="plan-product-name" style="padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
+                                <option value="">Выберите товар...</option>
+                            </select>
                         </div>
                         <div class="plan-form-group">
                             <label>Дата выхода план</label>
@@ -19224,12 +19225,38 @@ HTML_TEMPLATE = '''
         // ПЛАН ЗАКУПОК — JavaScript функции для CRUD операций
         // ====================================================================
 
+        /** Кэш товаров для выпадающего списка плана */
+        let planProducts = [];
+
+        /**
+         * Загрузка списка товаров аккаунта для выпадающего списка.
+         * Использует /api/products/list — возвращает только текущие (неархивные) товары.
+         */
+        async function loadPlanProducts() {
+            try {
+                const resp = await authFetch('/api/products/list');
+                const data = await resp.json();
+                if (data.success) {
+                    planProducts = data.products || [];
+                    // Заполняем select в модальном окне
+                    const select = document.getElementById('plan-product-name');
+                    select.innerHTML = '<option value="">Выберите товар...</option>' +
+                        planProducts.map(p => '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</option>').join('');
+                }
+            } catch (err) {
+                console.error('Ошибка загрузки товаров для плана:', err);
+            }
+        }
+
         /**
          * Загрузка всех записей плана с сервера.
          * Рендерит таблицу и обновляет сводку.
          */
         async function loadPlanData() {
             try {
+                // Загружаем товары параллельно с данными плана
+                if (planProducts.length === 0) loadPlanProducts();
+
                 const resp = await authFetch('/api/plan/items');
                 const data = await resp.json();
                 if (!data.success) return;
@@ -19255,7 +19282,6 @@ HTML_TEMPLATE = '''
                 let sumPaidInvYuan = 0, sumPaidInvRub = 0, sumPaidDeltaYuan = 0, sumPaidDeltaRub = 0;
 
                 tbody.innerHTML = items.map((item, idx) => {
-                    // Автоматический расчёт общей суммы юань
                     const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
 
                     sumQty += item.planned_qty || 0;
@@ -19267,7 +19293,8 @@ HTML_TEMPLATE = '''
                     sumPaidDeltaYuan += item.paid_delta_yuan || 0;
                     sumPaidDeltaRub += item.paid_delta_rub || 0;
 
-                    return '<tr>' +
+                    // Двойной клик — открыть редактирование, только кнопка удаления остаётся
+                    return '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor: pointer;" title="Двойной клик для редактирования">' +
                         '<td>' + (idx + 1) + '</td>' +
                         '<td class="product-name-cell" title="' + escapeHtml(item.product_name) + '">' + escapeHtml(item.product_name) + '</td>' +
                         '<td>' + formatPlanDate(item.planned_release_date) + '</td>' +
@@ -19283,8 +19310,7 @@ HTML_TEMPLATE = '''
                         '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + '</td>' +
                         '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + '</td>' +
                         '<td class="actions-cell admin-only">' +
-                            '<button class="plan-edit-btn" onclick="editPlanItem(' + item.id + ')">✏️</button>' +
-                            '<button class="plan-delete-btn" onclick="deletePlanItem(' + item.id + ')">🗑</button>' +
+                            '<button class="plan-delete-btn" onclick="event.stopPropagation(); deletePlanItem(' + item.id + ')">🗑</button>' +
                         '</td>' +
                     '</tr>';
                 }).join('');
@@ -19340,10 +19366,13 @@ HTML_TEMPLATE = '''
             document.getElementById('plan-modal-title').textContent = 'Добавить позицию';
             document.getElementById('plan-edit-id').value = '';
             // Очищаем все поля
-            ['plan-product-name', 'plan-release-date', 'plan-arrival-date', 'plan-qty',
+            document.getElementById('plan-product-name').value = '';
+            ['plan-release-date', 'plan-arrival-date', 'plan-qty',
              'plan-price-invoice', 'plan-price-delta', 'plan-in-transit', 'plan-arrived',
              'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
             ].forEach(id => document.getElementById(id).value = '');
+            // Обновляем список товаров перед открытием
+            loadPlanProducts();
             document.getElementById('plan-modal-overlay').classList.add('active');
         }
 
@@ -19352,8 +19381,10 @@ HTML_TEMPLATE = '''
             document.getElementById('plan-modal-overlay').classList.remove('active');
         }
 
-        /** Загрузить данные записи в форму для редактирования */
+        /** Загрузить данные записи в форму для редактирования (по двойному клику) */
         async function editPlanItem(id) {
+            // Только admin может редактировать
+            if (currentUser.role !== 'admin') return;
             try {
                 const resp = await authFetch('/api/plan/items');
                 const data = await resp.json();
@@ -19361,6 +19392,9 @@ HTML_TEMPLATE = '''
 
                 const item = data.items.find(i => i.id === id);
                 if (!item) return;
+
+                // Обновляем список товаров перед открытием
+                await loadPlanProducts();
 
                 document.getElementById('plan-modal-title').textContent = 'Редактировать позицию';
                 document.getElementById('plan-edit-id').value = id;
@@ -19387,7 +19421,7 @@ HTML_TEMPLATE = '''
         async function savePlanItem() {
             const productName = document.getElementById('plan-product-name').value.trim();
             if (!productName) {
-                alert('Укажите название товара');
+                alert('Выберите товар');
                 return;
             }
 
