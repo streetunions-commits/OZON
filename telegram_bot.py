@@ -2029,6 +2029,7 @@ async def finance_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         'yuan_amount': None,
         'requires_yuan': 0,
         'requires_description': 0,
+        'description_hint': '',
         'files': [],
         'telegram_chat_id': chat_id,
         'telegram_username': display_name
@@ -2162,6 +2163,9 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
         )
         return ConversationHandler.END
 
+    # Сохраняем кеш категорий для получения description_hint при выборе
+    context.user_data['finance']['categories_cache'] = categories
+
     # Формируем inline-кнопки с категориями (по 2 в ряд)
     keyboard = []
     row = []
@@ -2219,6 +2223,15 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     context.user_data['finance']['requires_yuan'] = requires_yuan
     context.user_data['finance']['requires_description'] = requires_description
 
+    # Получаем description_hint из кеша категорий
+    categories_cache = context.user_data['finance'].get('categories_cache', [])
+    desc_hint = ''
+    for cached_cat in categories_cache:
+        if cached_cat.get('id') == category_id:
+            desc_hint = cached_cat.get('description_hint', '')
+            break
+    context.user_data['finance']['description_hint'] = desc_hint
+
     fin = context.user_data['finance']
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
@@ -2238,21 +2251,15 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
         )
         return STATE_FIN_YUAN_AMOUNT
 
-    # Комментарий обязателен при requires_description, "Другое" или при контейнерной категории
+    # Комментарий обязателен при requires_description или "Другое"
     is_other = category_name.lower() == 'другое'
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_category")]
     if requires_description:
+        hint_text = desc_hint if desc_hint else 'Описание обязательно для данной категории'
         comment_prompt = (
-            "📝 *Описание обязательно!*\n\n"
-            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            f"📝 *Описание обязательно!*\n\n"
+            f"{hint_text}\n\n"
             "Введите описание или отправьте фото/документ:"
-        )
-        reply_markup = InlineKeyboardMarkup([back_btn])
-    elif is_container_linked:
-        comment_prompt = (
-            "📝 *Комментарий обязателен!*\n\n"
-            "Распишите какие суммы за что были оплачены.\n"
-            "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
         )
         reply_markup = InlineKeyboardMarkup([back_btn])
     elif is_other:
@@ -2301,23 +2308,17 @@ async def finance_yuan_amount_entered(update: Update, context: ContextTypes.DEFA
     formatted = format_amount(fin['amount'])
     yuan_formatted = format_amount(yuan_amount)
     category_name = fin.get('category_name', '')
-    is_container_linked = fin.get('is_container_linked', 0)
+    description_hint = fin.get('description_hint', '')
     requires_description = fin.get('requires_description', 0)
     is_other = category_name.lower() == 'другое'
 
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_yuan")]
     if requires_description:
+        hint_text = description_hint if description_hint else 'Описание обязательно для данной категории'
         comment_prompt = (
-            "📝 *Описание обязательно!*\n\n"
-            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            f"📝 *Описание обязательно!*\n\n"
+            f"{hint_text}\n\n"
             "Введите описание или отправьте фото/документ:"
-        )
-        reply_markup = InlineKeyboardMarkup([back_btn])
-    elif is_container_linked:
-        comment_prompt = (
-            "📝 *Комментарий обязателен!*\n\n"
-            "Распишите какие суммы за что были оплачены.\n"
-            "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
         )
         reply_markup = InlineKeyboardMarkup([back_btn])
     elif is_other:
@@ -2431,7 +2432,6 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     description = update.message.text.strip()
     fin = context.user_data['finance']
     is_other = (fin.get('category_name') or '').lower() == 'другое'
-    is_container_linked = fin.get('is_container_linked', 0)
     requires_description = fin.get('requires_description', 0)
 
     # Валидация обязательного описания
@@ -2442,14 +2442,6 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     if is_other and not description:
         await update.message.reply_text(
             "❌ При категории «Другое» комментарий обязателен. Введите комментарий:"
-        )
-        return STATE_FIN_DESCRIPTION
-
-    if is_container_linked and not description:
-        await update.message.reply_text(
-            "❌ Комментарий обязателен для этой категории.\n\n"
-            "Распишите какие суммы за что были оплачены.\n"
-            "Например: логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п."
         )
         return STATE_FIN_DESCRIPTION
 
@@ -2608,6 +2600,9 @@ async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT
         await query.edit_message_text("❌ Нет доступных категорий.")
         return ConversationHandler.END
 
+    # Сохраняем кеш категорий для получения description_hint при выборе
+    context.user_data['finance']['categories_cache'] = categories
+
     # Формируем inline-кнопки с категориями (по 2 в ряд)
     keyboard = []
     row = []
@@ -2655,25 +2650,19 @@ async def finance_back_to_description(update: Update, context: ContextTypes.DEFA
 
     # Определяем, обязателен ли комментарий
     is_other = (fin.get('category_name') or '').lower() == 'другое'
-    is_container_linked = fin.get('is_container_linked', 0)
     requires_description = fin.get('requires_description', 0)
+    description_hint = fin.get('description_hint', '')
     requires_yuan = fin.get('requires_yuan', 0)
     # Кнопка «Назад» ведёт на шаг юаней или категории
     back_callback = "fin_back_yuan" if requires_yuan else "fin_back_category"
     back_btn = [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)]
 
     if requires_description:
+        hint_text = description_hint if description_hint else 'Описание обязательно для данной категории'
         comment_prompt = (
-            "📝 *Описание обязательно!*\n\n"
-            "Надо прикрепить файл или указать за какие товары и для какого поставщика была оплата с разбивкой на суммы\n\n"
+            f"📝 *Описание обязательно!*\n\n"
+            f"{hint_text}\n\n"
             "Введите описание или отправьте фото/документ:"
-        )
-        reply_markup = InlineKeyboardMarkup([back_btn])
-    elif is_container_linked:
-        comment_prompt = (
-            "📝 *Комментарий обязателен!*\n\n"
-            "Распишите какие суммы за что были оплачены.\n"
-            "Например: _логистика по КНР - 20.000 (за контейнер номер 5), Пошлина - 40.000 (за контейнер номер 3) и т.п._"
         )
         reply_markup = InlineKeyboardMarkup([back_btn])
     elif is_other:
@@ -2805,9 +2794,8 @@ async def finance_file_entered(update: Update, context: ContextTypes.DEFAULT_TYP
 
         requires_description = fin.get('requires_description', 0)
         is_other = (fin.get('category_name') or '').lower() == 'другое'
-        is_container_linked = fin.get('is_container_linked', 0)
 
-        if (requires_description or is_other or is_container_linked) and not fin.get('description'):
+        if (requires_description or is_other) and not fin.get('description'):
             await message.reply_text("✅ Файл принят! Но описание обязательно.\nВведите описание текстом:")
             return STATE_FIN_DESCRIPTION
 
