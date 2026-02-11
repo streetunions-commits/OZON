@@ -19188,7 +19188,7 @@ HTML_TEMPLATE = '''
          */
         async function loadPlanData() {
             try {
-                const resp = await fetch('/api/plan/items');
+                const resp = await authFetch('/api/plan/items');
                 const data = await resp.json();
                 if (!data.success) return;
 
@@ -19313,7 +19313,7 @@ HTML_TEMPLATE = '''
         /** Загрузить данные записи в форму для редактирования */
         async function editPlanItem(id) {
             try {
-                const resp = await fetch('/api/plan/items');
+                const resp = await authFetch('/api/plan/items');
                 const data = await resp.json();
                 if (!data.success) return;
 
@@ -19372,7 +19372,7 @@ HTML_TEMPLATE = '''
             if (editId) payload.id = parseInt(editId);
 
             try {
-                const resp = await fetch(url, {
+                const resp = await authFetch(url, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(payload)
@@ -19386,7 +19386,6 @@ HTML_TEMPLATE = '''
                 }
             } catch (err) {
                 console.error('Ошибка сохранения записи плана:', err);
-                alert('Ошибка сети');
             }
         }
 
@@ -19394,7 +19393,7 @@ HTML_TEMPLATE = '''
         async function deletePlanItem(id) {
             if (!confirm('Удалить эту позицию из плана?')) return;
             try {
-                const resp = await fetch('/api/plan/items/delete', {
+                const resp = await authFetch('/api/plan/items/delete', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({id: id})
