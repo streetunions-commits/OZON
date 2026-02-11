@@ -9033,7 +9033,7 @@ HTML_TEMPLATE = '''
 
                     <!-- Пояснение -->
                     <div class="real-info-banner">
-                        Данные по кассе: суммы, которые <strong>реально поступили / были удержаны</strong> в выбранном месяце (по дате выплаты на р/с, а не по дате заказа).
+                        Кассовый метод: загружаются операции, которые <strong>были выплачены на р/с</strong> в выбранном месяце. Ozon выплачивает с лагом ~3-4 недели, поэтому январские выплаты = операции за декабрь. Диапазон подбирается автоматически.
                     </div>
 
                     <!-- Фильтр по месяцу и кнопка загрузки -->
@@ -12531,10 +12531,10 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
-                // Период
+                // Период — показываем диапазон операций
                 const periodInfo = document.getElementById('real-period-info');
                 if (periodInfo && data.period) {
-                    periodInfo.textContent = data.period.from + ' \u2014 ' + data.period.to;
+                    periodInfo.textContent = 'Операции: ' + data.period.operations_from + ' \u2014 ' + data.period.operations_to;
                     periodInfo.style.display = 'inline';
                 }
 
@@ -26960,8 +26960,13 @@ def api_finance_categories_update():
 # /v3/finance/transaction/list и показывает КАССОВУЮ выручку —
 # т.е. деньги, которые реально поступили/были удержаны в выбранном месяце.
 #
-# Важно: фильтр по дате = дата операции (выплаты), а НЕ дата заказа.
-# Поэтому в январе могут быть выплаты за декабрьские продажи.
+# ВАЖНО: Ozon API фильтрует по operation_date (дата операции), а НЕ по
+# дате выплаты на р/с. Выплаты идут с лагом ~3-4 недели:
+#   - Выплата в январе = операции примерно с 1 декабря по 7 января.
+# Поэтому для «кассового» месяца M мы сдвигаем date range назад:
+#   date_from = 1-е число предыдущего месяца (M-1)
+#   date_to   = 10-е число выбранного месяца (M)
+# Это захватывает все операции, которые были выплачены в месяце M.
 #
 # Используемые эндпоинты Ozon:
 #   - /v3/finance/transaction/list — основной, все транзакции за период
@@ -26971,33 +26976,49 @@ def api_finance_categories_update():
 @require_auth()
 def api_finance_realization():
     """
-    Получить данные реализации из Ozon Finance API за указанный месяц.
-    Показывает КАССОВУЮ картину: деньги, поступившие/удержанные в этом месяце.
+    Получить данные реализации из Ozon Finance API за указанный месяц выплаты.
+    Показывает КАССОВУЮ картину: операции, которые попали в выплаты этого месяца.
+
+    Ozon платит с лагом ~3-4 недели, поэтому для «месяца выплаты M»
+    мы загружаем операции за (M-1, 1-е число) — (M, 10-е число).
+    Январские выплаты = операции с ~1 декабря по ~7 января.
 
     Аргументы (query params):
-        month (str): Месяц в формате YYYY-MM (например, 2026-02)
+        month (str): Месяц ВЫПЛАТЫ в формате YYYY-MM (например, 2026-01)
 
     Возвращает:
-        JSON со сводкой (сколько пришло на счёт), агрегацией по типам операций,
-        агрегацией по товарам (SKU) и списком последних транзакций.
+        JSON со сводкой, агрегацией по типам, по товарам (SKU), транзакциями.
     """
     import calendar
-    from datetime import datetime as dt_cls
 
     month_str = request.args.get('month', '')
     if not month_str:
+        from datetime import datetime as dt_cls
         now = dt_cls.now()
         month_str = now.strftime('%Y-%m')
 
     try:
         year, month = map(int, month_str.split('-'))
-        date_from = f"{year}-{month:02d}-01T00:00:00.000Z"
-        if month == 12:
-            date_to = f"{year + 1}-01-01T00:00:00.000Z"
+
+        # ── Расчёт диапазона дат операций для кассового месяца ──
+        # Ozon выплачивает с лагом ~3-4 недели. Выплаты в январе
+        # покрывают операции примерно с 1 декабря по 7 января.
+        # Поэтому для «месяца выплаты M» загружаем операции:
+        #   date_from = 1-е число ПРЕДЫДУЩЕГО месяца (M-1)
+        #   date_to   = 10-е число ТЕКУЩЕГО месяца (M)
+
+        # Предыдущий месяц (без dateutil)
+        if month == 1:
+            prev_year, prev_month = year - 1, 12
         else:
-            date_to = f"{year}-{month + 1:02d}-01T00:00:00.000Z"
-        last_day = calendar.monthrange(year, month)[1]
-        period_display_to = f"{year}-{month:02d}-{last_day:02d}"
+            prev_year, prev_month = year, month - 1
+
+        date_from = f"{prev_year}-{prev_month:02d}-01T00:00:00.000Z"
+        date_to = f"{year}-{month:02d}-10T00:00:00.000Z"
+
+        # Для отображения в UI
+        period_display_from = f"{prev_year}-{prev_month:02d}-01"
+        period_display_to = f"{year}-{month:02d}-09"
     except (ValueError, TypeError):
         return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
 
@@ -27201,9 +27222,10 @@ def api_finance_realization():
         return jsonify({
             'success': True,
             'period': {
-                'from': f"{year}-{month:02d}-01",
-                'to': period_display_to,
-                'month': month_str
+                'payout_month': month_str,
+                'operations_from': period_display_from,
+                'operations_to': period_display_to,
+                'note': f'Операции {period_display_from} — {period_display_to}, выплаченные в {month_str}'
             },
             'summary': {
                 'gross_sales': round(gross_sales, 2),
