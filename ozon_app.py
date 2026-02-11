@@ -7727,6 +7727,7 @@ HTML_TEMPLATE = '''
         .plan-group-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1050px; }
         .plan-group-table thead th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #555; border-bottom: 2px solid #e9ecef; white-space: nowrap; font-size: 11px; }
+        .plan-totals-row td { padding: 6px 10px; text-align: center; font-weight: 700; font-size: 13px; background: #f0f4ff; border-bottom: 1px solid #dce3f0; }
         .plan-group-table tbody td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
         .plan-group-table tbody tr:hover { background: #f8f9ff; }
         .plan-group-table .yuan-cell { color: #e67e22; font-weight: 500; }
@@ -19890,23 +19891,29 @@ HTML_TEMPLATE = '''
                     html += '<div class="plan-group-header" onclick="togglePlanGroup(this)">';
                     html += '<span class="plan-group-arrow">&#9654;</span>';
                     html += '<span class="plan-group-name">' + escapeHtml(artName) + '</span>';
-                    html += '<span class="plan-group-stats">';
-                    html += '<span>Строк: ' + rows.length + '</span>';
-                    html += '<span>Кол-во: ' + fmtNum(gQty) + '</span>';
-                    html += '<span class="yuan">Сумма: ' + fmtMoney(gTotal) + ' &yen;</span>';
-                    html += '<span>В пути: ' + fmtNum(gTransit) + '</span>';
-                    html += '<span>Пришло: ' + fmtNum(gArrived) + '</span>';
-                    html += '<span class="yuan">Опл.инв: ' + fmtMoney(gPaidInvY) + ' &yen;</span>';
-                    html += '<span class="rub">Опл.инв: ' + fmtMoney(gPaidInvR) + ' &#8381;</span>';
-                    if (gPaidDY) html += '<span class="yuan">Опл.&#916;: ' + fmtMoney(gPaidDY) + ' &yen;</span>';
-                    if (gPaidDR) html += '<span class="rub">Опл.&#916;: ' + fmtMoney(gPaidDR) + ' &#8381;</span>';
-                    html += '</span>';
+                    html += '<span class="plan-group-stats"><span>Строк: ' + rows.length + '</span></span>';
                     html += '</div>';
 
                     /* Тело группы */
                     html += '<div class="plan-group-body">';
                     html += '<div class="plan-group-table-wrap">';
-                    html += '<table class="plan-group-table"><thead><tr>';
+                    html += '<table class="plan-group-table"><thead>';
+                    /* Строка итогов — над заголовками, выровнена по столбцам */
+                    html += '<tr class="plan-totals-row">';
+                    html += '<td></td><td></td><td></td>';
+                    html += '<td class="number-cell">' + fmtNum(gQty) + '</td>';
+                    html += '<td></td><td></td>';
+                    html += '<td class="yuan-cell">' + fmtMoney(gTotal) + '</td>';
+                    html += '<td class="number-cell">' + fmtNum(gTransit) + '</td>';
+                    html += '<td class="number-cell">' + fmtNum(gArrived) + '</td>';
+                    html += '<td class="yuan-cell">' + fmtMoney(gPaidInvY) + '</td>';
+                    html += '<td class="rub-cell">' + fmtMoney(gPaidInvR) + '</td>';
+                    html += '<td class="yuan-cell">' + fmtMoney(gPaidDY) + '</td>';
+                    html += '<td class="rub-cell">' + fmtMoney(gPaidDR) + '</td>';
+                    html += '<td class="admin-only"></td>';
+                    html += '</tr>';
+                    /* Заголовки столбцов */
+                    html += '<tr>';
                     html += '<th>#</th><th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс</th><th>Цена юань<br>дельта-инвойс</th><th>Общая<br>сумма юань</th>';
                     html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
@@ -19972,10 +19979,10 @@ HTML_TEMPLATE = '''
             return Number(val).toLocaleString('ru-RU');
         }
 
-        /** Форматирование денег (2 знака после запятой) */
+        /** Форматирование денег (до 2 знаков, без лишних нулей) */
         function fmtMoney(val) {
             if (!val && val !== 0) return '0';
-            return Number(val).toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            return Number(val).toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 2});
         }
 
         /** Экранирование HTML для защиты от XSS */
