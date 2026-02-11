@@ -1083,6 +1083,12 @@ def init_database():
                      "ALTER TABLE finance_categories ADD COLUMN requires_description INTEGER DEFAULT 0"):
         print("✅ Добавлена колонка requires_description в finance_categories")
 
+    # Миграция: текст-подсказка для описания (пример для пользователя).
+    # Отображается в вебе (placeholder/alert) и в Telegram-боте при запросе описания.
+    if ensure_column(cursor, 'finance_categories', 'description_hint',
+                     "ALTER TABLE finance_categories ADD COLUMN description_hint TEXT DEFAULT ''"):
+        print("✅ Добавлена колонка description_hint в finance_categories")
+
     # Таблица для хранения файлов, прикрепленных к финансовым записям.
     # Файлы привязываются к конкретной записи и отображаются в таблице/детализации.
     cursor.execute('''
@@ -11696,13 +11702,9 @@ HTML_TEMPLATE = '''
                 document.getElementById('finance-description').focus();
                 return;
             }
-            if (selectedCat?.is_container_linked && !description) {
-                alert('Для категории закупки необходимо указать комментарий — распишите какие суммы за что были оплачены');
-                document.getElementById('finance-description').focus();
-                return;
-            }
             if (selectedCat?.requires_description && !description) {
-                alert('Для данной категории необходимо указать описание (за какие товары и для какого поставщика была оплата с разбивкой на суммы)');
+                const hint = selectedCat.description_hint || 'Описание обязательно для данной категории';
+                alert(hint);
                 document.getElementById('finance-description').focus();
                 return;
             }
@@ -19908,30 +19910,23 @@ HTML_TEMPLATE = '''
                     html += '<div class="plan-group-header" onclick="togglePlanGroup(this)">';
                     html += '<span class="plan-group-arrow">&#9654;</span>';
                     html += '<span class="plan-group-name">' + escapeHtml(artName) + '</span>';
-                    html += '<span class="plan-group-stats"><span>Строк: ' + rows.length + '</span></span>';
+                    html += '<span class="plan-group-stats">';
+                    html += '<span>Кол-во: <b>' + fmtNum(gQty) + '</b></span>';
+                    html += '<span class="yuan">Сумма: <b>' + fmtMoney(gTotal) + '</b></span>';
+                    html += '<span>В пути: <b>' + fmtNum(gTransit) + '</b></span>';
+                    html += '<span>Пришло: <b>' + fmtNum(gArrived) + '</b></span>';
+                    html += '<span class="yuan">Опл.инв: <b>' + fmtMoney(gPaidInvY) + '</b> &yen;</span>';
+                    html += '<span class="rub">Опл.инв: <b>' + fmtMoney(gPaidInvR) + '</b> &#8381;</span>';
+                    if (gPaidDY) html += '<span class="yuan">Опл.&#916;: <b>' + fmtMoney(gPaidDY) + '</b> &yen;</span>';
+                    if (gPaidDR) html += '<span class="rub">Опл.&#916;: <b>' + fmtMoney(gPaidDR) + '</b> &#8381;</span>';
+                    html += '</span>';
                     html += '</div>';
 
                     /* Тело группы */
                     html += '<div class="plan-group-body">';
                     html += '<div class="plan-group-table-wrap">';
-                    html += '<table class="plan-group-table"><thead>';
-                    /* Строка итогов — над заголовками, выровнена по столбцам */
-                    html += '<tr class="plan-totals-row">';
-                    html += '<td></td><td></td><td></td>';
-                    html += '<td class="number-cell">' + fmtNum(gQty) + '</td>';
-                    html += '<td></td><td></td>';
-                    html += '<td class="yuan-cell">' + fmtMoney(gTotal) + '</td>';
-                    html += '<td class="number-cell">' + fmtNum(gTransit) + '</td>';
-                    html += '<td class="number-cell">' + fmtNum(gArrived) + '</td>';
-                    html += '<td class="yuan-cell">' + fmtMoney(gPaidInvY) + '</td>';
-                    html += '<td class="rub-cell">' + fmtMoney(gPaidInvR) + '</td>';
-                    html += '<td class="yuan-cell">' + fmtMoney(gPaidDY) + '</td>';
-                    html += '<td class="rub-cell">' + fmtMoney(gPaidDR) + '</td>';
-                    html += '<td class="admin-only"></td>';
-                    html += '</tr>';
-                    /* Заголовки столбцов */
-                    html += '<tr>';
-                    html += '<th>#</th><th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
+                    html += '<table class="plan-group-table"><thead><tr>';
+                    html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс</th><th>Цена юань<br>дельта-инвойс</th><th>Общая<br>сумма юань</th>';
                     html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
                     html += '<th>Оплачено<br>инвойс юань</th><th>Оплачено<br>инвойс рубли</th><th>Оплачено<br>дельта юань</th><th>Оплачено<br>дельта рубли</th>';
@@ -19941,7 +19936,6 @@ HTML_TEMPLATE = '''
                     rows.forEach((item, idx) => {
                         const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
                         html += '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor:pointer" title="Двойной клик для редактирования">';
-                        html += '<td>' + (idx + 1) + '</td>';
                         html += '<td>' + formatPlanDate(item.planned_release_date) + '</td>';
                         html += '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item.planned_qty) + '</td>';
@@ -26042,9 +26036,9 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
@@ -26052,6 +26046,7 @@ def api_finance_categories():
             'is_container_linked': r['is_container_linked'] or 0,
             'requires_yuan': r['requires_yuan'] or 0,
             'requires_description': r['requires_description'] or 0,
+            'description_hint': r['description_hint'] or '',
             'created_at': r['created_at']
         } for r in rows]
         conn.close()
@@ -26094,9 +26089,11 @@ def api_finance_categories_add():
         requires_yuan = 1 if (data.get('requires_yuan') and record_type == 'expense') else 0
         # Флаг обязательности описания (только для расходных категорий)
         requires_description = 1 if (data.get('requires_description') and record_type == 'expense') else 0
+        # Текст-подсказка для описания (что увидит пользователь)
+        description_hint = (data.get('description_hint') or '').strip()
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description) VALUES (?, ?, ?, ?, ?)',
-                       (name, record_type, is_container_linked, requires_yuan, requires_description))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint) VALUES (?, ?, ?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -26958,6 +26955,12 @@ def api_finance_categories_update():
             updates.append('requires_description = ?')
             params_upd.append(requires_description)
 
+        # description_hint — текст-подсказка для описания
+        if 'description_hint' in data:
+            description_hint = (data.get('description_hint') or '').strip()
+            updates.append('description_hint = ?')
+            params_upd.append(description_hint)
+
         if not updates:
             conn.close()
             return jsonify({'success': True, 'message': 'Нечего обновлять'})
@@ -27534,12 +27537,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0, 'description_hint': r['description_hint'] or ''} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
