@@ -7818,8 +7818,11 @@ HTML_TEMPLATE = '''
         .plan-group-stats span { white-space: nowrap; }
         .plan-group-stats .yuan { color: #e67e22; font-weight: 600; }
         .plan-group-stats .rub { color: #27ae60; font-weight: 600; }
-        .plan-group-body { display: none; border-top: 1px solid #eee; }
-        .plan-group.open .plan-group-body { display: block; }
+        .plan-group-body { border-top: 1px solid #eee; }
+        .plan-group .plan-group-table tbody { display: none; }
+        .plan-group.open .plan-group-table tbody { display: table-row-group; }
+        .plan-group .plan-add-wrap { display: none; }
+        .plan-group.open .plan-add-wrap { display: block; }
         .plan-group-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1050px; }
         .plan-group-table thead th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #555; border-bottom: 2px solid #e9ecef; white-space: nowrap; font-size: 11px; }
@@ -19953,7 +19956,7 @@ HTML_TEMPLATE = '''
                     html += '<span class="plan-group-name">' + escapeHtml(artName) + '</span>';
                     html += '</div>';
 
-                    /* Тело группы */
+                    /* Таблица — thead всегда видна, tbody скрыт до раскрытия */
                     html += '<div class="plan-group-body">';
                     html += '<div class="plan-group-table-wrap">';
                     html += '<table class="plan-group-table"><thead>';
@@ -19998,9 +20001,9 @@ HTML_TEMPLATE = '''
                     });
 
                     html += '</tbody></table></div>';
-                    /* Кнопка добавления строки внутри группы */
-                    html += '<div style="padding:10px 16px;text-align:left;">';
-                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\\'' + escapeHtml(artName).replace(/'/g, "\\\\\\'") + '\\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
+                    /* Кнопка добавления строки — видна только при раскрытии */
+                    html += '<div class="plan-add-wrap" style="padding:10px 16px;text-align:left;">';
+                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\'' + escapeHtml(artName).replace(/'/g, "\\'") + '\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
                     html += '</div>';
                     html += '</div>'; /* /plan-group-body */
                     html += '</div>'; /* /plan-group */
