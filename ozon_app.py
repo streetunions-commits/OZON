@@ -9293,11 +9293,11 @@ HTML_TEMPLATE = '''
                             <input type="number" id="plan-qty" placeholder="0" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Цена юань инвойс</label>
+                            <label>Цена юань инвойс, шт ¥</label>
                             <input type="number" id="plan-price-invoice" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Цена юань дельта-инвойс</label>
+                            <label>Цена юань дельта инвойс, шт ¥</label>
                             <input type="number" id="plan-price-delta" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
@@ -9309,19 +9309,19 @@ HTML_TEMPLATE = '''
                             <input type="number" id="plan-arrived" placeholder="0" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено инвойс юань</label>
+                            <label>Оплачено инвойс ¥</label>
                             <input type="number" id="plan-paid-inv-yuan" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено инвойс рубли</label>
+                            <label>Оплачено инвойс ₽</label>
                             <input type="number" id="plan-paid-inv-rub" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено дельта юань</label>
+                            <label>Оплачено дельта ¥</label>
                             <input type="number" id="plan-paid-delta-yuan" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено дельта рубли</label>
+                            <label>Оплачено дельта ₽</label>
                             <input type="number" id="plan-paid-delta-rub" placeholder="0.00" step="0.01" min="0">
                         </div>
                     </div>
@@ -20003,19 +20003,19 @@ HTML_TEMPLATE = '''
                     html += '<td></td><td></td>';
                     html += '<td>' + fmtNum(gQty) + '</td>';
                     html += '<td></td><td></td>';
-                    html += '<td>' + fmtMoney(gTotal) + '</td>';
+                    html += '<td>' + fmtMoney(gTotal) + ' &#165;</td>';
                     html += '<td>' + fmtNum(gTransit) + '</td>';
                     html += '<td>' + fmtNum(gArrived) + '</td>';
-                    html += '<td>' + fmtMoney(gPaidInvY) + '</td>';
-                    html += '<td>' + fmtMoney(gPaidInvR) + '</td>';
-                    html += '<td>' + fmtMoney(gPaidDY) + '</td>';
-                    html += '<td>' + fmtMoney(gPaidDR) + '</td>';
+                    html += '<td>' + fmtMoney(gPaidInvY) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gPaidInvR) + ' &#8381;</td>';
+                    html += '<td>' + fmtMoney(gPaidDY) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gPaidDR) + ' &#8381;</td>';
                     html += '<td class="admin-only"></td>';
                     html += '</tr><tr>';
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
-                    html += '<th>Цена юань<br>инвойс</th><th>Цена юань<br>дельта-инвойс</th><th>Общая<br>сумма юань</th>';
+                    html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая<br>сумма &#165;</th>';
                     html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
-                    html += '<th>Оплачено<br>инвойс юань</th><th>Оплачено<br>инвойс рубли</th><th>Оплачено<br>дельта юань</th><th>Оплачено<br>дельта рубли</th>';
+                    html += '<th>Оплачено<br>инвойс &#165;</th><th>Оплачено<br>инвойс &#8381;</th><th>Оплачено<br>дельта &#165;</th><th>Оплачено<br>дельта &#8381;</th>';
                     html += '<th class="admin-only"></th>';
                     html += '</tr></thead><tbody>';
 
@@ -20025,15 +20025,15 @@ HTML_TEMPLATE = '''
                         html += '<td>' + formatPlanDate(item.planned_release_date) + '</td>';
                         html += '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item.planned_qty) + '</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + '</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + '</td>';
-                        html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalYuan) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + ' &#165;</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + ' &#165;</td>';
+                        html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalYuan) + ' &#165;</td>';
                         html += '<td class="number-cell">' + fmtNum(item.qty_in_transit) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + '</td>';
-                        html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + '</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + '</td>';
-                        html += '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + '</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + ' &#165;</td>';
+                        html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + ' &#8381;</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + ' &#165;</td>';
+                        html += '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
                         html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">&#128465;</button>';
                         html += '</td></tr>';
