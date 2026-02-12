@@ -11892,7 +11892,8 @@ HTML_TEMPLATE = '''
          * Удалить финансовую запись (с подтверждением).
          */
         async function deleteFinanceRecord(id) {
-            if (!confirm('Удалить эту запись?')) return;
+            const input = prompt('Для удаления записи введите слово  удалить');
+            if (!input || input.trim().toLowerCase() !== 'удалить') return;
 
             try {
                 const resp = await authFetch('/api/finance/records/delete', {
