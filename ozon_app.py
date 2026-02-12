@@ -15629,7 +15629,8 @@ HTML_TEMPLATE = '''
                     const docNum = r.doc_id || '—';
                     const date = formatDateShort(r.receipt_date);
                     const qty = r.quantity || 0;
-                    const price = r.purchase_price ? formatNumberWithSpaces(Math.round(r.purchase_price)) + '₽' : '—';
+                    const actualPrice = r.calculated_cost || r.purchase_price || 0;
+                    const price = actualPrice > 0 ? formatNumberWithSpaces(Math.round(actualPrice)) + '₽' : '—';
                     totalReceiptQty += qty;
 
                     html += '<tr>';
@@ -22851,6 +22852,7 @@ def get_warehouse_movements_by_sku(sku):
                 r.receipt_date,
                 r.quantity,
                 r.purchase_price,
+                r.calculated_cost,
                 r.comment,
                 d.receipt_datetime,
                 d.comment as doc_comment,
