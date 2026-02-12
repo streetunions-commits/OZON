@@ -27328,9 +27328,9 @@ def api_finance_records_add():
             _save_finance_plan_distributions(cursor, new_id, plan_distributions, yuan_amount)
 
         # Расходная категория привязана к плану, но распределений нет — уведомляем
-        print(f'🔍 [DEBUG plan_notif] record_type={record_type}, is_plan_linked={is_plan_linked}, yuan_amount={yuan_amount}, plan_distributions={plan_distributions}')
+        import sys; print(f'🔍 [DEBUG plan_notif] record_type={record_type}, is_plan_linked={is_plan_linked}, yuan_amount={yuan_amount}, plan_distributions={plan_distributions}', file=sys.stderr, flush=True)
         if record_type == 'expense' and is_plan_linked and yuan_amount and not plan_distributions:
-            print(f'📋 Создаём уведомление о распределении по плану для записи #{new_id}')
+            print(f'📋 Создаём уведомление о распределении по плану для записи #{new_id}', file=sys.stderr, flush=True)
             _create_finance_plan_distribution_notification(
                 cursor, new_id, yuan_amount, amount, category_name, description,
                 user_info.get('username', ''), record_date
