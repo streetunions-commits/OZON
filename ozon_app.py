@@ -20527,15 +20527,12 @@ HTML_TEMPLATE = '''
                     html += '<td>' + fmtNum(gArrived) + '</td>';
                     html += '<td>' + fmtMoney(gTotalPaidY) + ' &#165;</td>';
                     html += '<td>' + fmtMoney(gTotalPaidR) + ' &#8381;</td>';
-                    html += '<td>' + fmtMoney(gTotalPaidY) + ' &#165;</td>';
-                    html += '<td>' + fmtMoney(gTotalPaidR) + ' &#8381;</td>';
                     html += '<td class="admin-only"></td>';
                     html += '</tr><tr>';
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая сумма<br>юань, шт &#165;</th>';
                     html += '<th>Кол-во<br>в ожидании</th><th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
                     html += '<th>Оплачено<br>инвойс + дельта &#165;</th><th>Оплачено<br>инвойс + дельта &#8381;</th>';
-                    html += '<th>Оплачено<br>всего &#165;</th><th>Оплачено<br>всего &#8381;</th>';
                     html += '<th class="admin-only"></th>';
                     html += '</tr></thead><tbody>';
 
@@ -20556,8 +20553,6 @@ HTML_TEMPLATE = '''
                         html += '<td class="number-cell">' + fmtNum(item._arrived || 0) + '</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(totalPaidY) + ' &#165;</td>';
                         html += '<td class="rub-cell">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
-                        html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalPaidY) + ' &#165;</td>';
-                        html += '<td class="rub-cell" style="font-weight:700">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
                         html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')" title="Удалить">&#10005;</button>';
                         html += '</td></tr>';
