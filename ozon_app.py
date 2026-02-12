@@ -12054,6 +12054,15 @@ HTML_TEMPLATE = '''
                 name.style.cssText = 'flex: 1; font-size: 14px;';
                 row.appendChild(name);
 
+                const editBtn = document.createElement('button');
+                editBtn.textContent = '✎';
+                editBtn.title = 'Переименовать счёт';
+                editBtn.style.cssText = 'background: none; border: 1px solid #e0e0e0; border-radius: 4px; color: #999; cursor: pointer; padding: 4px 8px; font-size: 13px; transition: all 0.2s;';
+                editBtn.onmouseenter = () => { editBtn.style.color = '#3b82f6'; editBtn.style.borderColor = '#3b82f6'; };
+                editBtn.onmouseleave = () => { editBtn.style.color = '#999'; editBtn.style.borderColor = '#e0e0e0'; };
+                editBtn.onclick = () => renameFinanceAccount(acc.id, acc.name);
+                row.appendChild(editBtn);
+
                 const delBtn = document.createElement('button');
                 delBtn.textContent = '✕';
                 delBtn.title = 'Удалить счёт';
@@ -12065,6 +12074,36 @@ HTML_TEMPLATE = '''
 
                 container.appendChild(row);
             });
+        }
+
+        /**
+         * Переименовать финансовый счёт.
+         * Обновляет название в справочнике и во всех записях истории.
+         */
+        async function renameFinanceAccount(id, currentName) {
+            const newName = prompt('Новое название для счёта «' + currentName + '»:', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            try {
+                const resp = await authFetch('/api/finance/accounts/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, new_name: newName.trim() })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    await loadFinanceAccounts();
+                    renderFinanceAccountsList();
+                    // Обновляем таблицу записей, чтобы отобразить новое название
+                    if (typeof loadFinanceRecords === 'function') loadFinanceRecords();
+                    alert(data.message);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (e) {
+                console.error('Ошибка переименования счёта:', e);
+            }
         }
 
         /**
