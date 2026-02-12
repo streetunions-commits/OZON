@@ -1056,6 +1056,29 @@ def init_database():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_fcd_container_doc ON finance_container_distributions(container_doc_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_fcd_sku ON finance_container_distributions(sku)')
 
+    # -----------------------------------------------------------------------
+    # Таблица распределений финансовых записей по строкам плана закупок.
+    # Когда расход (например, оплата инвойса) распределяется по конкретным
+    # строкам плана, здесь хранится сколько юаней и рублей ушло на каждую строку.
+    # target_type: 'invoice' → paid_invoice_yuan/rub, 'delta' → paid_delta_yuan/rub.
+    # -----------------------------------------------------------------------
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS finance_plan_distributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finance_record_id INTEGER NOT NULL,
+            plan_item_id INTEGER NOT NULL,
+            target_type TEXT NOT NULL CHECK(target_type IN ('invoice', 'delta')),
+            yuan_amount REAL NOT NULL DEFAULT 0,
+            rub_amount REAL NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (finance_record_id) REFERENCES finance_records(id) ON DELETE CASCADE,
+            FOREIGN KEY (plan_item_id) REFERENCES plan_items(id) ON DELETE CASCADE
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fpd_finance_record ON finance_plan_distributions(finance_record_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fpd_plan_item ON finance_plan_distributions(plan_item_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_fpd_target_type ON finance_plan_distributions(target_type)')
+
     # Миграция: добавляем колонку is_container_linked в finance_categories
     # Флаг означает, что при выборе этой категории расхода пользователь может
     # привязать расход к контейнерам ВЭД и распределить по товарам.
@@ -1088,6 +1111,13 @@ def init_database():
     if ensure_column(cursor, 'finance_categories', 'description_hint',
                      "ALTER TABLE finance_categories ADD COLUMN description_hint TEXT DEFAULT ''"):
         print("✅ Добавлена колонка description_hint в finance_categories")
+
+    # Миграция: добавляем колонку is_plan_linked в finance_categories.
+    # Флаг означает, что при выборе этой расходной категории пользователь может
+    # распределить сумму в юанях по строкам вкладки «План» (оплата инвойсов/дельт).
+    if ensure_column(cursor, 'finance_categories', 'is_plan_linked',
+                     "ALTER TABLE finance_categories ADD COLUMN is_plan_linked INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка is_plan_linked в finance_categories")
 
     # Таблица для хранения файлов, прикрепленных к финансовым записям.
     # Файлы привязываются к конкретной записи и отображаются в таблице/детализации.
@@ -20081,7 +20111,7 @@ HTML_TEMPLATE = '''
                         html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalPaidY) + ' &#165;</td>';
                         html += '<td class="rub-cell" style="font-weight:700">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
-                        html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">Удалить</button>';
+                        html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')" title="Удалить">&#10005;</button>';
                         html += '</td></tr>';
                     });
 
@@ -20268,7 +20298,8 @@ HTML_TEMPLATE = '''
 
         /** Удалить запись плана */
         async function deletePlanItem(id) {
-            if (!confirm('Удалить эту позицию из плана?')) return;
+            const answer = prompt('Для удаления введите слово "удалить":');
+            if (!answer || answer.trim().toLowerCase() !== 'удалить') return;
             try {
                 const resp = await authFetch('/api/plan/items/delete', {
                     method: 'POST',
@@ -26052,6 +26083,122 @@ def _rollback_finance_distributions(cursor, finance_record_id):
                    (finance_record_id,))
 
 
+def _save_finance_plan_distributions(cursor, finance_record_id, plan_distributions, expected_yuan):
+    """
+    Сохранить распределения расхода по строкам плана закупок.
+    Вставляет записи в finance_plan_distributions и обновляет
+    соответствующие поля (paid_invoice_yuan/rub или paid_delta_yuan/rub) в plan_items.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+        plan_distributions (list): список dict {plan_item_id, target_type, yuan_amount, rub_amount}
+        expected_yuan (float): ожидаемая общая сумма юаней (для валидации)
+    """
+    if not plan_distributions:
+        return
+
+    # Валидация: сумма юаней распределений должна совпадать с yuan_amount записи
+    total_yuan = sum(float(d.get('yuan_amount', 0)) for d in plan_distributions)
+    if abs(total_yuan - expected_yuan) > 0.01:
+        raise ValueError(
+            f'Сумма распределений по плану ({total_yuan:.2f} ¥) не совпадает '
+            f'с суммой в юанях записи ({expected_yuan:.2f} ¥)'
+        )
+
+    valid_target_types = ('invoice', 'delta')
+
+    for dist in plan_distributions:
+        plan_item_id = dist.get('plan_item_id')
+        target_type = dist.get('target_type', '')
+        yuan_amt = float(dist.get('yuan_amount', 0))
+        rub_amt = float(dist.get('rub_amount', 0))
+
+        if yuan_amt <= 0:
+            continue
+
+        if target_type not in valid_target_types:
+            raise ValueError(f'Неверный тип распределения: {target_type}')
+
+        # Вставляем запись распределения
+        cursor.execute('''
+            INSERT INTO finance_plan_distributions
+            (finance_record_id, plan_item_id, target_type, yuan_amount, rub_amount)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (finance_record_id, plan_item_id, target_type, yuan_amt, rub_amt))
+
+        # Обновляем соответствующие поля в строке плана
+        if target_type == 'invoice':
+            cursor.execute('''
+                UPDATE plan_items
+                SET paid_invoice_yuan = COALESCE(paid_invoice_yuan, 0) + ?,
+                    paid_invoice_rub = COALESCE(paid_invoice_rub, 0) + ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (yuan_amt, rub_amt, plan_item_id))
+        elif target_type == 'delta':
+            cursor.execute('''
+                UPDATE plan_items
+                SET paid_delta_yuan = COALESCE(paid_delta_yuan, 0) + ?,
+                    paid_delta_rub = COALESCE(paid_delta_rub, 0) + ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (yuan_amt, rub_amt, plan_item_id))
+
+
+def _rollback_finance_plan_distributions(cursor, finance_record_id):
+    """
+    Откатить (вычесть) все распределения по плану для данной финансовой записи
+    из полей plan_items, затем удалить записи распределений.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    # Получаем все распределения по плану для этой записи
+    cursor.execute('''
+        SELECT plan_item_id, target_type, yuan_amount, rub_amount
+        FROM finance_plan_distributions
+        WHERE finance_record_id = ?
+    ''', (finance_record_id,))
+    old_dists = cursor.fetchall()
+
+    # Вычитаем суммы из соответствующих полей строк плана
+    for dist in old_dists:
+        # Поддержка и sqlite3.Row и обычных кортежей
+        if hasattr(dist, 'keys'):
+            plan_item_id = dist['plan_item_id']
+            target_type = dist['target_type']
+            yuan_amt = dist['yuan_amount']
+            rub_amt = dist['rub_amount']
+        else:
+            plan_item_id = dist[0]
+            target_type = dist[1]
+            yuan_amt = dist[2]
+            rub_amt = dist[3]
+
+        if target_type == 'invoice':
+            cursor.execute('''
+                UPDATE plan_items
+                SET paid_invoice_yuan = MAX(COALESCE(paid_invoice_yuan, 0) - ?, 0),
+                    paid_invoice_rub = MAX(COALESCE(paid_invoice_rub, 0) - ?, 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (yuan_amt, rub_amt, plan_item_id))
+        elif target_type == 'delta':
+            cursor.execute('''
+                UPDATE plan_items
+                SET paid_delta_yuan = MAX(COALESCE(paid_delta_yuan, 0) - ?, 0),
+                    paid_delta_rub = MAX(COALESCE(paid_delta_rub, 0) - ?, 0),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (yuan_amt, rub_amt, plan_item_id))
+
+    # Удаляем записи распределений
+    cursor.execute('DELETE FROM finance_plan_distributions WHERE finance_record_id = ?',
+                   (finance_record_id,))
+
+
 # ============================================================================
 # API ФИНАНСЫ — СПРАВОЧНИК СЧЕТОВ
 # ============================================================================
@@ -27031,6 +27178,121 @@ def api_ved_containers_list_for_finance():
 
         conn.close()
         return jsonify({'success': True, 'containers': containers})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/plan/items-for-finance')
+@require_auth(['admin', 'viewer'])
+def api_plan_items_for_finance():
+    """
+    Строки плана закупок, сгруппированные по артикулу, для формы распределения
+    финансовых расходов. Каждая группа содержит строки отсортированные по дате
+    выхода (ранние первые). Для каждой строки рассчитывается ёмкость — сколько
+    юаней ещё можно распределить на инвойс и дельту.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT id, product_name, planned_release_date, estimated_arrival_date,
+                   planned_qty, price_yuan_invoice, price_yuan_delta_invoice,
+                   paid_invoice_yuan, paid_invoice_rub, paid_delta_yuan, paid_delta_rub
+            FROM plan_items
+            ORDER BY product_name, planned_release_date ASC, id ASC
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+
+        # Группируем по артикулу
+        groups = {}
+        group_order = []
+        for row in rows:
+            pname = row['product_name'] or ''
+            if pname not in groups:
+                groups[pname] = []
+                group_order.append(pname)
+            qty = row['planned_qty'] or 0
+            price_inv = row['price_yuan_invoice'] or 0
+            price_delta = row['price_yuan_delta_invoice'] or 0
+            paid_inv_y = row['paid_invoice_yuan'] or 0
+            paid_inv_r = row['paid_invoice_rub'] or 0
+            paid_d_y = row['paid_delta_yuan'] or 0
+            paid_d_r = row['paid_delta_rub'] or 0
+            # Ёмкость = ожидаемая сумма - уже оплачено
+            capacity_invoice = max(price_inv * qty - paid_inv_y, 0)
+            capacity_delta = max(price_delta * qty - paid_d_y, 0)
+            groups[pname].append({
+                'id': row['id'],
+                'product_name': pname,
+                'planned_release_date': row['planned_release_date'] or '',
+                'estimated_arrival_date': row['estimated_arrival_date'] or '',
+                'planned_qty': qty,
+                'price_yuan_invoice': price_inv,
+                'price_yuan_delta_invoice': price_delta,
+                'paid_invoice_yuan': paid_inv_y,
+                'paid_invoice_rub': paid_inv_r,
+                'paid_delta_yuan': paid_d_y,
+                'paid_delta_rub': paid_d_r,
+                'capacity_invoice': round(capacity_invoice, 2),
+                'capacity_delta': round(capacity_delta, 2)
+            })
+
+        products = []
+        for pname in group_order:
+            products.append({
+                'product_name': pname,
+                'items': groups[pname]
+            })
+
+        return jsonify({'success': True, 'products': products})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/records/<int:record_id>/plan-distributions')
+@require_auth(['admin', 'viewer'])
+def api_finance_record_plan_distributions(record_id):
+    """
+    Получить распределения расхода по строкам плана.
+    Используется для отображения аккордеона и при редактировании записи.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT fpd.id, fpd.plan_item_id, fpd.target_type,
+                   fpd.yuan_amount, fpd.rub_amount,
+                   pi.product_name, pi.planned_release_date, pi.planned_qty,
+                   pi.price_yuan_invoice, pi.price_yuan_delta_invoice
+            FROM finance_plan_distributions fpd
+            LEFT JOIN plan_items pi ON pi.id = fpd.plan_item_id
+            WHERE fpd.finance_record_id = ?
+            ORDER BY pi.product_name, pi.planned_release_date ASC
+        ''', (record_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        distributions = []
+        for row in rows:
+            distributions.append({
+                'id': row['id'],
+                'plan_item_id': row['plan_item_id'],
+                'target_type': row['target_type'],
+                'yuan_amount': row['yuan_amount'] or 0,
+                'rub_amount': row['rub_amount'] or 0,
+                'product_name': row['product_name'] or '',
+                'planned_release_date': row['planned_release_date'] or '',
+                'planned_qty': row['planned_qty'] or 0,
+                'price_yuan_invoice': row['price_yuan_invoice'] or 0,
+                'price_yuan_delta_invoice': row['price_yuan_delta_invoice'] or 0
+            })
+
+        return jsonify({'success': True, 'distributions': distributions})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
