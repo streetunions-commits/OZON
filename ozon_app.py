@@ -14178,7 +14178,7 @@ HTML_TEMPLATE = '''
 
         // Открыть документ из сообщения
         function openDocumentFromMessage(docType, docId) {
-            if (docType === 'finance_distribution') {
+            if (docType === 'finance_distribution' || docType === 'finance_plan_distribution') {
                 // Переключиться на Финансы → ДДС, открыть форму редактирования записи
                 document.querySelector('[onclick*="finance"]')?.click();
                 setTimeout(() => {
@@ -26434,6 +26434,93 @@ def _mark_finance_distribution_notification_read(cursor, finance_record_id):
     ''', (finance_record_id,))
 
 
+# ============================================================================
+# УВЕДОМЛЕНИЯ О РАСПРЕДЕЛЕНИИ ПО ПЛАНУ ЗАКУПОК
+# ============================================================================
+# Аналогично уведомлениям для контейнеров (выше), но для категорий
+# с is_plan_linked=1 и суммой в юанях, которую нужно раскидать по строкам плана.
+# ============================================================================
+
+
+def _create_finance_plan_distribution_notification(cursor, finance_record_id, yuan_amount, rub_amount, category_name, description, created_by, record_date):
+    """
+    Создать уведомление о необходимости распределения расхода по плану закупок.
+
+    Вставляет запись в document_messages (doc_type='finance_plan_distribution')
+    и отправляет Telegram-уведомление всем админам.
+
+    Аргументы:
+        cursor: курсор SQLite (INSERT без COMMIT — коммит делает вызывающий код)
+        finance_record_id (int): ID финансовой записи
+        yuan_amount (float): сумма расхода в юанях
+        rub_amount (float): сумма расхода в рублях
+        category_name (str): название категории
+        description (str): описание расхода
+        created_by (str): кто создал запись
+        record_date (str): дата записи (формат YYYY-MM-DD)
+    """
+    # Текст для карточки в Сообщениях (короткий)
+    yuan_fmt_msg = f'{yuan_amount:,.2f}'.replace(',', ' ')
+    rub_fmt_msg = f'{rub_amount:,.0f}'.replace(',', ' ')
+    message = f'Расход {yuan_fmt_msg} ¥ ({rub_fmt_msg} ₽) — категория "{category_name}"'
+    if description:
+        message += f' ({description})'
+    message += ' — требуется распределение по плану закупок'
+
+    cursor.execute('''
+        INSERT INTO document_messages (doc_type, doc_id, message, sender_type, sender_name, is_read)
+        VALUES ('finance_plan_distribution', ?, ?, 'system', 'Система', 0)
+    ''', (finance_record_id, message))
+
+    # Telegram-уведомление админам (не блокирует основной поток)
+    try:
+        yuan_fmt = f'{yuan_amount:,.2f}'.replace(',', ' ')
+        rub_fmt = f'{rub_amount:,.0f}'.replace(',', ' ')
+        tg_text = (
+            f'📋 <b>Требуется распределение по плану закупок</b>\n\n'
+            f'💰 Расход: {yuan_fmt} ¥ ({rub_fmt} ₽)\n'
+            f'📂 Категория: {category_name}\n'
+        )
+        if description:
+            tg_text += f'📝 Описание: {description}\n'
+        tg_text += f'👤 Создал: {created_by}\n'
+        tg_text += f'📅 Дата: {record_date}\n\n'
+        tg_text += 'Откройте Финансы → ДДС для распределения по плану.'
+        send_admin_notification(tg_text)
+    except Exception as e:
+        print(f'⚠️ Не удалось отправить Telegram-уведомление о распределении по плану: {e}')
+
+
+def _delete_finance_plan_distribution_notification(cursor, finance_record_id):
+    """
+    Удалить уведомление о распределении по плану для данной финансовой записи.
+    Вызывается при удалении записи или при смене категории на не-plan-linked.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    cursor.execute('''
+        DELETE FROM document_messages
+        WHERE doc_type = 'finance_plan_distribution' AND doc_id = ?
+    ''', (finance_record_id,))
+
+
+def _mark_finance_plan_distribution_notification_read(cursor, finance_record_id):
+    """
+    Пометить уведомление как прочитанное (распределение по плану выполнено).
+    Вызывается из _save_finance_plan_distributions() при успешном сохранении.
+
+    Аргументы:
+        cursor: курсор SQLite
+        finance_record_id (int): ID финансовой записи
+    """
+    cursor.execute('''
+        UPDATE document_messages SET is_read = 1
+        WHERE doc_type = 'finance_plan_distribution' AND doc_id = ? AND is_read = 0
+    ''', (finance_record_id,))
+
+
 def _save_finance_distributions(cursor, finance_record_id, distributions, expected_amount):
     """
     Сохранить распределения расхода по контейнерам.
@@ -26588,6 +26675,9 @@ def _save_finance_plan_distributions(cursor, finance_record_id, plan_distributio
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ''', (yuan_amt, rub_amt, plan_item_id))
+
+    # Помечаем уведомление как прочитанное (распределение по плану выполнено)
+    _mark_finance_plan_distribution_notification_read(cursor, finance_record_id)
 
 
 def _rollback_finance_plan_distributions(cursor, finance_record_id):
@@ -27237,6 +27327,13 @@ def api_finance_records_add():
         if plan_distributions and record_type == 'expense' and yuan_amount:
             _save_finance_plan_distributions(cursor, new_id, plan_distributions, yuan_amount)
 
+        # Расходная категория привязана к плану, но распределений нет — уведомляем
+        if record_type == 'expense' and is_plan_linked and yuan_amount and not plan_distributions:
+            _create_finance_plan_distribution_notification(
+                cursor, new_id, yuan_amount, amount, category_name, description,
+                user_info.get('username', ''), record_date
+            )
+
         # Сохраняем прикрепленные файлы
         if uploaded_files:
             save_finance_files(cursor, new_id, uploaded_files)
@@ -27395,7 +27492,19 @@ def api_finance_records_update():
         if isinstance(plan_distributions, str):
             plan_distributions = json.loads(plan_distributions) if plan_distributions else []
         if plan_distributions and record_type == 'expense' and yuan_amount:
+            # _save_finance_plan_distributions уже помечает уведомление как прочитанное
             _save_finance_plan_distributions(cursor, record_id, plan_distributions, yuan_amount)
+        else:
+            # Удаляем старое уведомление (если было) — данные могли измениться
+            _delete_finance_plan_distribution_notification(cursor, record_id)
+
+            # Если категория привязана к плану и есть сумма юаней — новое уведомление
+            if record_type == 'expense' and is_plan_linked and yuan_amount:
+                user_info = getattr(request, 'current_user', {})
+                _create_finance_plan_distribution_notification(
+                    cursor, record_id, yuan_amount, amount, category_name, description,
+                    user_info.get('username', ''), record_date
+                )
 
         # Сохраняем прикрепленные файлы
         if uploaded_files:
@@ -27431,8 +27540,9 @@ def api_finance_records_delete():
         _rollback_finance_plan_distributions(cursor, record_id)
         _rollback_finance_distributions(cursor, record_id)
 
-        # Удаляем уведомление о распределении (если есть)
+        # Удаляем уведомления о распределении (если есть)
         _delete_finance_distribution_notification(cursor, record_id)
+        _delete_finance_plan_distribution_notification(cursor, record_id)
 
         # Удаляем прикрепленные файлы
         cursor.execute('SELECT stored_filename FROM finance_record_files WHERE finance_record_id = ?', (record_id,))
