@@ -7824,7 +7824,7 @@ HTML_TEMPLATE = '''
         .plan-group .plan-add-wrap { display: none; }
         .plan-group.open .plan-add-wrap { display: block; }
         .plan-group-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1050px; }
+        .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1350px; }
         .plan-group-table thead th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #555; border-bottom: 2px solid #e9ecef; white-space: nowrap; font-size: 11px; }
         .plan-totals-row td { padding: 8px 10px; text-align: center; font-weight: 700; font-size: 15px; color: #222; background: #eef2ff; border-bottom: 2px solid #c5cfe0; }
         .plan-group-table tbody td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
@@ -19974,18 +19974,21 @@ HTML_TEMPLATE = '''
                     const isOpen = !!planOpenGroups[artName];
 
                     /* Итоги группы */
-                    let gQty = 0, gTotal = 0, gTransit = 0, gArrived = 0;
+                    let gQty = 0, gTotal = 0, gWaiting = 0, gTransit = 0, gArrived = 0;
                     let gPaidInvY = 0, gPaidInvR = 0, gPaidDY = 0, gPaidDR = 0;
+                    let gTotalPaidY = 0, gTotalPaidR = 0;
                     rows.forEach(r => {
-                        const t = (r.planned_qty || 0) * ((r.price_yuan_invoice || 0) + (r.price_yuan_delta_invoice || 0));
                         gQty += r.planned_qty || 0;
-                        gTotal += t;
+                        gTotal += (r.price_yuan_invoice || 0) + (r.price_yuan_delta_invoice || 0);
                         gTransit += r.qty_in_transit || 0;
                         gArrived += r.qty_arrived || 0;
+                        gWaiting += (r.planned_qty || 0) - (r.qty_in_transit || 0) - (r.qty_arrived || 0);
                         gPaidInvY += r.paid_invoice_yuan || 0;
                         gPaidInvR += r.paid_invoice_rub || 0;
                         gPaidDY += r.paid_delta_yuan || 0;
                         gPaidDR += r.paid_delta_rub || 0;
+                        gTotalPaidY += (r.paid_invoice_yuan || 0) + (r.paid_delta_yuan || 0);
+                        gTotalPaidR += (r.paid_invoice_rub || 0) + (r.paid_delta_rub || 0);
                     });
 
                     html += '<div class="plan-group' + (isOpen ? ' open' : '') + '">';
@@ -20005,23 +20008,30 @@ HTML_TEMPLATE = '''
                     html += '<td>' + fmtNum(gQty) + '</td>';
                     html += '<td></td><td></td>';
                     html += '<td>' + fmtMoney(gTotal) + ' &#165;</td>';
+                    html += '<td>' + fmtNum(gWaiting) + '</td>';
                     html += '<td>' + fmtNum(gTransit) + '</td>';
                     html += '<td>' + fmtNum(gArrived) + '</td>';
                     html += '<td>' + fmtMoney(gPaidInvY) + ' &#165;</td>';
                     html += '<td>' + fmtMoney(gPaidInvR) + ' &#8381;</td>';
                     html += '<td>' + fmtMoney(gPaidDY) + ' &#165;</td>';
                     html += '<td>' + fmtMoney(gPaidDR) + ' &#8381;</td>';
+                    html += '<td>' + fmtMoney(gTotalPaidY) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gTotalPaidR) + ' &#8381;</td>';
                     html += '<td class="admin-only"></td>';
                     html += '</tr><tr>';
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая<br>сумма &#165;</th>';
-                    html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
+                    html += '<th>Кол-во<br>в ожидании</th><th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
                     html += '<th>Оплачено<br>инвойс &#165;</th><th>Оплачено<br>инвойс &#8381;</th><th>Оплачено<br>дельта &#165;</th><th>Оплачено<br>дельта &#8381;</th>';
+                    html += '<th>Оплачено<br>всего &#165;</th><th>Оплачено<br>всего &#8381;</th>';
                     html += '<th class="admin-only"></th>';
                     html += '</tr></thead><tbody>';
 
                     rows.forEach((item, idx) => {
-                        const totalYuan = (item.planned_qty || 0) * ((item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0));
+                        const totalYuan = (item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0);
+                        const waiting = (item.planned_qty || 0) - (item.qty_in_transit || 0) - (item.qty_arrived || 0);
+                        const totalPaidY = (item.paid_invoice_yuan || 0) + (item.paid_delta_yuan || 0);
+                        const totalPaidR = (item.paid_invoice_rub || 0) + (item.paid_delta_rub || 0);
                         html += '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor:pointer" title="Двойной клик для редактирования">';
                         html += '<td>' + formatPlanDate(item.planned_release_date) + '</td>';
                         html += '<td>' + formatPlanDate(item.estimated_arrival_date) + '</td>';
@@ -20029,12 +20039,15 @@ HTML_TEMPLATE = '''
                         html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_invoice) + ' &#165;</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(item.price_yuan_delta_invoice) + ' &#165;</td>';
                         html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalYuan) + ' &#165;</td>';
+                        html += '<td class="number-cell">' + fmtNum(waiting) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item.qty_in_transit) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + ' &#165;</td>';
                         html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + ' &#8381;</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + ' &#165;</td>';
                         html += '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + ' &#8381;</td>';
+                        html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalPaidY) + ' &#165;</td>';
+                        html += '<td class="rub-cell" style="font-weight:700">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
                         html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">&#128465;</button>';
                         html += '</td></tr>';
@@ -20187,8 +20200,8 @@ HTML_TEMPLATE = '''
                 paid_delta_rub: parseFloat(document.getElementById('plan-paid-delta-rub').value) || 0
             };
 
-            // Автоматический расчёт общей суммы юань
-            payload.total_yuan = payload.planned_qty * (payload.price_yuan_invoice + payload.price_yuan_delta_invoice);
+            // Автоматический расчёт общей суммы юань (инвойс + дельта за шт)
+            payload.total_yuan = payload.price_yuan_invoice + payload.price_yuan_delta_invoice;
 
             const url = editId ? '/api/plan/items/update' : '/api/plan/items/add';
             if (editId) payload.id = parseInt(editId);
