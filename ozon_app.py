@@ -20111,14 +20111,14 @@ HTML_TEMPLATE = '''
          * Открыть модальное окно для добавления строки внутри конкретной группы.
          * Артикул фиксирован — select заблокирован.
          */
-        function openPlanModalForGroup(articulName) {
+        async function openPlanModalForGroup(articulName) {
             document.getElementById('plan-modal-title').textContent = 'Добавить строку — ' + articulName;
             document.getElementById('plan-edit-id').value = '';
             ['plan-release-date', 'plan-arrival-date', 'plan-qty',
              'plan-price-invoice', 'plan-price-delta', 'plan-in-transit', 'plan-arrived',
              'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
             ].forEach(id => document.getElementById(id).value = '');
-            loadPlanProducts();
+            await loadPlanProducts();
             const sel = document.getElementById('plan-product-name');
             sel.value = articulName;
             sel.disabled = true;
