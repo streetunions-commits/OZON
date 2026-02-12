@@ -7823,7 +7823,7 @@ HTML_TEMPLATE = '''
         .plan-group-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .plan-group-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1050px; }
         .plan-group-table thead th { background: #f8f9fa; padding: 8px 10px; text-align: center; font-weight: 600; color: #555; border-bottom: 2px solid #e9ecef; white-space: nowrap; font-size: 11px; }
-        .plan-totals-row td { padding: 6px 10px; text-align: center; font-weight: 700; font-size: 13px; background: #f0f4ff; border-bottom: 1px solid #dce3f0; }
+        .plan-totals-row td { padding: 8px 10px; text-align: center; font-weight: 700; font-size: 15px; color: #222; background: #eef2ff; border-bottom: 2px solid #c5cfe0; }
         .plan-group-table tbody td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: center; vertical-align: middle; }
         .plan-group-table tbody tr:hover { background: #f8f9ff; }
         .plan-group-table .yuan-cell { color: #e67e22; font-weight: 500; }
