@@ -8966,6 +8966,10 @@ HTML_TEMPLATE = '''
                             <input type="checkbox" id="finance-new-category-requires-description">
                             Описание обязат.
                         </label>
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-category-plan-linked">
+                            Привязка к плану
+                        </label>
                         <input type="text" id="finance-new-category-description-hint" class="wh-input"
                                placeholder="Текст подсказки для описания" style="padding: 6px 8px; font-size: 12px; width: 200px;">
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
@@ -9040,6 +9044,27 @@ HTML_TEMPLATE = '''
                             Осталось распределить: <strong id="finance-dist-remaining-amount">0 ₽</strong>
                         </div>
                         <div id="finance-container-blocks"></div>
+                    </div>
+
+                    <!-- Секция распределения по плану закупок (видна при план-привязанных категориях) -->
+                    <div id="finance-plan-section" style="display: none;">
+                        <div class="finance-container-section-header">
+                            <h4>Распределение по плану закупок</h4>
+                        </div>
+                        <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                            <select id="finance-plan-product" class="wh-input" onchange="onFinancePlanProductSelect()" style="max-width: 300px;">
+                                <option value="">-- Выберите товар --</option>
+                            </select>
+                            <select id="finance-plan-target" class="wh-input" onchange="onFinancePlanTargetChange()" style="width: 200px;">
+                                <option value="invoice">Оплачено инвойс</option>
+                                <option value="delta">Оплачено дельта</option>
+                            </select>
+                            <button type="button" class="finance-add-container-btn" onclick="autoDistributeFinancePlan()">Авто-распределить</button>
+                        </div>
+                        <div id="finance-plan-dist-remaining" class="finance-dist-remaining" style="display: none;">
+                            Осталось распределить: <strong id="finance-plan-dist-remaining-amount">0 ¥</strong>
+                        </div>
+                        <div id="finance-plan-rows"></div>
                     </div>
 
                     <div class="finance-form-actions">
@@ -11271,8 +11296,9 @@ HTML_TEMPLATE = '''
             const catInput = document.getElementById('finance-category-input');
             if (catInput) catInput.value = '';
             renderFinanceCategoryDropdown('');
-            // Скрываем контейнерную секцию при смене типа
+            // Скрываем контейнерную и план-секцию при смене типа
             resetFinanceContainerSection();
+            resetFinancePlanSection();
             // Скрываем поле юаней при смене типа
             checkFinanceYuanField();
             checkFinanceDescriptionField();
@@ -11495,13 +11521,20 @@ HTML_TEMPLATE = '''
                     ? amount.toLocaleString('ru-RU')
                     : amount.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2});
                 tdAmount.innerHTML = amountFormatted + ' ₽';
-                // Добавляем иконку контейнера если есть распределения
+                // Добавляем иконки если есть распределения
                 if (rec.has_distributions) {
                     const distIcon = document.createElement('span');
                     distIcon.className = 'finance-record-dist-indicator';
                     distIcon.textContent = ' 📦';
                     distIcon.title = 'Распределено по контейнерам (нажмите на строку)';
                     tdAmount.appendChild(distIcon);
+                }
+                if (rec.has_plan_distributions) {
+                    const planIcon = document.createElement('span');
+                    planIcon.className = 'finance-record-dist-indicator';
+                    planIcon.textContent = ' 📋';
+                    planIcon.title = 'Распределено по плану (нажмите на строку)';
+                    tdAmount.appendChild(planIcon);
                 }
                 tdAmount.style.fontWeight = '600';
                 tdAmount.style.whiteSpace = 'nowrap';
@@ -11616,7 +11649,7 @@ HTML_TEMPLATE = '''
                 tr.appendChild(tdActions);
 
                 // Если есть распределения — делаем строку кликабельной
-                if (rec.has_distributions) {
+                if (rec.has_distributions || rec.has_plan_distributions) {
                     tr.className = 'finance-record-row-clickable';
                     tr.onclick = (e) => {
                         // Не открываем аккордеон при клике на кнопки
@@ -11627,8 +11660,8 @@ HTML_TEMPLATE = '''
 
                 tbody.appendChild(tr);
 
-                // Добавляем скрытую строку аккордеона для распределения
-                if (rec.has_distributions) {
+                // Добавляем скрытую строку аккордеона для распределений
+                if (rec.has_distributions || rec.has_plan_distributions) {
                     const accordionTr = document.createElement('tr');
                     accordionTr.className = 'finance-dist-accordion';
                     accordionTr.id = `finance-dist-accordion-${rec.id}`;
@@ -11677,8 +11710,9 @@ HTML_TEMPLATE = '''
             selectedFinanceCategoryId = null;
             currentFinanceEditId = null;
 
-            // Сбрасываем секцию контейнеров и поле юаней
+            // Сбрасываем секции контейнеров, плана и поле юаней
             resetFinanceContainerSection();
+            resetFinancePlanSection();
             checkFinanceYuanField();
             checkFinanceDescriptionField();
 
@@ -11701,16 +11735,19 @@ HTML_TEMPLATE = '''
                         document.getElementById('finance-yuan-amount').value = rec.yuan_amount;
                     }
 
-                    // Проверяем, нужно ли показать контейнерную секцию
+                    // Проверяем, нужно ли показать контейнерную секцию и план-секцию
                     checkFinanceContainerSection();
+                    checkFinancePlanSection();
                     // Проверяем, нужно ли показать поле юаней
                     checkFinanceYuanField();
             checkFinanceDescriptionField();
 
-                    // Если есть распределения — загружаем их
+                    // Если есть распределения по контейнерам — загружаем их
                     if (rec.has_distributions) {
                         loadFinanceDistributionsForEdit(editId);
                     }
+                    // Загружаем план-распределения при редактировании
+                    loadFinancePlanDistributionsForEdit(editId);
                     // Загружаем файлы для редактирования
                     loadFinanceEditFiles(editId);
                 }
@@ -11743,6 +11780,7 @@ HTML_TEMPLATE = '''
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
             resetFinanceContainerSection();
+            resetFinancePlanSection();
         }
 
         /**
@@ -11855,6 +11893,21 @@ HTML_TEMPLATE = '''
                 }
             }
 
+            // Собираем распределения по плану (если секция видна и есть данные)
+            const planSection = document.getElementById('finance-plan-section');
+            if (planSection && planSection.style.display !== 'none') {
+                const planDists = collectFinancePlanDistributions();
+                if (planDists.length > 0) {
+                    // Валидация: сумма юаней распределений == сумме юаней записи
+                    const planDistTotal = planDists.reduce((sum, d) => sum + d.yuan_amount, 0);
+                    if (Math.abs(planDistTotal - yuanAmount) > 0.01) {
+                        alert('Сумма распределений по плану (' + planDistTotal.toLocaleString('ru-RU') + ' ¥) не совпадает с суммой в юанях (' + yuanAmount.toLocaleString('ru-RU') + ' ¥)');
+                        return;
+                    }
+                    payload.plan_distributions = planDists;
+                }
+            }
+
             try {
                 let url = '/api/finance/records/add';
                 if (currentFinanceEditId) {
@@ -11869,7 +11922,7 @@ HTML_TEMPLATE = '''
                 if (files.length > 0) {
                     const formData = new FormData();
                     for (const [key, value] of Object.entries(payload)) {
-                        if (key === 'distributions') {
+                        if (key === 'distributions' || key === 'plan_distributions') {
                             formData.append(key, JSON.stringify(value));
                         } else {
                             formData.append(key, value);
@@ -12272,8 +12325,9 @@ HTML_TEMPLATE = '''
             input.value = name;
             selectedFinanceCategoryId = id;
             dropdown.classList.remove('show');
-            // Проверяем, нужно ли показать секцию контейнеров
+            // Проверяем, нужно ли показать секцию контейнеров и плана
             checkFinanceContainerSection();
+            checkFinancePlanSection();
             // Проверяем, нужно ли показать поле суммы в юанях
             checkFinanceYuanField();
             checkFinanceDescriptionField();
@@ -12418,6 +12472,30 @@ HTML_TEMPLATE = '''
                     descLabel.appendChild(document.createTextNode(' Описание'));
                     name.appendChild(descLabel);
 
+                    // Чекбокс «План» — привязка к плану закупок
+                    const planLabel = document.createElement('label');
+                    planLabel.className = 'finance-category-container-link';
+                    const planCb = document.createElement('input');
+                    planCb.type = 'checkbox';
+                    planCb.checked = !!cat.is_plan_linked;
+                    planCb.onchange = async () => {
+                        try {
+                            const resp = await authFetch('/api/finance/categories/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: cat.id, is_plan_linked: planCb.checked })
+                            });
+                            const result = await resp.json();
+                            if (result.success) {
+                                cat.is_plan_linked = planCb.checked ? 1 : 0;
+                                await loadFinanceCategories();
+                            }
+                        } catch(e) { console.error(e); }
+                    };
+                    planLabel.appendChild(planCb);
+                    planLabel.appendChild(document.createTextNode(' План'));
+                    name.appendChild(planLabel);
+
                     // Поле «Подсказка» — текст-пример для описания (виден всегда для расходных)
                     const hintWrap = document.createElement('div');
                     hintWrap.style.cssText = 'width: 100%; margin-top: 4px;';
@@ -12548,7 +12626,8 @@ HTML_TEMPLATE = '''
                         is_container_linked: document.getElementById('finance-new-category-container-linked')?.checked ? true : false,
                         requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false,
                         requires_description: document.getElementById('finance-new-category-requires-description')?.checked ? true : false,
-                        description_hint: document.getElementById('finance-new-category-description-hint')?.value || ''
+                        description_hint: document.getElementById('finance-new-category-description-hint')?.value || '',
+                        is_plan_linked: document.getElementById('finance-new-category-plan-linked')?.checked ? true : false
                     })
                 });
                 const data = await resp.json();
@@ -12563,6 +12642,8 @@ HTML_TEMPLATE = '''
                     if (descCb) descCb.checked = false;
                     const hintInput = document.getElementById('finance-new-category-description-hint');
                     if (hintInput) hintInput.value = '';
+                    const planCb = document.getElementById('finance-new-category-plan-linked');
+                    if (planCb) planCb.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -13247,6 +13328,352 @@ HTML_TEMPLATE = '''
             }
         }
 
+
+        // ============================================================================
+        // РАСПРЕДЕЛЕНИЕ ПО ПЛАНУ ЗАКУПОК
+        // ============================================================================
+        // Позволяет привязать сумму в юанях из финансовой записи (расхода)
+        // к конкретным строкам плана. Пользователь выбирает товар (артикул),
+        // тип (инвойс/дельта) и вводит суммы. Рубли рассчитываются автоматически
+        // по курсу из финансовой записи (amount / yuan_amount).
+        // ============================================================================
+
+        let financePlanItemsList = [];           // Кэш: [{product_name, items: [...]}]
+        let financePlanSelectedProduct = '';      // Текущий выбранный артикул
+        let financePlanSelectedTarget = 'invoice'; // invoice или delta
+
+        /**
+         * Проверить, нужно ли показывать секцию привязки к плану.
+         * Секция видна, когда выбрана расходная категория с флагом is_plan_linked
+         * и заполнена сумма в юанях.
+         */
+        function checkFinancePlanSection() {
+            const section = document.getElementById('finance-plan-section');
+            if (!section) return;
+
+            const recordType = document.getElementById('finance-type')?.value;
+            if (recordType !== 'expense' || !selectedFinanceCategoryId) {
+                section.style.display = 'none';
+                return;
+            }
+
+            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            if (cat && cat.is_plan_linked) {
+                section.style.display = 'block';
+                // Загружаем строки плана если ещё не загружены
+                if (financePlanItemsList.length === 0) {
+                    loadFinancePlanItemsList();
+                }
+            } else {
+                section.style.display = 'none';
+            }
+        }
+
+        /**
+         * Загрузить строки плана для выпадающего списка товаров.
+         */
+        async function loadFinancePlanItemsList() {
+            try {
+                const resp = await authFetch('/api/plan/items-for-finance');
+                const data = await resp.json();
+                if (data.success) {
+                    financePlanItemsList = data.products || [];
+                    // Заполняем dropdown товаров
+                    const select = document.getElementById('finance-plan-product');
+                    if (select) {
+                        let html = '<option value="">-- Выберите товар --</option>';
+                        financePlanItemsList.forEach(p => {
+                            html += '<option value="' + escapeHtml(p.product_name) + '">' + escapeHtml(p.product_name) + '</option>';
+                        });
+                        select.innerHTML = html;
+                    }
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки плана:', e);
+            }
+        }
+
+        /**
+         * Получить текущий курс юаня из полей формы (рубли / юани).
+         */
+        function getFinancePlanRate() {
+            const amount = parseFloat(document.getElementById('finance-amount')?.value) || 0;
+            const yuanAmount = parseFloat(document.getElementById('finance-yuan-amount')?.value) || 0;
+            if (yuanAmount > 0 && amount > 0) {
+                return amount / yuanAmount;
+            }
+            return 0;
+        }
+
+        /**
+         * Обработчик выбора товара — отрисовать таблицу строк плана.
+         */
+        function onFinancePlanProductSelect() {
+            const select = document.getElementById('finance-plan-product');
+            financePlanSelectedProduct = select ? select.value : '';
+            renderFinancePlanRows();
+        }
+
+        /**
+         * Обработчик смены типа (инвойс/дельта) — перерисовать таблицу.
+         */
+        function onFinancePlanTargetChange() {
+            const select = document.getElementById('finance-plan-target');
+            financePlanSelectedTarget = select ? select.value : 'invoice';
+            renderFinancePlanRows();
+        }
+
+        /**
+         * Отрисовать таблицу строк плана для выбранного товара.
+         * Показывает: дату выхода, кол-во, цену, ожидаемую сумму, оплачено, остаток,
+         * поле ввода юаней и автоматический расчёт рублей.
+         */
+        function renderFinancePlanRows() {
+            const container = document.getElementById('finance-plan-rows');
+            if (!container) return;
+
+            if (!financePlanSelectedProduct) {
+                container.innerHTML = '';
+                updateFinancePlanDistTotals();
+                return;
+            }
+
+            const product = financePlanItemsList.find(p => p.product_name === financePlanSelectedProduct);
+            if (!product || !product.items || product.items.length === 0) {
+                container.innerHTML = '<p style="color: #999; font-size: 13px; padding: 8px;">Нет строк плана для этого товара</p>';
+                updateFinancePlanDistTotals();
+                return;
+            }
+
+            const target = financePlanSelectedTarget;
+            const rate = getFinancePlanRate();
+
+            let html = '<div style="overflow-x: auto;"><table class="finance-dist-table">';
+            html += '<thead><tr>';
+            html += '<th style="text-align: left;">Дата выхода</th>';
+            html += '<th>Кол-во</th>';
+            html += '<th>Цена ¥/шт</th>';
+            html += '<th>Ожидается ¥</th>';
+            html += '<th>Оплачено ¥</th>';
+            html += '<th>Остаток ¥</th>';
+            html += '<th>Сумма ¥</th>';
+            html += '<th>Сумма ₽</th>';
+            html += '</tr></thead><tbody>';
+
+            product.items.forEach(item => {
+                const pricePerUnit = target === 'invoice' ? (item.price_yuan_invoice || 0) : (item.price_yuan_delta_invoice || 0);
+                const expected = pricePerUnit * (item.planned_qty || 0);
+                const paid = target === 'invoice' ? (item.paid_invoice_yuan || 0) : (item.paid_delta_yuan || 0);
+                const remaining = Math.max(expected - paid, 0);
+                const dateStr = item.planned_release_date ? formatPlanDate(item.planned_release_date) : '—';
+
+                html += '<tr>';
+                html += '<td>' + dateStr + '</td>';
+                html += '<td style="text-align: center;">' + fmtNum(item.planned_qty) + '</td>';
+                html += '<td style="text-align: right;">' + fmtMoney(pricePerUnit) + '</td>';
+                html += '<td style="text-align: right;">' + fmtMoney(expected) + '</td>';
+                html += '<td style="text-align: right;">' + fmtMoney(paid) + '</td>';
+                html += '<td style="text-align: right; font-weight: 600; color: ' + (remaining > 0 ? '#f59e0b' : '#16a34a') + ';">' + fmtMoney(remaining) + '</td>';
+                html += '<td><input type="number" id="fpd-yuan-' + item.id + '" min="0" step="0.01" max="' + remaining.toFixed(2) + '" placeholder="0" '
+                       + 'oninput="updateFinancePlanDistTotals()" data-plan-id="' + item.id + '" data-remaining="' + remaining + '" '
+                       + 'style="width: 100px;"></td>';
+                html += '<td id="fpd-rub-' + item.id + '" style="text-align: right; color: #16a34a; font-weight: 500;">0</td>';
+                html += '</tr>';
+            });
+
+            // Итого
+            html += '</tbody><tfoot><tr>';
+            html += '<td style="font-weight: 600;" colspan="6">Итого:</td>';
+            html += '<td id="fpd-total-yuan" style="font-weight: 700;">0</td>';
+            html += '<td id="fpd-total-rub" style="font-weight: 700; color: #16a34a;">0</td>';
+            html += '</tr></tfoot></table></div>';
+
+            container.innerHTML = html;
+            updateFinancePlanDistTotals();
+        }
+
+        /**
+         * Пересчитать итоги распределения по плану: по строкам, общий остаток.
+         * Автоматически рассчитывает рубли для каждой строки по курсу.
+         */
+        function updateFinancePlanDistTotals() {
+            const yuanAmount = parseFloat(document.getElementById('finance-yuan-amount')?.value) || 0;
+            const rate = getFinancePlanRate();
+            let totalYuan = 0;
+            let totalRub = 0;
+
+            // Проходим по всем input полям с data-plan-id
+            document.querySelectorAll('input[data-plan-id]').forEach(input => {
+                const planId = input.dataset.planId;
+                const val = parseFloat(input.value) || 0;
+                const rubVal = val * rate;
+
+                totalYuan += val;
+                totalRub += rubVal;
+
+                // Обновляем рублёвую ячейку
+                const rubEl = document.getElementById('fpd-rub-' + planId);
+                if (rubEl) rubEl.textContent = rubVal ? fmtMoney(rubVal) : '0';
+            });
+
+            // Обновляем итого
+            const totalYuanEl = document.getElementById('fpd-total-yuan');
+            const totalRubEl = document.getElementById('fpd-total-rub');
+            if (totalYuanEl) totalYuanEl.textContent = totalYuan ? fmtMoney(totalYuan) + ' ¥' : '0';
+            if (totalRubEl) totalRubEl.textContent = totalRub ? fmtMoney(totalRub) + ' ₽' : '0';
+
+            // Индикатор остатка
+            const remaining = yuanAmount - totalYuan;
+            const remEl = document.getElementById('finance-plan-dist-remaining');
+            const remAmountEl = document.getElementById('finance-plan-dist-remaining-amount');
+            if (remEl && remAmountEl) {
+                if (yuanAmount > 0 && financePlanSelectedProduct) {
+                    remEl.style.display = 'block';
+                    remAmountEl.textContent = fmtMoney(remaining) + ' ¥';
+                    remEl.className = 'finance-dist-remaining ' +
+                        (Math.abs(remaining) < 0.01 ? 'ok' : remaining < 0 ? 'error' : 'error');
+                } else {
+                    remEl.style.display = 'none';
+                }
+            }
+        }
+
+        /**
+         * Авто-распределение юаней по строкам плана.
+         * Заполняет строки начиная с самой ранней даты выхода до исчерпания суммы.
+         */
+        function autoDistributeFinancePlan() {
+            const yuanAmount = parseFloat(document.getElementById('finance-yuan-amount')?.value) || 0;
+            if (yuanAmount <= 0) {
+                alert('Укажите сумму в юанях');
+                return;
+            }
+
+            if (!financePlanSelectedProduct) {
+                alert('Выберите товар');
+                return;
+            }
+
+            const product = financePlanItemsList.find(p => p.product_name === financePlanSelectedProduct);
+            if (!product || !product.items) return;
+
+            let remaining = yuanAmount;
+
+            // Строки уже отсортированы по дате с сервера
+            product.items.forEach(item => {
+                const input = document.getElementById('fpd-yuan-' + item.id);
+                if (!input || remaining <= 0) {
+                    if (input) input.value = '';
+                    return;
+                }
+
+                const maxRemaining = parseFloat(input.dataset.remaining) || 0;
+                if (maxRemaining <= 0) {
+                    input.value = '';
+                    return;
+                }
+
+                const fill = Math.min(remaining, maxRemaining);
+                input.value = fill.toFixed(2);
+                remaining -= fill;
+            });
+
+            updateFinancePlanDistTotals();
+        }
+
+        /**
+         * Собрать данные распределения по плану из формы для отправки на сервер.
+         * Возвращает: [{plan_item_id, target_type, yuan_amount, rub_amount}, ...]
+         */
+        function collectFinancePlanDistributions() {
+            const distributions = [];
+            const rate = getFinancePlanRate();
+            const target = financePlanSelectedTarget;
+
+            document.querySelectorAll('input[data-plan-id]').forEach(input => {
+                const planId = parseInt(input.dataset.planId);
+                const val = parseFloat(input.value) || 0;
+                if (val > 0 && planId) {
+                    distributions.push({
+                        plan_item_id: planId,
+                        target_type: target,
+                        yuan_amount: Math.round(val * 100) / 100,
+                        rub_amount: Math.round(val * rate * 100) / 100
+                    });
+                }
+            });
+
+            return distributions;
+        }
+
+        /**
+         * Сбросить секцию распределения по плану.
+         */
+        function resetFinancePlanSection() {
+            const container = document.getElementById('finance-plan-rows');
+            if (container) container.innerHTML = '';
+            const section = document.getElementById('finance-plan-section');
+            if (section) section.style.display = 'none';
+            const remEl = document.getElementById('finance-plan-dist-remaining');
+            if (remEl) remEl.style.display = 'none';
+            const select = document.getElementById('finance-plan-product');
+            if (select) select.value = '';
+            const targetSelect = document.getElementById('finance-plan-target');
+            if (targetSelect) targetSelect.value = 'invoice';
+            financePlanSelectedProduct = '';
+            financePlanSelectedTarget = 'invoice';
+            financePlanItemsList = [];
+        }
+
+        /**
+         * Загрузить существующие распределения по плану в форму при редактировании.
+         */
+        async function loadFinancePlanDistributionsForEdit(recordId) {
+            try {
+                const resp = await authFetch('/api/finance/records/' + recordId + '/plan-distributions');
+                const data = await resp.json();
+                if (!data.success || !data.distributions || data.distributions.length === 0) return;
+
+                // Загружаем строки плана если ещё не загружены
+                if (financePlanItemsList.length === 0) {
+                    await loadFinancePlanItemsList();
+                }
+
+                // Определяем товар и тип из первого распределения
+                const first = data.distributions[0];
+                const productName = first.product_name;
+                const targetType = first.target_type;
+
+                // Устанавливаем значения в dropdown-ы
+                const productSelect = document.getElementById('finance-plan-product');
+                if (productSelect) {
+                    productSelect.value = productName;
+                    financePlanSelectedProduct = productName;
+                }
+                const targetSelect = document.getElementById('finance-plan-target');
+                if (targetSelect) {
+                    targetSelect.value = targetType;
+                    financePlanSelectedTarget = targetType;
+                }
+
+                // Рисуем таблицу строк
+                renderFinancePlanRows();
+
+                // Заполняем значения
+                data.distributions.forEach(d => {
+                    const input = document.getElementById('fpd-yuan-' + d.plan_item_id);
+                    if (input) {
+                        input.value = d.yuan_amount;
+                    }
+                });
+
+                updateFinancePlanDistTotals();
+            } catch (e) {
+                console.error('Ошибка загрузки план-распределений:', e);
+            }
+        }
+
+
         /**
          * Переключить аккордеон распределения в таблице записей.
          * Загружает данные при первом раскрытии, кэширует результат.
@@ -13306,12 +13733,19 @@ HTML_TEMPLATE = '''
             if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Загрузка...</div>';
 
             try {
-                const resp = await authFetch(`/api/finance/records/${recordId}/distributions`);
-                const data = await resp.json();
-                if (data.success) {
-                    financeDistAccordionCache[recordId] = data;
-                    renderFinanceDistAccordionContent(recordId, data);
-                }
+                // Загружаем оба типа распределений параллельно
+                const [contResp, planResp] = await Promise.all([
+                    authFetch(`/api/finance/records/${recordId}/distributions`),
+                    authFetch(`/api/finance/records/${recordId}/plan-distributions`)
+                ]);
+                const contData = await contResp.json();
+                const planData = await planResp.json();
+                const combined = {
+                    distributions: contData.success ? (contData.distributions || []) : [],
+                    plan_distributions: planData.success ? (planData.distributions || []) : []
+                };
+                financeDistAccordionCache[recordId] = combined;
+                renderFinanceDistAccordionContent(recordId, combined);
             } catch (e) {
                 if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Ошибка загрузки</div>';
             }
@@ -13322,53 +13756,78 @@ HTML_TEMPLATE = '''
          */
         function renderFinanceDistAccordionContent(recordId, data) {
             const content = document.getElementById(`finance-dist-accordion-content-${recordId}`);
-            if (!content || !data.distributions || data.distributions.length === 0) {
-                if (content) content.innerHTML = '<div class="finance-dist-accordion-loading">Нет распределений</div>';
+            if (!content) return;
+
+            const hasCont = data.distributions && data.distributions.length > 0;
+            const hasPlan = data.plan_distributions && data.plan_distributions.length > 0;
+
+            if (!hasCont && !hasPlan) {
+                content.innerHTML = '<div class="finance-dist-accordion-loading">Нет распределений</div>';
                 return;
             }
 
-            // Группируем по контейнеру
-            const grouped = {};
-            data.distributions.forEach(d => {
-                if (!grouped[d.container_doc_id]) {
-                    grouped[d.container_doc_id] = { label: d.container_label, items: [] };
-                }
-                grouped[d.container_doc_id].items.push(d);
-            });
-
-            const costTypeNames = {
-                logistics_rf: 'Лог. РФ',
-                logistics_cn: 'Лог. КНР',
-                terminal: 'Терминал',
-                customs: 'Пошлина'
-            };
-
             let html = '';
-            for (const [docId, group] of Object.entries(grouped)) {
-                html += `<div style="margin-bottom: 10px;">
-                    <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #333;">
-                        Контейнер ${group.label}
-                    </div>
-                    <table class="finance-dist-accordion-table">
-                        <thead><tr><th>Товар</th><th>Тип затрат</th><th style="text-align:right;">Сумма</th></tr></thead>
-                        <tbody>`;
 
-                let containerTotal = 0;
-                group.items.forEach(d => {
-                    containerTotal += d.amount;
-                    html += `<tr>
-                        <td>${d.offer_id || d.sku}</td>
-                        <td>${costTypeNames[d.cost_type] || d.cost_type}</td>
-                        <td style="text-align: right; font-weight: 500;">${d.amount.toLocaleString('ru-RU')} ₽</td>
-                    </tr>`;
+            // Распределения по контейнерам
+            if (hasCont) {
+                const grouped = {};
+                data.distributions.forEach(d => {
+                    if (!grouped[d.container_doc_id]) {
+                        grouped[d.container_doc_id] = { label: d.container_label, items: [] };
+                    }
+                    grouped[d.container_doc_id].items.push(d);
                 });
 
-                html += `</tbody>
-                    <tfoot><tr>
-                        <td colspan="2" style="font-weight: 600;">Итого по контейнеру</td>
-                        <td style="text-align: right; font-weight: 700;">${containerTotal.toLocaleString('ru-RU')} ₽</td>
-                    </tr></tfoot>
-                    </table></div>`;
+                const costTypeNames = {
+                    logistics_rf: 'Лог. РФ',
+                    logistics_cn: 'Лог. КНР',
+                    terminal: 'Терминал',
+                    customs: 'Пошлина'
+                };
+
+                for (const [docId, group] of Object.entries(grouped)) {
+                    html += '<div style="margin-bottom: 10px;">';
+                    html += '<div style="font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #333;">📦 Контейнер ' + escapeHtml(group.label) + '</div>';
+                    html += '<table class="finance-dist-accordion-table"><thead><tr><th>Товар</th><th>Тип затрат</th><th style="text-align:right;">Сумма</th></tr></thead><tbody>';
+
+                    let containerTotal = 0;
+                    group.items.forEach(d => {
+                        containerTotal += d.amount;
+                        html += '<tr><td>' + (d.offer_id || d.sku) + '</td>';
+                        html += '<td>' + (costTypeNames[d.cost_type] || d.cost_type) + '</td>';
+                        html += '<td style="text-align: right; font-weight: 500;">' + d.amount.toLocaleString('ru-RU') + ' ₽</td></tr>';
+                    });
+
+                    html += '</tbody><tfoot><tr><td colspan="2" style="font-weight: 600;">Итого по контейнеру</td>';
+                    html += '<td style="text-align: right; font-weight: 700;">' + containerTotal.toLocaleString('ru-RU') + ' ₽</td></tr></tfoot></table></div>';
+                }
+            }
+
+            // Распределения по плану
+            if (hasPlan) {
+                const targetNames = { invoice: 'Инвойс', delta: 'Дельта' };
+                html += '<div style="margin-bottom: 10px;">';
+                html += '<div style="font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #333;">📋 Распределение по плану</div>';
+                html += '<table class="finance-dist-accordion-table"><thead><tr>';
+                html += '<th>Товар</th><th>Дата выхода</th><th>Тип</th><th style="text-align:right;">Сумма ¥</th><th style="text-align:right;">Сумма ₽</th>';
+                html += '</tr></thead><tbody>';
+
+                let totalY = 0, totalR = 0;
+                data.plan_distributions.forEach(d => {
+                    totalY += d.yuan_amount || 0;
+                    totalR += d.rub_amount || 0;
+                    const dateStr = d.planned_release_date ? formatPlanDate(d.planned_release_date) : '—';
+                    html += '<tr><td>' + escapeHtml(d.product_name) + '</td>';
+                    html += '<td>' + dateStr + '</td>';
+                    html += '<td>' + (targetNames[d.target_type] || d.target_type) + '</td>';
+                    html += '<td style="text-align: right; color: #f59e0b; font-weight: 500;">' + (d.yuan_amount || 0).toLocaleString('ru-RU') + ' ¥</td>';
+                    html += '<td style="text-align: right; color: #16a34a; font-weight: 500;">' + (d.rub_amount || 0).toLocaleString('ru-RU') + ' ₽</td></tr>';
+                });
+
+                html += '</tbody><tfoot><tr><td colspan="3" style="font-weight: 600;">Итого по плану</td>';
+                html += '<td style="text-align: right; font-weight: 700; color: #f59e0b;">' + totalY.toLocaleString('ru-RU') + ' ¥</td>';
+                html += '<td style="text-align: right; font-weight: 700; color: #16a34a;">' + totalR.toLocaleString('ru-RU') + ' ₽</td>';
+                html += '</tr></tfoot></table></div>';
             }
 
             content.innerHTML = html;
@@ -25824,12 +26283,14 @@ def get_warehouse_stock():
         cursor = conn.cursor()
 
         # Получаем сумму оприходований и средневзвешенную цену по каждому SKU
+        # Используем calculated_cost (себестоимость +6% из поставок) если есть,
+        # иначе purchase_price (ручная цена)
         cursor.execute('''
             SELECT
                 sku,
                 SUM(quantity) as total_received,
                 CASE WHEN SUM(quantity) > 0
-                    THEN SUM(quantity * purchase_price) / SUM(quantity)
+                    THEN SUM(quantity * COALESCE(NULLIF(calculated_cost, 0), purchase_price)) / SUM(quantity)
                     ELSE 0
                 END as avg_purchase_price
             FROM warehouse_receipts
@@ -26391,9 +26852,9 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
@@ -26402,6 +26863,7 @@ def api_finance_categories():
             'requires_yuan': r['requires_yuan'] or 0,
             'requires_description': r['requires_description'] or 0,
             'description_hint': r['description_hint'] or '',
+            'is_plan_linked': r['is_plan_linked'] or 0,
             'created_at': r['created_at']
         } for r in rows]
         conn.close()
@@ -26446,9 +26908,11 @@ def api_finance_categories_add():
         requires_description = 1 if (data.get('requires_description') and record_type == 'expense') else 0
         # Текст-подсказка для описания (что увидит пользователь)
         description_hint = (data.get('description_hint') or '').strip()
+        # Флаг привязки к плану закупок (распределение юаней по строкам плана)
+        is_plan_linked = 1 if (data.get('is_plan_linked') and record_type == 'expense') else 0
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint) VALUES (?, ?, ?, ?, ?, ?)',
-                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -26588,6 +27052,18 @@ def api_finance_records():
             for row in cursor.fetchall():
                 dist_counts[row['finance_record_id']] = row['cnt']
 
+        # Проверяем наличие распределений по плану для каждой записи
+        plan_dist_counts = {}
+        if record_ids:
+            cursor.execute(f'''
+                SELECT finance_record_id, COUNT(*) as cnt
+                FROM finance_plan_distributions
+                WHERE finance_record_id IN ({placeholders})
+                GROUP BY finance_record_id
+            ''', record_ids)
+            for row in cursor.fetchall():
+                plan_dist_counts[row['finance_record_id']] = row['cnt']
+
         # Подсчитываем файлы для каждой записи
         file_counts = {}
         if record_ids:
@@ -26602,6 +27078,7 @@ def api_finance_records():
 
         for rec in records:
             rec['has_distributions'] = dist_counts.get(rec['id'], 0) > 0
+            rec['has_plan_distributions'] = plan_dist_counts.get(rec['id'], 0) > 0
             rec['file_count'] = file_counts.get(rec['id'], 0)
 
         # Рассчитываем сводку с теми же фильтрами
@@ -26661,6 +27138,8 @@ def api_finance_records_add():
             uploaded_files = request.files.getlist('files')
             if 'distributions' in data and data['distributions']:
                 data['distributions'] = json.loads(data['distributions'])
+            if 'plan_distributions' in data and data['plan_distributions']:
+                data['plan_distributions'] = json.loads(data['plan_distributions'])
         else:
             data = request.json
         user_info = getattr(request, 'current_user', {})
@@ -26711,7 +27190,7 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -26722,6 +27201,7 @@ def api_finance_records_add():
         requires_yuan = cat_row[2] or 0
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
+        is_plan_linked = cat_row[5] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -26767,6 +27247,13 @@ def api_finance_records_add():
                 user_info.get('username', ''), record_date
             )
 
+        # Обработка распределений по плану закупок (если переданы)
+        plan_distributions = data.get('plan_distributions', [])
+        if isinstance(plan_distributions, str):
+            plan_distributions = json.loads(plan_distributions) if plan_distributions else []
+        if plan_distributions and record_type == 'expense' and yuan_amount:
+            _save_finance_plan_distributions(cursor, new_id, plan_distributions, yuan_amount)
+
         # Сохраняем прикрепленные файлы
         if uploaded_files:
             save_finance_files(cursor, new_id, uploaded_files)
@@ -26793,6 +27280,10 @@ def api_finance_records_update():
         if request.content_type and 'multipart' in request.content_type:
             data = request.form.to_dict()
             uploaded_files = request.files.getlist('files')
+            if 'distributions' in data and data['distributions']:
+                data['distributions'] = json.loads(data['distributions'])
+            if 'plan_distributions' in data and data['plan_distributions']:
+                data['plan_distributions'] = json.loads(data['plan_distributions'])
         else:
             data = request.json
 
@@ -26848,7 +27339,7 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -26859,6 +27350,7 @@ def api_finance_records_update():
         requires_yuan = cat_row[2] or 0
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
+        is_plan_linked = cat_row[5] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -26897,6 +27389,7 @@ def api_finance_records_update():
             return jsonify({'success': False, 'error': 'Запись не найдена'}), 404
 
         # Обработка распределений: откатить старые, применить новые
+        _rollback_finance_plan_distributions(cursor, record_id)
         _rollback_finance_distributions(cursor, record_id)
         distributions = data.get('distributions', [])
         if distributions and record_type == 'expense':
@@ -26913,6 +27406,13 @@ def api_finance_records_update():
                     cursor, record_id, amount, category_name, description,
                     user_info.get('username', ''), record_date
                 )
+
+        # Обработка распределений по плану закупок
+        plan_distributions = data.get('plan_distributions', [])
+        if isinstance(plan_distributions, str):
+            plan_distributions = json.loads(plan_distributions) if plan_distributions else []
+        if plan_distributions and record_type == 'expense' and yuan_amount:
+            _save_finance_plan_distributions(cursor, record_id, plan_distributions, yuan_amount)
 
         # Сохраняем прикрепленные файлы
         if uploaded_files:
@@ -26944,7 +27444,8 @@ def api_finance_records_delete():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Откатываем распределения по контейнерам перед удалением записи
+        # Откатываем распределения по плану и контейнерам перед удалением записи
+        _rollback_finance_plan_distributions(cursor, record_id)
         _rollback_finance_distributions(cursor, record_id)
 
         # Удаляем уведомление о распределении (если есть)
@@ -27431,6 +27932,12 @@ def api_finance_categories_update():
             description_hint = (data.get('description_hint') or '').strip()
             updates.append('description_hint = ?')
             params_upd.append(description_hint)
+
+        # is_plan_linked — привязка к плану закупок (только для расходных)
+        if 'is_plan_linked' in data:
+            is_plan_linked = 1 if (data.get('is_plan_linked') and row['record_type'] == 'expense') else 0
+            updates.append('is_plan_linked = ?')
+            params_upd.append(is_plan_linked)
 
         if not updates:
             conn.close()
@@ -27964,7 +28471,7 @@ def api_telegram_finance_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -27975,6 +28482,7 @@ def api_telegram_finance_add():
         requires_yuan = cat_row[2] or 0
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
+        is_plan_linked = cat_row[5] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
