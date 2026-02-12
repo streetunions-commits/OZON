@@ -20003,7 +20003,7 @@ HTML_TEMPLATE = '''
                     html += '</tbody></table></div>';
                     /* Кнопка добавления строки — видна только при раскрытии */
                     html += '<div class="plan-add-wrap" style="padding:10px 16px;text-align:left;">';
-                    html += '<button class="plan-add-btn admin-only" onclick="openPlanModalForGroup(\'' + escapeHtml(artName).replace(/'/g, "\\'") + '\')" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
+                    html += '<button class="plan-add-btn admin-only" data-art="' + escapeHtml(artName) + '" onclick="openPlanModalForGroup(this.dataset.art)" style="font-size:12px;padding:6px 14px;">+ Добавить строку</button>';
                     html += '</div>';
                     html += '</div>'; /* /plan-group-body */
                     html += '</div>'; /* /plan-group */
@@ -26056,6 +26056,72 @@ def api_finance_accounts_delete():
         conn.close()
 
         return jsonify({'success': True, 'message': 'Счёт удалён'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/finance/accounts/rename', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_accounts_rename():
+    """
+    Переименовать финансовый счёт.
+    Payload: {'id': 5, 'new_name': 'Новое название'}
+    Обновляет название в справочнике finance_accounts и во всех записях finance_records
+    (поле account_name), чтобы история отображала актуальное название.
+    """
+    try:
+        data = request.json
+        account_id = data.get('id')
+        new_name = (data.get('new_name') or '').strip()
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Укажите ID счёта'}), 400
+        if not new_name:
+            return jsonify({'success': False, 'error': 'Укажите новое название'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Проверяем существование счёта
+        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        old_name = row[0]
+
+        # Если название не изменилось — ничего не делаем
+        if old_name == new_name:
+            conn.close()
+            return jsonify({'success': True, 'message': 'Название не изменилось'})
+
+        # Проверяем уникальность нового названия (без учёта регистра)
+        cursor.execute(
+            'SELECT id FROM finance_accounts WHERE LOWER(name) = LOWER(?) AND id != ?',
+            (new_name, account_id)
+        )
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': f'Счёт с названием "{new_name}" уже существует'}), 400
+
+        # Обновляем название в справочнике счетов
+        cursor.execute('UPDATE finance_accounts SET name = ? WHERE id = ?', (new_name, account_id))
+
+        # Обновляем account_name во всех записях истории с этим account_id
+        cursor.execute(
+            'UPDATE finance_records SET account_name = ? WHERE account_id = ?',
+            (new_name, account_id)
+        )
+        updated_records = cursor.rowcount
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': f'Счёт переименован: «{old_name}» → «{new_name}». Обновлено записей: {updated_records}'
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
