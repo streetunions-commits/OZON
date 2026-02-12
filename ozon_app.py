@@ -19977,8 +19977,11 @@ HTML_TEMPLATE = '''
                     let gQty = 0, gTotal = 0, gWaiting = 0, gTransit = 0, gArrived = 0;
                     let gPaidInvY = 0, gPaidInvR = 0, gPaidDY = 0, gPaidDR = 0;
                     let gTotalPaidY = 0, gTotalPaidR = 0;
+                    let gSumPriceInv = 0, gSumPriceDelta = 0;
                     rows.forEach(r => {
                         gQty += r.planned_qty || 0;
+                        gSumPriceInv += r.price_yuan_invoice || 0;
+                        gSumPriceDelta += r.price_yuan_delta_invoice || 0;
                         gTotal += (r.price_yuan_invoice || 0) + (r.price_yuan_delta_invoice || 0);
                         gTransit += r.qty_in_transit || 0;
                         gArrived += r.qty_arrived || 0;
@@ -20004,10 +20007,12 @@ HTML_TEMPLATE = '''
                     html += '<div class="plan-group-table-wrap">';
                     html += '<table class="plan-group-table"><thead>';
                     html += '<tr class="plan-totals-row">';
+                    const cnt = rows.length;
                     html += '<td></td><td></td>';
                     html += '<td>' + fmtNum(gQty) + '</td>';
-                    html += '<td></td><td></td>';
-                    html += '<td>' + fmtMoney(gTotal) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gSumPriceInv / cnt) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gSumPriceDelta / cnt) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gTotal / cnt) + ' &#165;</td>';
                     html += '<td>' + fmtNum(gWaiting) + '</td>';
                     html += '<td>' + fmtNum(gTransit) + '</td>';
                     html += '<td>' + fmtNum(gArrived) + '</td>';
@@ -20020,7 +20025,7 @@ HTML_TEMPLATE = '''
                     html += '<td class="admin-only"></td>';
                     html += '</tr><tr>';
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
-                    html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая<br>сумма &#165;</th>';
+                    html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая сумма<br>юань, шт &#165;</th>';
                     html += '<th>Кол-во<br>в ожидании</th><th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
                     html += '<th>Оплачено<br>инвойс &#165;</th><th>Оплачено<br>инвойс &#8381;</th><th>Оплачено<br>дельта &#165;</th><th>Оплачено<br>дельта &#8381;</th>';
                     html += '<th>Оплачено<br>всего &#165;</th><th>Оплачено<br>всего &#8381;</th>';
