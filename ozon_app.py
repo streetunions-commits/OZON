@@ -9356,20 +9356,12 @@ HTML_TEMPLATE = '''
                             <input type="number" id="plan-price-delta" placeholder="0" step="1" min="0" required>
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено инвойс ¥</label>
+                            <label>Оплачено инвойс + дельта ¥</label>
                             <input type="number" id="plan-paid-inv-yuan" placeholder="0" step="1" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Оплачено инвойс ₽</label>
+                            <label>Оплачено инвойс + дельта ₽</label>
                             <input type="number" id="plan-paid-inv-rub" placeholder="0" step="1" min="0">
-                        </div>
-                        <div class="plan-form-group">
-                            <label>Оплачено дельта ¥</label>
-                            <input type="number" id="plan-paid-delta-yuan" placeholder="0" step="1" min="0">
-                        </div>
-                        <div class="plan-form-group">
-                            <label>Оплачено дельта ₽</label>
-                            <input type="number" id="plan-paid-delta-rub" placeholder="0" step="1" min="0">
                         </div>
                     </div>
                     <div class="plan-modal-actions">
@@ -20533,10 +20525,8 @@ HTML_TEMPLATE = '''
                     html += '<td>' + fmtNum(gWaiting) + '</td>';
                     html += '<td>' + fmtNum(gTransit) + '</td>';
                     html += '<td>' + fmtNum(gArrived) + '</td>';
-                    html += '<td>' + fmtMoney(gPaidInvY) + ' &#165;</td>';
-                    html += '<td>' + fmtMoney(gPaidInvR) + ' &#8381;</td>';
-                    html += '<td>' + fmtMoney(gPaidDY) + ' &#165;</td>';
-                    html += '<td>' + fmtMoney(gPaidDR) + ' &#8381;</td>';
+                    html += '<td>' + fmtMoney(gTotalPaidY) + ' &#165;</td>';
+                    html += '<td>' + fmtMoney(gTotalPaidR) + ' &#8381;</td>';
                     html += '<td>' + fmtMoney(gTotalPaidY) + ' &#165;</td>';
                     html += '<td>' + fmtMoney(gTotalPaidR) + ' &#8381;</td>';
                     html += '<td class="admin-only"></td>';
@@ -20544,7 +20534,7 @@ HTML_TEMPLATE = '''
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс, шт &#165;</th><th>Цена юань<br>дельта инвойс, шт &#165;</th><th>Общая сумма<br>юань, шт &#165;</th>';
                     html += '<th>Кол-во<br>в ожидании</th><th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
-                    html += '<th>Оплачено<br>инвойс &#165;</th><th>Оплачено<br>инвойс &#8381;</th><th>Оплачено<br>дельта &#165;</th><th>Оплачено<br>дельта &#8381;</th>';
+                    html += '<th>Оплачено<br>инвойс + дельта &#165;</th><th>Оплачено<br>инвойс + дельта &#8381;</th>';
                     html += '<th>Оплачено<br>всего &#165;</th><th>Оплачено<br>всего &#8381;</th>';
                     html += '<th class="admin-only"></th>';
                     html += '</tr></thead><tbody>';
@@ -20564,10 +20554,8 @@ HTML_TEMPLATE = '''
                         html += '<td class="number-cell">' + fmtNum(waiting) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item._in_transit || 0) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item._arrived || 0) + '</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + ' &#165;</td>';
-                        html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + ' &#8381;</td>';
-                        html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + ' &#165;</td>';
-                        html += '<td class="rub-cell">' + fmtMoney(item.paid_delta_rub) + ' &#8381;</td>';
+                        html += '<td class="yuan-cell">' + fmtMoney(totalPaidY) + ' &#165;</td>';
+                        html += '<td class="rub-cell">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalPaidY) + ' &#165;</td>';
                         html += '<td class="rub-cell" style="font-weight:700">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
@@ -20685,10 +20673,8 @@ HTML_TEMPLATE = '''
                 document.getElementById('plan-qty').value = item.planned_qty || '';
                 document.getElementById('plan-price-invoice').value = item.price_yuan_invoice || '';
                 document.getElementById('plan-price-delta').value = item.price_yuan_delta_invoice || '';
-                document.getElementById('plan-paid-inv-yuan').value = item.paid_invoice_yuan || '';
-                document.getElementById('plan-paid-inv-rub').value = item.paid_invoice_rub || '';
-                document.getElementById('plan-paid-delta-yuan').value = item.paid_delta_yuan || '';
-                document.getElementById('plan-paid-delta-rub').value = item.paid_delta_rub || '';
+                document.getElementById('plan-paid-inv-yuan').value = ((item.paid_invoice_yuan || 0) + (item.paid_delta_yuan || 0)) || '';
+                document.getElementById('plan-paid-inv-rub').value = ((item.paid_invoice_rub || 0) + (item.paid_delta_rub || 0)) || '';
 
                 document.getElementById('plan-modal-overlay').classList.add('active');
             } catch (err) {
@@ -20728,8 +20714,8 @@ HTML_TEMPLATE = '''
                 qty_arrived: 0,
                 paid_invoice_yuan: parseInt(document.getElementById('plan-paid-inv-yuan').value) || 0,
                 paid_invoice_rub: parseInt(document.getElementById('plan-paid-inv-rub').value) || 0,
-                paid_delta_yuan: parseInt(document.getElementById('plan-paid-delta-yuan').value) || 0,
-                paid_delta_rub: parseInt(document.getElementById('plan-paid-delta-rub').value) || 0
+                paid_delta_yuan: 0,
+                paid_delta_rub: 0
             };
 
             // Автоматический расчёт общей суммы юань (инвойс + дельта за шт)
