@@ -9282,39 +9282,39 @@ HTML_TEMPLATE = '''
                         </div>
                         <div class="plan-form-group">
                             <label>Дата выхода план</label>
-                            <input type="date" id="plan-release-date" onclick="this.showPicker()">
+                            <input type="date" id="plan-release-date" onclick="this.showPicker()" required>
                         </div>
                         <div class="plan-form-group">
                             <label>Примерный приход дата</label>
-                            <input type="date" id="plan-arrival-date" onclick="this.showPicker()">
+                            <input type="date" id="plan-arrival-date" onclick="this.showPicker()" required>
                         </div>
                         <div class="plan-form-group">
                             <label>Кол-во план</label>
-                            <input type="number" id="plan-qty" placeholder="0" min="0">
+                            <input type="number" id="plan-qty" placeholder="0" min="1" required>
                         </div>
                         <div class="plan-form-group">
                             <label>Цена юань инвойс, шт ¥</label>
-                            <input type="number" id="plan-price-invoice" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-price-invoice" placeholder="0" step="1" min="0" required>
                         </div>
                         <div class="plan-form-group">
                             <label>Цена юань дельта инвойс, шт ¥</label>
-                            <input type="number" id="plan-price-delta" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-price-delta" placeholder="0" step="1" min="0" required>
                         </div>
                         <div class="plan-form-group">
                             <label>Оплачено инвойс ¥</label>
-                            <input type="number" id="plan-paid-inv-yuan" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-paid-inv-yuan" placeholder="0" step="1" min="0">
                         </div>
                         <div class="plan-form-group">
                             <label>Оплачено инвойс ₽</label>
-                            <input type="number" id="plan-paid-inv-rub" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-paid-inv-rub" placeholder="0" step="1" min="0">
                         </div>
                         <div class="plan-form-group">
                             <label>Оплачено дельта ¥</label>
-                            <input type="number" id="plan-paid-delta-yuan" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-paid-delta-yuan" placeholder="0" step="1" min="0">
                         </div>
                         <div class="plan-form-group">
                             <label>Оплачено дельта ₽</label>
-                            <input type="number" id="plan-paid-delta-rub" placeholder="0.00" step="0.01" min="0">
+                            <input type="number" id="plan-paid-delta-rub" placeholder="0" step="1" min="0">
                         </div>
                     </div>
                     <div class="plan-modal-actions">
@@ -19967,32 +19967,30 @@ HTML_TEMPLATE = '''
                     groups[key].push(item);
                 });
 
-                /* Распределяем «в пути» из поставок по строкам плана */
+                /* Сначала «пришло», потом «в пути» с вычетом прихода из ёмкости строки */
                 groupOrder.forEach(artName => {
                     const grpRows = groups[artName];
-                    const totalInTransit = inTransitMap[artName] || 0;
                     /* Сортируем по дате выхода (ранние первые) */
                     grpRows.sort((a, b) => (a.planned_release_date || '').localeCompare(b.planned_release_date || ''));
-                    let remaining = totalInTransit;
-                    grpRows.forEach(r => {
-                        const qty = r.planned_qty || 0;
-                        const fill = Math.min(remaining, qty);
-                        r._in_transit = fill;
-                        remaining -= fill;
-                    });
-                });
 
-                /* Распределяем «пришло на склад» из поставок по строкам плана */
-                groupOrder.forEach(artName => {
-                    const grpRows = groups[artName];
+                    /* 1) Распределяем «пришло на склад» */
                     const totalArrived = arrivalsMap[artName] || 0;
-                    /* Строки уже отсортированы по дате выхода (ранние первые) */
-                    let remaining = totalArrived;
+                    let remArr = totalArrived;
                     grpRows.forEach(r => {
                         const qty = r.planned_qty || 0;
-                        const fill = Math.min(remaining, qty);
+                        const fill = Math.min(remArr, qty);
                         r._arrived = fill;
-                        remaining -= fill;
+                        remArr -= fill;
+                    });
+
+                    /* 2) Распределяем «в пути» — ёмкость строки = план минус уже пришло */
+                    const totalInTransit = inTransitMap[artName] || 0;
+                    let remTr = totalInTransit;
+                    grpRows.forEach(r => {
+                        const capacity = Math.max(0, (r.planned_qty || 0) - (r._arrived || 0));
+                        const fill = Math.min(remTr, capacity);
+                        r._in_transit = fill;
+                        remTr -= fill;
                     });
                 });
 
@@ -20083,7 +20081,7 @@ HTML_TEMPLATE = '''
                         html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalPaidY) + ' &#165;</td>';
                         html += '<td class="rub-cell" style="font-weight:700">' + fmtMoney(totalPaidR) + ' &#8381;</td>';
                         html += '<td class="actions-cell admin-only">';
-                        html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">&#128465;</button>';
+                        html += '<button class="plan-delete-btn" onclick="event.stopPropagation();deletePlanItem(' + item.id + ')">Удалить</button>';
                         html += '</td></tr>';
                     });
 
@@ -20127,7 +20125,7 @@ HTML_TEMPLATE = '''
         /** Форматирование денег (до 2 знаков, без лишних нулей) */
         function fmtMoney(val) {
             if (!val && val !== 0) return '0';
-            return Number(val).toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+            return Number(val).toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 0});
         }
 
         /** Экранирование HTML для защиты от XSS */
@@ -20216,20 +20214,32 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            const releaseDate = document.getElementById('plan-release-date').value;
+            const arrivalDate = document.getElementById('plan-arrival-date').value;
+            const qty = document.getElementById('plan-qty').value;
+            const priceInv = document.getElementById('plan-price-invoice').value;
+            const priceDelta = document.getElementById('plan-price-delta').value;
+
+            if (!releaseDate) { alert('Укажите дату выхода план'); return; }
+            if (!arrivalDate) { alert('Укажите примерный приход дата'); return; }
+            if (!qty || parseInt(qty) <= 0) { alert('Укажите кол-во план (больше 0)'); return; }
+            if (!priceInv || parseFloat(priceInv) <= 0) { alert('Укажите цену юань инвойс'); return; }
+            if (!priceDelta && priceDelta !== '0') { alert('Укажите цену юань дельта инвойс'); return; }
+
             const editId = document.getElementById('plan-edit-id').value;
             const payload = {
                 product_name: productName,
-                planned_release_date: document.getElementById('plan-release-date').value || null,
-                estimated_arrival_date: document.getElementById('plan-arrival-date').value || null,
-                planned_qty: parseInt(document.getElementById('plan-qty').value) || 0,
-                price_yuan_invoice: parseFloat(document.getElementById('plan-price-invoice').value) || 0,
-                price_yuan_delta_invoice: parseFloat(document.getElementById('plan-price-delta').value) || 0,
+                planned_release_date: releaseDate || null,
+                estimated_arrival_date: arrivalDate || null,
+                planned_qty: parseInt(qty) || 0,
+                price_yuan_invoice: parseInt(priceInv) || 0,
+                price_yuan_delta_invoice: parseInt(priceDelta) || 0,
                 qty_in_transit: 0,
                 qty_arrived: 0,
-                paid_invoice_yuan: parseFloat(document.getElementById('plan-paid-inv-yuan').value) || 0,
-                paid_invoice_rub: parseFloat(document.getElementById('plan-paid-inv-rub').value) || 0,
-                paid_delta_yuan: parseFloat(document.getElementById('plan-paid-delta-yuan').value) || 0,
-                paid_delta_rub: parseFloat(document.getElementById('plan-paid-delta-rub').value) || 0
+                paid_invoice_yuan: parseInt(document.getElementById('plan-paid-inv-yuan').value) || 0,
+                paid_invoice_rub: parseInt(document.getElementById('plan-paid-inv-rub').value) || 0,
+                paid_delta_yuan: parseInt(document.getElementById('plan-paid-delta-yuan').value) || 0,
+                paid_delta_rub: parseInt(document.getElementById('plan-paid-delta-rub').value) || 0
             };
 
             // Автоматический расчёт общей суммы юань (инвойс + дельта за шт)
