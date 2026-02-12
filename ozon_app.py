@@ -4723,7 +4723,7 @@ HTML_TEMPLATE = '''
                 flex-wrap: wrap;
             }
 
-            /* --- Пользователи --- */
+            /* --- Пользователи: карточный layout --- */
             .users-tab {
                 padding: 12px;
             }
@@ -4734,15 +4734,101 @@ HTML_TEMPLATE = '''
                 gap: 10px;
             }
 
-            .users-table th,
-            .users-table td {
-                padding: 8px 6px;
-                font-size: 13px;
+            .users-header h3 {
+                font-size: 17px;
             }
 
-            .users-table .actions {
+            .add-user-btn {
+                width: 100%;
+                text-align: center;
+                padding: 12px 20px;
+                font-size: 15px;
+            }
+
+            /* Скрыть заголовки таблицы */
+            .users-table thead {
+                display: none;
+            }
+
+            .users-table {
+                border-collapse: separate;
+                border-spacing: 0 10px;
+            }
+
+            /* Каждая строка = карточка */
+            .users-table tbody tr {
+                display: block;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+                padding: 14px 16px;
+                margin-bottom: 10px;
+                border: 1px solid #e9ecef;
+            }
+
+            /* Скрыть колонку ID на мобильных */
+            .users-table tbody td[data-label="ID"] {
+                display: none;
+            }
+
+            /* Каждая ячейка = строка внутри карточки */
+            .users-table tbody td {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 6px 0;
+                border-bottom: 1px solid #f0f0f0;
+                font-size: 14px;
+                text-align: right;
+            }
+
+            .users-table tbody td:last-child {
+                border-bottom: none;
+                padding-top: 10px;
+            }
+
+            /* Подписи слева через data-label */
+            .users-table tbody td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                color: #555;
+                font-size: 13px;
+                text-align: left;
+                flex-shrink: 0;
+                margin-right: 12px;
+            }
+
+            /* Кнопки действий — крупные, touch-friendly */
+            .users-table tbody td.actions {
+                display: flex;
                 flex-wrap: wrap;
-                gap: 4px;
+                justify-content: flex-start;
+                gap: 8px;
+                padding-top: 10px;
+            }
+
+            .users-table tbody td.actions::before {
+                display: none;
+            }
+
+            .users-table .action-btn {
+                padding: 8px 14px;
+                font-size: 14px;
+                min-height: 40px;
+                min-width: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
+                background: #f0f4ff;
+            }
+
+            .users-table .change-pwd-btn {
+                background: #e3f2fd;
+            }
+
+            .users-table .delete-btn {
+                background: #ffebee;
             }
 
             /* --- Чат в оприходовании --- */
@@ -5030,6 +5116,28 @@ HTML_TEMPLATE = '''
             .add-user-btn {
                 width: 100%;
                 text-align: center;
+            }
+
+            /* --- Пользователи: мелкие экраны --- */
+            .users-tab {
+                padding: 8px;
+            }
+
+            .users-table tbody tr {
+                padding: 12px;
+            }
+
+            .users-table tbody td {
+                font-size: 13px;
+            }
+
+            .users-table tbody td::before {
+                font-size: 12px;
+            }
+
+            .users-table .action-btn {
+                padding: 7px 12px;
+                font-size: 13px;
             }
 
             /* --- Форма контейнера: все поля в одну колонку --- */
@@ -19447,12 +19555,12 @@ HTML_TEMPLATE = '''
                     const safeDisplayName = escapeHtml(displayName).replace(/'/g, "\\'");
 
                     tr.innerHTML = `
-                        <td>${user.id}</td>
-                        <td><strong>${escapeHtml(user.username)}</strong></td>
-                        <td>${displayNameHtml} <button class="action-btn" onclick="openSetDisplayNameModal(${user.id}, '${safeUsername}', '${safeDisplayName}')" title="Изменить" style="padding:2px 6px;font-size:11px;">✏️</button></td>
-                        <td><span class="role-badge ${roleClass}">${roleIcon} ${user.role}</span></td>
-                        <td>${tgDisplay}</td>
-                        <td>${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
+                        <td data-label="ID">${user.id}</td>
+                        <td data-label="Логин"><strong>${escapeHtml(user.username)}</strong></td>
+                        <td data-label="Имя">${displayNameHtml} <button class="action-btn" onclick="openSetDisplayNameModal(${user.id}, '${safeUsername}', '${safeDisplayName}')" title="Изменить" style="padding:2px 6px;font-size:11px;">✏️</button></td>
+                        <td data-label="Роль"><span class="role-badge ${roleClass}">${roleIcon} ${user.role}</span></td>
+                        <td data-label="Telegram">${tgDisplay}</td>
+                        <td data-label="Создан">${user.created_at ? new Date(user.created_at).toLocaleDateString('ru-RU') : '—'}</td>
                         <td class="actions">
                             <button class="action-btn" onclick="openLinkTelegramModal(${user.id}, '${safeUsername}', '${user.telegram_username || ''}')" title="Привязать Telegram">📱</button>
                             <button class="action-btn" onclick="openRenameUserModal(${user.id}, '${safeUsername}')" title="Переименовать логин">✏️</button>
@@ -19845,22 +19953,25 @@ HTML_TEMPLATE = '''
                     html += '<div class="plan-group-header" onclick="togglePlanGroup(this)">';
                     html += '<span class="plan-group-arrow">&#9654;</span>';
                     html += '<span class="plan-group-name">' + escapeHtml(artName) + '</span>';
-                    html += '<span class="plan-group-stats">';
-                    html += '<span>Кол-во: <b>' + fmtNum(gQty) + '</b></span>';
-                    html += '<span class="yuan">Сумма: <b>' + fmtMoney(gTotal) + '</b></span>';
-                    html += '<span>В пути: <b>' + fmtNum(gTransit) + '</b></span>';
-                    html += '<span>Пришло: <b>' + fmtNum(gArrived) + '</b></span>';
-                    html += '<span class="yuan">Опл.инв: <b>' + fmtMoney(gPaidInvY) + '</b> &yen;</span>';
-                    html += '<span class="rub">Опл.инв: <b>' + fmtMoney(gPaidInvR) + '</b> &#8381;</span>';
-                    if (gPaidDY) html += '<span class="yuan">Опл.&#916;: <b>' + fmtMoney(gPaidDY) + '</b> &yen;</span>';
-                    if (gPaidDR) html += '<span class="rub">Опл.&#916;: <b>' + fmtMoney(gPaidDR) + '</b> &#8381;</span>';
-                    html += '</span>';
                     html += '</div>';
 
                     /* Тело группы */
                     html += '<div class="plan-group-body">';
                     html += '<div class="plan-group-table-wrap">';
-                    html += '<table class="plan-group-table"><thead><tr>';
+                    html += '<table class="plan-group-table"><thead>';
+                    html += '<tr class="plan-totals-row">';
+                    html += '<td></td><td></td>';
+                    html += '<td>' + fmtNum(gQty) + '</td>';
+                    html += '<td></td><td></td>';
+                    html += '<td>' + fmtMoney(gTotal) + '</td>';
+                    html += '<td>' + fmtNum(gTransit) + '</td>';
+                    html += '<td>' + fmtNum(gArrived) + '</td>';
+                    html += '<td>' + fmtMoney(gPaidInvY) + '</td>';
+                    html += '<td>' + fmtMoney(gPaidInvR) + '</td>';
+                    html += '<td>' + fmtMoney(gPaidDY) + '</td>';
+                    html += '<td>' + fmtMoney(gPaidDR) + '</td>';
+                    html += '<td class="admin-only"></td>';
+                    html += '</tr><tr>';
                     html += '<th>Дата выхода<br>план</th><th>Примерный<br>приход дата</th><th>Кол-во<br>план</th>';
                     html += '<th>Цена юань<br>инвойс</th><th>Цена юань<br>дельта-инвойс</th><th>Общая<br>сумма юань</th>';
                     html += '<th>Кол-во<br>в пути</th><th>Кол-во<br>пришло</th>';
