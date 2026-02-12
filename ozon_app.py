@@ -9301,10 +9301,6 @@ HTML_TEMPLATE = '''
                             <input type="number" id="plan-price-delta" placeholder="0.00" step="0.01" min="0">
                         </div>
                         <div class="plan-form-group">
-                            <label>Кол-во пришло</label>
-                            <input type="number" id="plan-arrived" placeholder="0" min="0">
-                        </div>
-                        <div class="plan-form-group">
                             <label>Оплачено инвойс ¥</label>
                             <input type="number" id="plan-paid-inv-yuan" placeholder="0.00" step="0.01" min="0">
                         </div>
@@ -19937,16 +19933,19 @@ HTML_TEMPLATE = '''
             try {
                 if (planProducts.length === 0) loadPlanProducts();
 
-                const [resp, transitResp] = await Promise.all([
+                const [resp, transitResp, arrivalsResp] = await Promise.all([
                     authFetch('/api/plan/items'),
-                    authFetch('/api/plan/in-transit')
+                    authFetch('/api/plan/in-transit'),
+                    authFetch('/api/plan/arrivals')
                 ]);
                 const data = await resp.json();
                 const transitData = await transitResp.json();
+                const arrivalsData = await arrivalsResp.json();
                 if (!data.success) return;
 
                 const items = data.items || [];
                 const inTransitMap = (transitData.success && transitData.in_transit) ? transitData.in_transit : {};
+                const arrivalsMap = (arrivalsData.success && arrivalsData.arrivals) ? arrivalsData.arrivals : {};
                 const container = document.getElementById('plan-groups-container');
                 const empty = document.getElementById('plan-empty');
 
@@ -19983,6 +19982,20 @@ HTML_TEMPLATE = '''
                     });
                 });
 
+                /* Распределяем «пришло на склад» из поставок по строкам плана */
+                groupOrder.forEach(artName => {
+                    const grpRows = groups[artName];
+                    const totalArrived = arrivalsMap[artName] || 0;
+                    /* Строки уже отсортированы по дате выхода (ранние первые) */
+                    let remaining = totalArrived;
+                    grpRows.forEach(r => {
+                        const qty = r.planned_qty || 0;
+                        const fill = Math.min(remaining, qty);
+                        r._arrived = fill;
+                        remaining -= fill;
+                    });
+                });
+
                 /* Рендерим аккордеон */
                 let html = '';
                 groupOrder.forEach(artName => {
@@ -20000,8 +20013,8 @@ HTML_TEMPLATE = '''
                         gSumPriceDelta += r.price_yuan_delta_invoice || 0;
                         gTotal += (r.price_yuan_invoice || 0) + (r.price_yuan_delta_invoice || 0);
                         gTransit += r._in_transit || 0;
-                        gArrived += r.qty_arrived || 0;
-                        gWaiting += (r.planned_qty || 0) - (r._in_transit || 0) - (r.qty_arrived || 0);
+                        gArrived += r._arrived || 0;
+                        gWaiting += (r.planned_qty || 0) - (r._in_transit || 0) - (r._arrived || 0);
                         gPaidInvY += r.paid_invoice_yuan || 0;
                         gPaidInvR += r.paid_invoice_rub || 0;
                         gPaidDY += r.paid_delta_yuan || 0;
@@ -20050,7 +20063,7 @@ HTML_TEMPLATE = '''
 
                     rows.forEach((item, idx) => {
                         const totalYuan = (item.price_yuan_invoice || 0) + (item.price_yuan_delta_invoice || 0);
-                        const waiting = (item.planned_qty || 0) - (item._in_transit || 0) - (item.qty_arrived || 0);
+                        const waiting = (item.planned_qty || 0) - (item._in_transit || 0) - (item._arrived || 0);
                         const totalPaidY = (item.paid_invoice_yuan || 0) + (item.paid_delta_yuan || 0);
                         const totalPaidR = (item.paid_invoice_rub || 0) + (item.paid_delta_rub || 0);
                         html += '<tr ondblclick="editPlanItem(' + item.id + ')" style="cursor:pointer" title="Двойной клик для редактирования">';
@@ -20062,7 +20075,7 @@ HTML_TEMPLATE = '''
                         html += '<td class="yuan-cell" style="font-weight:700">' + fmtMoney(totalYuan) + ' &#165;</td>';
                         html += '<td class="number-cell">' + fmtNum(waiting) + '</td>';
                         html += '<td class="number-cell">' + fmtNum(item._in_transit || 0) + '</td>';
-                        html += '<td class="number-cell">' + fmtNum(item.qty_arrived) + '</td>';
+                        html += '<td class="number-cell">' + fmtNum(item._arrived || 0) + '</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(item.paid_invoice_yuan) + ' &#165;</td>';
                         html += '<td class="rub-cell">' + fmtMoney(item.paid_invoice_rub) + ' &#8381;</td>';
                         html += '<td class="yuan-cell">' + fmtMoney(item.paid_delta_yuan) + ' &#165;</td>';
@@ -20131,7 +20144,7 @@ HTML_TEMPLATE = '''
             document.getElementById('plan-modal-title').textContent = 'Добавить строку — ' + articulName;
             document.getElementById('plan-edit-id').value = '';
             ['plan-release-date', 'plan-arrival-date', 'plan-qty',
-             'plan-price-invoice', 'plan-price-delta', 'plan-arrived',
+             'plan-price-invoice', 'plan-price-delta',
              'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
             ].forEach(id => document.getElementById(id).value = '');
             await loadPlanProducts();
@@ -20148,7 +20161,7 @@ HTML_TEMPLATE = '''
             document.getElementById('plan-product-name').value = '';
             document.getElementById('plan-product-name').disabled = false;
             ['plan-release-date', 'plan-arrival-date', 'plan-qty',
-             'plan-price-invoice', 'plan-price-delta', 'plan-arrived',
+             'plan-price-invoice', 'plan-price-delta',
              'plan-paid-inv-yuan', 'plan-paid-inv-rub', 'plan-paid-delta-yuan', 'plan-paid-delta-rub'
             ].forEach(id => document.getElementById(id).value = '');
             loadPlanProducts();
@@ -20184,7 +20197,6 @@ HTML_TEMPLATE = '''
                 document.getElementById('plan-qty').value = item.planned_qty || '';
                 document.getElementById('plan-price-invoice').value = item.price_yuan_invoice || '';
                 document.getElementById('plan-price-delta').value = item.price_yuan_delta_invoice || '';
-                document.getElementById('plan-arrived').value = item.qty_arrived || '';
                 document.getElementById('plan-paid-inv-yuan').value = item.paid_invoice_yuan || '';
                 document.getElementById('plan-paid-inv-rub').value = item.paid_invoice_rub || '';
                 document.getElementById('plan-paid-delta-yuan').value = item.paid_delta_yuan || '';
@@ -20213,7 +20225,7 @@ HTML_TEMPLATE = '''
                 price_yuan_invoice: parseFloat(document.getElementById('plan-price-invoice').value) || 0,
                 price_yuan_delta_invoice: parseFloat(document.getElementById('plan-price-delta').value) || 0,
                 qty_in_transit: 0,
-                qty_arrived: parseInt(document.getElementById('plan-arrived').value) || 0,
+                qty_arrived: 0,
                 paid_invoice_yuan: parseFloat(document.getElementById('plan-paid-inv-yuan').value) || 0,
                 paid_invoice_rub: parseFloat(document.getElementById('plan-paid-inv-rub').value) || 0,
                 paid_delta_yuan: parseFloat(document.getElementById('plan-paid-delta-yuan').value) || 0,
