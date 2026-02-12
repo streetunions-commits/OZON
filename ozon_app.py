@@ -12353,34 +12353,32 @@ HTML_TEMPLATE = '''
                     descLabel.appendChild(document.createTextNode(' Описание'));
                     name.appendChild(descLabel);
 
-                    // Поле «Подсказка» — текст-пример для обязательного описания
-                    if (cat.requires_description) {
-                        const hintWrap = document.createElement('div');
-                        hintWrap.style.cssText = 'width: 100%; margin-top: 4px;';
-                        const hintInput = document.createElement('input');
-                        hintInput.type = 'text';
-                        hintInput.className = 'wh-input';
-                        hintInput.value = cat.description_hint || '';
-                        hintInput.placeholder = 'Текст подсказки для описания';
-                        hintInput.style.cssText = 'width: 100%; font-size: 12px; padding: 4px 8px;';
-                        let hintTimeout = null;
-                        hintInput.oninput = () => {
-                            clearTimeout(hintTimeout);
-                            hintTimeout = setTimeout(async () => {
-                                try {
-                                    const resp = await authFetch('/api/finance/categories/update', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ id: cat.id, description_hint: hintInput.value })
-                                    });
-                                    const result = await resp.json();
-                                    if (result.success) cat.description_hint = hintInput.value;
-                                } catch(e) { console.error(e); }
-                            }, 800);
-                        };
-                        hintWrap.appendChild(hintInput);
-                        name.appendChild(hintWrap);
-                    }
+                    // Поле «Подсказка» — текст-пример для описания (виден всегда для расходных)
+                    const hintWrap = document.createElement('div');
+                    hintWrap.style.cssText = 'width: 100%; margin-top: 4px;';
+                    const hintInput = document.createElement('input');
+                    hintInput.type = 'text';
+                    hintInput.className = 'wh-input';
+                    hintInput.value = cat.description_hint || '';
+                    hintInput.placeholder = 'Текст подсказки для описания';
+                    hintInput.style.cssText = 'width: 100%; font-size: 12px; padding: 4px 8px;';
+                    let hintTimeout = null;
+                    hintInput.oninput = () => {
+                        clearTimeout(hintTimeout);
+                        hintTimeout = setTimeout(async () => {
+                            try {
+                                const resp = await authFetch('/api/finance/categories/update', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: cat.id, description_hint: hintInput.value })
+                                });
+                                const result = await resp.json();
+                                if (result.success) cat.description_hint = hintInput.value;
+                            } catch(e) { console.error(e); }
+                        }, 800);
+                    };
+                    hintWrap.appendChild(hintInput);
+                    name.appendChild(hintWrap);
                 }
                 row.appendChild(name);
 
