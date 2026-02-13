@@ -25254,6 +25254,133 @@ def send_container_message_from_telegram():
 
 
 # ============================================================================
+# СОЗДАНИЕ ОТПРАВКИ (КОНТЕЙНЕРА) ЧЕРЕЗ TELEGRAM
+# ============================================================================
+
+@app.route('/api/telegram/create-shipment', methods=['POST'])
+def api_telegram_create_shipment():
+    """
+    Создать новую отправку (контейнер) из Telegram бота.
+
+    Создаёт пустой контейнер (без товаров) с датой и комментарием.
+    Комментарий сохраняется как сообщение контейнера (container_messages).
+    Файл (если прикреплён) сохраняется в container_message_files.
+    Уведомление отправляется всем админам в Telegram.
+
+    Поддерживает JSON (только текст) и multipart/form-data (текст + файл).
+    """
+    try:
+        # Определяем формат запроса
+        files = []
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            token = request.form.get('token', '')
+            chat_id = request.form.get('chat_id', '')
+            comment = request.form.get('comment', '').strip()
+            sender_name = request.form.get('sender_name', 'Telegram')
+            files = request.files.getlist('files')
+        else:
+            data = request.json or {}
+            token = data.get('token', '')
+            chat_id = data.get('chat_id', '')
+            comment = data.get('comment', '').strip()
+            sender_name = data.get('sender_name', 'Telegram')
+
+        # Проверяем токен
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        if not comment:
+            return jsonify({'success': False, 'error': 'Комментарий обязателен'}), 400
+
+        if not chat_id:
+            return jsonify({'success': False, 'error': 'chat_id обязателен'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Находим пользователя по chat_id
+        cursor.execute('SELECT id, username FROM users WHERE telegram_chat_id = ?', (str(chat_id),))
+        user = cursor.fetchone()
+        sender_id = user['id'] if user else 0
+        sender_display = user['username'] if user else sender_name
+
+        # Дата контейнера — сегодня
+        from datetime import datetime
+        container_date = datetime.now().strftime('%Y-%m-%d')
+
+        # Создаём контейнер (пустой, без товаров)
+        cursor.execute('''
+            INSERT INTO ved_container_docs (container_date, supplier, comment, important, cny_rate, cny_percent, is_completed, created_by, updated_by, updated_at)
+            VALUES (?, '', ?, '', 0, 0, 0, ?, ?, CURRENT_TIMESTAMP)
+        ''', (container_date, comment, sender_display, sender_display))
+        doc_id = cursor.lastrowid
+
+        # Создаём сообщение контейнера с текстом комментария
+        cursor.execute('''
+            INSERT INTO container_messages (container_id, message, sender_id, sender_name, sender_type, is_read)
+            VALUES (?, ?, ?, ?, 'telegram', 0)
+        ''', (doc_id, comment, sender_id, sender_display))
+        message_id = cursor.lastrowid
+
+        # Сохраняем файл, если прикреплён
+        saved_files = []
+        if files:
+            saved_files = save_message_files(cursor, message_id, doc_id, files)
+
+        conn.commit()
+
+        # Отправляем уведомление всем админам в Telegram
+        site_url = os.environ.get('SITE_URL', 'https://moscowseller.ru')
+        container_url = f"{site_url}/#ved:ved-containers:{doc_id}"
+
+        # Формируем текст уведомления в Markdown (send_telegram_container_message использует Markdown)
+        tg_text = f"📦 *Новая отправка #{doc_id}*\n"
+        tg_text += f"📅 {container_date}\n\n"
+        tg_text += f"💬 *Комментарий от {sender_display}:*\n{comment}\n\n"
+        if saved_files:
+            tg_text += f"📎 Прикреплён файл: {saved_files[0].get('filename', 'файл')}\n\n"
+        tg_text += f"🔗 [Открыть контейнер]({container_url})"
+
+        # Отправляем уведомление всем админам (кроме отправителя)
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        if bot_token:
+            cursor.execute('''
+                SELECT telegram_chat_id FROM users
+                WHERE role = 'admin' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+            ''')
+            admin_rows = cursor.fetchall()
+
+            for admin in admin_rows:
+                admin_chat_id = admin['telegram_chat_id']
+                # Не отправляем уведомление самому отправителю
+                if str(admin_chat_id) == str(chat_id):
+                    continue
+                try:
+                    tg_msg_id = send_telegram_container_message(admin_chat_id, tg_text, doc_id, message_id)
+                    # Отправляем файлы, если есть
+                    if saved_files and tg_msg_id:
+                        send_telegram_container_files(admin_chat_id, saved_files)
+                except Exception as tg_err:
+                    print(f"⚠️ Ошибка отправки уведомления админу (chat_id={admin_chat_id}): {tg_err}")
+
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'doc_id': doc_id,
+            'message_id': message_id
+        })
+
+    except Exception as e:
+        print(f"❌ Ошибка api_telegram_create_shipment: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
 # API ДЛЯ СООБЩЕНИЙ К ДОКУМЕНТАМ (ЧАТ САЙТ ↔ TELEGRAM)
 # ============================================================================
 
