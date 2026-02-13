@@ -22425,12 +22425,25 @@ def api_container_messages_receive():
         sender_id = user['id'] if user else 0
         sender_display = user['username'] if user else sender_name
 
-        # Сохраняем сообщение
+        # Сохраняем сообщение (is_read=1, т.к. отправитель сам знает что написал)
         cursor.execute('''
-            INSERT INTO container_messages (container_id, message, sender_id, sender_name, sender_type)
-            VALUES (?, ?, ?, ?, 'telegram')
+            INSERT INTO container_messages (container_id, message, sender_id, sender_name, sender_type, is_read)
+            VALUES (?, ?, ?, ?, 'telegram', 1)
         ''', (container_id, message, sender_id, sender_display))
         message_id = cursor.lastrowid
+
+        # Помечаем предыдущие сообщения в этом контейнере как прочитанные,
+        # т.к. пользователь ответил — значит он их прочитал
+        if sender_id:
+            cursor.execute('''
+                UPDATE container_messages
+                SET is_read = 1
+                WHERE container_id = ?
+                AND id != ?
+                AND sender_id != ?
+                AND is_read = 0
+                AND (recipient_ids LIKE ? OR recipient_ids IS NULL OR recipient_ids = '')
+            ''', (container_id, message_id, sender_id, f'%{sender_id}%'))
 
         # Сохраняем прикрепленные файлы (если есть)
         if files:
@@ -26370,14 +26383,26 @@ def receive_telegram_message():
             conn.close()
             return jsonify({'success': False, 'error': 'Не найден связанный документ'})
 
-        # Сохраняем ответ
+        # Сохраняем ответ (is_read=1, т.к. отправитель сам знает что написал)
         cursor.execute('''
             INSERT INTO document_messages
-            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id)
-            VALUES (?, ?, ?, 'telegram', ?, ?)
+            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, is_read)
+            VALUES (?, ?, ?, 'telegram', ?, ?, 1)
         ''', (doc_type, doc_id, message, sender_name, chat_id))
 
         message_id = cursor.lastrowid
+
+        # Помечаем предыдущие сообщения (от веба) в этом документе как прочитанные,
+        # т.к. пользователь ответил — значит он их прочитал
+        cursor.execute('''
+            UPDATE document_messages
+            SET is_read = 1
+            WHERE doc_type = ? AND doc_id = ?
+            AND id != ?
+            AND sender_type = 'web'
+            AND is_read = 0
+        ''', (doc_type, doc_id, message_id))
+
         conn.commit()
         conn.close()
 
@@ -26427,14 +26452,26 @@ def receive_telegram_message_direct():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Сохраняем ответ
+        # Сохраняем ответ (is_read=1, т.к. отправитель сам знает что написал)
         cursor.execute('''
             INSERT INTO document_messages
-            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id)
-            VALUES (?, ?, ?, 'telegram', ?, ?)
+            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, is_read)
+            VALUES (?, ?, ?, 'telegram', ?, ?, 1)
         ''', (doc_type, doc_id, message, sender_name, chat_id))
 
         message_id = cursor.lastrowid
+
+        # Помечаем предыдущие сообщения (от веба) в этом документе как прочитанные,
+        # т.к. пользователь ответил — значит он их прочитал
+        cursor.execute('''
+            UPDATE document_messages
+            SET is_read = 1
+            WHERE doc_type = ? AND doc_id = ?
+            AND id != ?
+            AND sender_type = 'web'
+            AND is_read = 0
+        ''', (doc_type, doc_id, message_id))
+
         conn.commit()
         conn.close()
 
