@@ -1183,6 +1183,11 @@ def init_database():
     except sqlite3.OperationalError:
         pass  # Таблица ещё не существует — пропускаем
 
+    # Миграция: добавляем sender_id в document_messages для проверки авторства
+    if ensure_column(cursor, "document_messages", "sender_id",
+                     "ALTER TABLE document_messages ADD COLUMN sender_id INTEGER DEFAULT 0"):
+        print("✅ Столбец sender_id добавлен в document_messages")
+
     conn.commit()
     conn.close()
 
@@ -11174,7 +11179,6 @@ HTML_TEMPLATE = '''
                         if (data.messages.length === 0) {
                             messagesDiv.innerHTML = '<div class="chat-empty">Нет сообщений</div>';
                         } else {
-                            const isAdmin = currentUser && currentUser.role === 'admin';
                             messagesDiv.innerHTML = data.messages.map(msg => {
                                 const date = new Date(msg.created_at);
                                 const timeStr = date.toLocaleString('ru-RU', {
@@ -11184,7 +11188,9 @@ HTML_TEMPLATE = '''
                                 const typeClass = msg.sender_type === 'telegram' ? 'telegram' : 'web';
                                 const icon = msg.sender_type === 'telegram' ? '📱' : '💻';
 
-                                const actionsHtml = isAdmin ? `
+                                // Кнопки только для своих сообщений
+                                const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
+                                const actionsHtml = isOwnMsg ? `
                                     <span class="msg-actions">
                                         <button class="msg-action-btn" onclick="editMessage('document', ${msg.id}, this.closest('.chat-message'))" title="Редактировать">✏️</button>
                                         <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('document', ${msg.id})" title="Удалить">🗑️</button>
@@ -14218,7 +14224,8 @@ HTML_TEMPLATE = '''
                             const senderIcon = msg.sender_type === 'system' ? '🤖' : (msg.sender_type === 'telegram' ? '📱' : '🌐');
 
                             const msgSource = isContainer ? 'container' : 'document';
-                            const isAdminUser = currentUser && currentUser.role === 'admin';
+                            // Кнопки редактирования/удаления только для своих сообщений
+                            const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
 
                             return `
                                 <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
@@ -14228,7 +14235,7 @@ HTML_TEMPLATE = '''
                                             <div class="message-card-sender">${senderIcon} ${escapeHtml(msg.sender_name || 'Telegram')}</div>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 8px;">
-                                            ${isAdminUser ? `
+                                            ${isOwnMsg ? `
                                                 <span class="msg-actions">
                                                     <button class="msg-action-btn" onclick="editMessage('${msgSource}', ${msg.id}, this.closest('.message-card'))" title="Редактировать">✏️</button>
                                                     <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('${msgSource}', ${msg.id})" title="Удалить">🗑️</button>
@@ -18754,9 +18761,9 @@ HTML_TEMPLATE = '''
                     msgDiv.setAttribute('data-message-text', msg.message || '');
                     msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${isFromTelegram ? '#2196f3' : '#ff9800'};`;
 
-                    // Кнопки редактирования/удаления (только для admin)
-                    const isAdmin = currentUser && currentUser.role === 'admin';
-                    const actionsHtml = isAdmin ? `
+                    // Кнопки редактирования/удаления (только для своих сообщений)
+                    const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
+                    const actionsHtml = isOwnMsg ? `
                         <span class="msg-actions">
                             ${msg.message ? `<button class="msg-action-btn" onclick="editMessage('container', ${msg.id}, this.closest('.container-msg-bubble'))" title="Редактировать">✏️</button>` : ''}
                             <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('container', ${msg.id})" title="Удалить">🗑️</button>
@@ -22486,10 +22493,11 @@ def api_container_messages_mark_read():
 
 
 @app.route('/api/container-messages/edit', methods=['POST'])
-@require_auth(['admin'])
+@require_auth()
 def api_container_messages_edit():
     """
     Редактировать текст сообщения контейнера.
+    Можно редактировать только свои сообщения.
     Также редактирует соответствующие сообщения в Telegram.
     Файлы не затрагиваются — меняется только текст.
     """
@@ -22513,6 +22521,13 @@ def api_container_messages_edit():
         if not msg:
             conn.close()
             return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Проверяем авторство — редактировать можно только свои сообщения
+        user_info = getattr(request, 'current_user', {})
+        current_user_id = user_info.get('user_id')
+        if msg['sender_id'] != current_user_id:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Можно редактировать только свои сообщения'}), 403
 
         # Обновляем текст в БД
         cursor.execute('UPDATE container_messages SET message = ? WHERE id = ?', (new_message, message_id))
@@ -22556,10 +22571,11 @@ def api_container_messages_edit():
 
 
 @app.route('/api/container-messages/delete', methods=['POST'])
-@require_auth(['admin'])
+@require_auth()
 def api_container_messages_delete():
     """
     Удалить сообщение контейнера и его файлы.
+    Можно удалять только свои сообщения.
     Также удаляет соответствующие сообщения в Telegram.
     """
     try:
@@ -22579,6 +22595,13 @@ def api_container_messages_delete():
         if not msg:
             conn.close()
             return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Проверяем авторство — удалять можно только свои сообщения
+        user_info = getattr(request, 'current_user', {})
+        current_user_id = user_info.get('user_id')
+        if msg['sender_id'] != current_user_id:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Можно удалять только свои сообщения'}), 403
 
         container_id = msg['container_id']
 
@@ -26197,12 +26220,16 @@ def send_document_message():
                 if result.get('success'):
                     telegram_message_id = result.get('message_id')
 
+        # Получаем sender_id текущего пользователя
+        user_info = getattr(request, 'current_user', {})
+        sender_id = user_info.get('user_id', 0) or 0
+
         # Сохраняем сообщение в БД
         cursor.execute('''
             INSERT INTO document_messages
-            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, telegram_message_id)
-            VALUES (?, ?, ?, 'web', ?, ?, ?)
-        ''', (doc_type, doc_id, message, sender_name, telegram_chat_id, telegram_message_id))
+            (doc_type, doc_id, message, sender_type, sender_name, sender_id, telegram_chat_id, telegram_message_id)
+            VALUES (?, ?, ?, 'web', ?, ?, ?, ?)
+        ''', (doc_type, doc_id, message, sender_name, sender_id, telegram_chat_id, telegram_message_id))
 
         message_id = cursor.lastrowid
         conn.commit()
@@ -26219,10 +26246,11 @@ def send_document_message():
 
 
 @app.route('/api/document-messages/edit', methods=['POST'])
-@require_auth(['admin'])
+@require_auth()
 def api_document_messages_edit():
     """
     Редактировать текст документного сообщения.
+    Можно редактировать только свои сообщения.
     Также редактирует соответствующее сообщение в Telegram (parse_mode=HTML).
     """
     try:
@@ -26244,6 +26272,13 @@ def api_document_messages_edit():
         if not msg:
             conn.close()
             return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Проверяем авторство — редактировать можно только свои сообщения
+        user_info = getattr(request, 'current_user', {})
+        current_user_id = user_info.get('user_id')
+        if msg['sender_id'] != current_user_id:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Можно редактировать только свои сообщения'}), 403
 
         # Обновляем текст в БД
         cursor.execute('UPDATE document_messages SET message = ? WHERE id = ?', (new_message, message_id))
@@ -26276,10 +26311,11 @@ def api_document_messages_edit():
 
 
 @app.route('/api/document-messages/delete', methods=['POST'])
-@require_auth(['admin'])
+@require_auth()
 def api_document_messages_delete():
     """
     Удалить документное сообщение.
+    Можно удалять только свои сообщения.
     Также удаляет соответствующее сообщение в Telegram.
     """
     try:
@@ -26298,6 +26334,13 @@ def api_document_messages_delete():
         if not msg:
             conn.close()
             return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Проверяем авторство — удалять можно только свои сообщения
+        user_info = getattr(request, 'current_user', {})
+        current_user_id = user_info.get('user_id')
+        if msg['sender_id'] != current_user_id:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Можно удалять только свои сообщения'}), 403
 
         # Удаляем из БД
         cursor.execute('DELETE FROM document_messages WHERE id = ?', (message_id,))
@@ -26383,12 +26426,19 @@ def receive_telegram_message():
             conn.close()
             return jsonify({'success': False, 'error': 'Не найден связанный документ'})
 
+        # Определяем sender_id по telegram chat_id
+        tg_sender_id = 0
+        cursor.execute('SELECT id FROM users WHERE telegram_chat_id = ?', (str(chat_id),))
+        tg_user = cursor.fetchone()
+        if tg_user:
+            tg_sender_id = tg_user['id']
+
         # Сохраняем ответ (is_read=1, т.к. отправитель сам знает что написал)
         cursor.execute('''
             INSERT INTO document_messages
-            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, is_read)
-            VALUES (?, ?, ?, 'telegram', ?, ?, 1)
-        ''', (doc_type, doc_id, message, sender_name, chat_id))
+            (doc_type, doc_id, message, sender_type, sender_name, sender_id, telegram_chat_id, is_read)
+            VALUES (?, ?, ?, 'telegram', ?, ?, ?, 1)
+        ''', (doc_type, doc_id, message, sender_name, tg_sender_id, chat_id))
 
         message_id = cursor.lastrowid
 
@@ -26450,14 +26500,22 @@ def receive_telegram_message_direct():
             return jsonify({'success': False, 'error': 'Не указан документ'})
 
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Определяем sender_id по telegram chat_id
+        tg_sender_id = 0
+        cursor.execute('SELECT id FROM users WHERE telegram_chat_id = ?', (str(chat_id),))
+        tg_user = cursor.fetchone()
+        if tg_user:
+            tg_sender_id = tg_user['id']
 
         # Сохраняем ответ (is_read=1, т.к. отправитель сам знает что написал)
         cursor.execute('''
             INSERT INTO document_messages
-            (doc_type, doc_id, message, sender_type, sender_name, telegram_chat_id, is_read)
-            VALUES (?, ?, ?, 'telegram', ?, ?, 1)
-        ''', (doc_type, doc_id, message, sender_name, chat_id))
+            (doc_type, doc_id, message, sender_type, sender_name, sender_id, telegram_chat_id, is_read)
+            VALUES (?, ?, ?, 'telegram', ?, ?, ?, 1)
+        ''', (doc_type, doc_id, message, sender_name, tg_sender_id, chat_id))
 
         message_id = cursor.lastrowid
 
@@ -26515,8 +26573,8 @@ def get_all_document_messages():
 
         # 1. Получаем сообщения документов (приходов)
         doc_query = '''
-            SELECT m.id, m.doc_type, m.doc_id, m.sender_name, m.message, m.is_read,
-                   m.created_at, m.telegram_chat_id, d.receiver_name, d.receipt_datetime,
+            SELECT m.id, m.doc_type, m.doc_id, m.sender_name, m.sender_id, m.message, m.is_read,
+                   m.created_at, m.telegram_chat_id, m.sender_type, d.receiver_name, d.receipt_datetime,
                    'document' as msg_source
             FROM document_messages m
             LEFT JOIN warehouse_receipt_docs d ON m.doc_type = 'receipt' AND m.doc_id = d.id
