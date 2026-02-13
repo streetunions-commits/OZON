@@ -1188,6 +1188,11 @@ def init_database():
                      "ALTER TABLE document_messages ADD COLUMN sender_id INTEGER DEFAULT 0"):
         print("✅ Столбец sender_id добавлен в document_messages")
 
+    # Миграция: добавляем reminder_sent в document_messages для 24ч напоминаний
+    if ensure_column(cursor, "document_messages", "reminder_sent",
+                     "ALTER TABLE document_messages ADD COLUMN reminder_sent INTEGER DEFAULT 0"):
+        print("✅ Столбец reminder_sent добавлен в document_messages")
+
     conn.commit()
     conn.close()
 
@@ -7150,13 +7155,11 @@ HTML_TEMPLATE = '''
         }
 
         .chat-message.web {
-            background: #e0e7ff;
             margin-left: auto;
             border-bottom-right-radius: 4px;
         }
 
         .chat-message.telegram {
-            background: #d1fae5;
             margin-right: auto;
             border-bottom-left-radius: 4px;
         }
@@ -7259,8 +7262,8 @@ HTML_TEMPLATE = '''
         }
 
         .message-card.unread {
-            border-left: 4px solid #ef4444;
             background: #fef2f2;
+            box-shadow: inset 0 0 0 2px #ef4444;
         }
 
         .message-card-header {
@@ -11187,6 +11190,8 @@ HTML_TEMPLATE = '''
                                 });
                                 const typeClass = msg.sender_type === 'telegram' ? 'telegram' : 'web';
                                 const icon = msg.sender_type === 'telegram' ? '📱' : '💻';
+                                // Цвет сообщения зависит от имени отправителя
+                                const uColor = getUserColor(msg.sender_name);
 
                                 // Кнопки только для своих сообщений
                                 const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
@@ -11198,7 +11203,7 @@ HTML_TEMPLATE = '''
                                 ` : '';
 
                                 return `
-                                    <div class="chat-message ${typeClass}" data-message-id="${msg.id}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
+                                    <div class="chat-message ${typeClass}" style="background: ${uColor.bg}; border-left: 3px solid ${uColor.border};" data-message-id="${msg.id}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
                                         <div class="chat-message-header">
                                             <span>${icon} ${msg.sender_name || 'Неизвестно'}</span>
                                             <div style="display: flex; align-items: center; gap: 6px;">
@@ -11301,6 +11306,50 @@ HTML_TEMPLATE = '''
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ============================================================================
+        // ЦВЕТА СООБЩЕНИЙ ПО ИМЕНИ ПОЛЬЗОВАТЕЛЯ
+        // ============================================================================
+        // Каждый пользователь получает уникальный цвет сообщения, который
+        // рассчитывается на основе хэша его имени. Цвет стабилен — один и тот же
+        // пользователь всегда получает одинаковый цвет независимо от источника
+        // (Telegram / Web).
+        // ============================================================================
+
+        const _userColorPalette = [
+            { bg: '#e0e7ff', border: '#818cf8' },  // Индиго
+            { bg: '#d1fae5', border: '#34d399' },  // Зелёный
+            { bg: '#fef3c7', border: '#fbbf24' },  // Жёлтый
+            { bg: '#fce7f3', border: '#f472b6' },  // Розовый
+            { bg: '#e0f2fe', border: '#38bdf8' },  // Голубой
+            { bg: '#f3e8ff', border: '#a78bfa' },  // Фиолетовый
+            { bg: '#ffedd5', border: '#fb923c' },  // Оранжевый
+            { bg: '#dcfce7', border: '#4ade80' },  // Лаймовый
+            { bg: '#ccfbf1', border: '#2dd4bf' },  // Бирюзовый
+            { bg: '#ffe4e6', border: '#fb7185' },  // Коралловый
+            { bg: '#fef9c3', border: '#facc15' },  // Золотой
+            { bg: '#e8d5f5', border: '#9b59b6' },  // Сиреневый
+        ];
+
+        const _userColorCache = {};
+
+        /**
+         * Получить цвет (фон + рамка) для конкретного пользователя.
+         * Хэш рассчитывается из имени, поэтому один пользователь = один цвет.
+         */
+        function getUserColor(senderName) {
+            if (!senderName) return { bg: '#f3f4f6', border: '#9ca3af' };
+            if (_userColorCache[senderName]) return _userColorCache[senderName];
+
+            let hash = 0;
+            for (let i = 0; i < senderName.length; i++) {
+                hash = senderName.charCodeAt(i) + ((hash << 5) - hash);
+                hash = hash & hash;
+            }
+            const index = Math.abs(hash) % _userColorPalette.length;
+            _userColorCache[senderName] = _userColorPalette[index];
+            return _userColorPalette[index];
         }
 
         // ============================================================================
@@ -14222,17 +14271,19 @@ HTML_TEMPLATE = '''
 
                             // Иконка источника: system/telegram/web
                             const senderIcon = msg.sender_type === 'system' ? '🤖' : (msg.sender_type === 'telegram' ? '📱' : '🌐');
+                            // Цвет по имени отправителя
+                            const uColor = getUserColor(msg.sender_name);
 
                             const msgSource = isContainer ? 'container' : 'document';
                             // Кнопки редактирования/удаления только для своих сообщений
                             const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
 
                             return `
-                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
+                                <div class="message-card ${unreadClass}" style="border-left: 4px solid ${uColor.border};" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
                                     <div class="message-card-header">
                                         <div class="message-card-info">
                                             <div class="message-card-doc">${docIcon} ${docInfo}</div>
-                                            <div class="message-card-sender">${senderIcon} ${escapeHtml(msg.sender_name || 'Telegram')}</div>
+                                            <div class="message-card-sender" style="color: ${uColor.border}; font-weight: 600;">${senderIcon} ${escapeHtml(msg.sender_name || 'Telegram')}</div>
                                         </div>
                                         <div style="display: flex; align-items: center; gap: 8px;">
                                             ${isOwnMsg ? `
@@ -14244,7 +14295,7 @@ HTML_TEMPLATE = '''
                                             <div class="message-card-time">${timeStr}</div>
                                         </div>
                                     </div>
-                                    <div class="message-card-text">${escapeHtml(msg.message)}</div>
+                                    <div class="message-card-text" style="background: ${uColor.bg};">${escapeHtml(msg.message)}</div>
                                     <div class="message-card-actions">
                                         ${!isContainer && !isFinanceDistribution ? `
                                             <button class="message-btn message-btn-reply" onclick="openReplyModal(${msg.id}, '${escapeHtml(msg.message).replace(/'/g, "\\'")}', '${msg.doc_type}', ${msg.doc_id}, ${msg.telegram_chat_id || 0})">
@@ -18716,7 +18767,8 @@ HTML_TEMPLATE = '''
                 listDiv.innerHTML = '';
                 data.messages.forEach(msg => {
                     const isFromTelegram = msg.sender_type === 'telegram';
-                    const bgColor = isFromTelegram ? '#e3f2fd' : '#fff3e0';
+                    // Цвет зависит от имени отправителя, а не от источника
+                    const uColor = getUserColor(msg.sender_name);
                     const icon = isFromTelegram ? '📱' : '🌐';
                     const time = new Date(msg.created_at).toLocaleString('ru-RU');
 
@@ -18759,7 +18811,7 @@ HTML_TEMPLATE = '''
                     msgDiv.className = 'container-msg-bubble';
                     msgDiv.setAttribute('data-message-id', msg.id);
                     msgDiv.setAttribute('data-message-text', msg.message || '');
-                    msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${isFromTelegram ? '#2196f3' : '#ff9800'};`;
+                    msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${uColor.bg}; border-radius: 6px; border-left: 3px solid ${uColor.border};`;
 
                     // Кнопки редактирования/удаления (только для своих сообщений)
                     const isOwnMsg = currentUser && msg.sender_id === currentUser.user_id;
