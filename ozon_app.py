@@ -22839,14 +22839,38 @@ def delete_telegram_message(chat_id, message_id):
 @app.route('/api/container-messages/pending-reminders', methods=['POST'])
 def api_container_messages_pending_reminders():
     """
-    Получить ВСЕ непрочитанные сообщения, ожидающие напоминания (старше 24ч).
-    Включает: container_messages (ВЭД) и document_messages (приходы, отгрузки, финансы).
-    Вызывается периодически из telegram_bot.py.
-    Возвращает сгруппированные по получателю данные и помечает reminder_sent = 1.
+    ============================================================================
+    УНИВЕРСАЛЬНЫЙ ЭНДПОИНТ 24-ЧАСОВЫХ НАПОМИНАНИЙ О НЕПРОЧИТАННЫХ СООБЩЕНИЯХ
+    ============================================================================
 
-    Логика адресации:
-    - container_messages → конкретным получателям (recipient_ids)
-    - document_messages (telegram/system) → всем админам с telegram_chat_id
+    Собирает ВСЕ непрочитанные сообщения старше 24ч из всех источников
+    и возвращает их сгруппированными по получателю для отправки в Telegram.
+
+    Вызывается периодически из telegram_bot.py (каждый час, кроме выходных).
+
+    ЛОГИКА АДРЕСАЦИИ (кому отправлять напоминание):
+    ─────────────────────────────────────────────────
+    1. container_messages (ВЭД-контейнеры):
+       → Конкретным получателям из recipient_ids
+
+    2. document_messages с sender_type='web' (переписка в приходах/отгрузках):
+       → Конкретному Telegram-пользователю (по telegram_chat_id в сообщении)
+       Пример: админ написал в чат прихода → Telegram-пользователь не ответил
+
+    3. document_messages с sender_type='telegram' (ответы из Telegram):
+       → Всем админам с telegram_chat_id
+       Пример: Telegram-пользователь написал → админы не прочитали
+
+    4. document_messages с sender_type='system' (системные уведомления):
+       → Всем админам с telegram_chat_id
+       Пример: уведомление о нераспределённом расходе
+
+    ПРИ ДОБАВЛЕНИИ НОВОГО ТИПА СООБЩЕНИЙ:
+    ─────────────────────────────────────────────────
+    1. Добавить колонку reminder_sent INTEGER DEFAULT 0 в новую таблицу
+    2. Добавить секцию запроса в этот эндпоинт (по аналогии с существующими)
+    3. Определить логику адресации: кому отправлять напоминание
+    4. Обновить форматирование в telegram_bot.py (check_unanswered_messages_job)
 
     Авторизация: через TELEGRAM_BOT_SECRET токен.
     """
@@ -22861,10 +22885,40 @@ def api_container_messages_pending_reminders():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Структура: {user_id: {'container': [...], 'document': [...]}}
+        # Структура: {ключ_получателя: {'container': [...], 'document': [...]}}
+        # Ключ: user_id (int) для зарегистрированных или 'chat:CHAT_ID' для Telegram-только
         user_messages = {}
         container_ids_to_mark = []
         document_ids_to_mark = []
+
+        # Названия типов документов для отображения
+        doc_type_labels = {
+            'receipt': '📄 Приход',
+            'shipment': '🚚 Отгрузка',
+            'finance_distribution': '💰 Распределение расхода',
+            'finance_plan_distribution': '💰 Распределение плана'
+        }
+
+        # Кэш: telegram_chat_id → user_id (чтобы не запрашивать повторно)
+        chat_id_to_user = {}
+
+        def get_user_by_chat_id(tg_chat_id):
+            """Найти user_id по telegram_chat_id (с кэшированием)."""
+            if tg_chat_id in chat_id_to_user:
+                return chat_id_to_user[tg_chat_id]
+            cursor.execute(
+                'SELECT id FROM users WHERE telegram_chat_id = ?',
+                (str(tg_chat_id),)
+            )
+            row = cursor.fetchone()
+            result = row['id'] if row else None
+            chat_id_to_user[tg_chat_id] = result
+            return result
+
+        def ensure_user_bucket(uid):
+            """Создать пустую корзину для пользователя, если нет."""
+            if uid not in user_messages:
+                user_messages[uid] = {'container': [], 'document': []}
 
         # ====================================================================
         # 1. CONTAINER MESSAGES — адресованы конкретным получателям
@@ -22884,8 +22938,7 @@ def api_container_messages_pending_reminders():
             container_ids_to_mark.append(msg['id'])
             recipient_ids = [int(x) for x in msg['recipient_ids'].split(',') if x.strip()]
             for uid in recipient_ids:
-                if uid not in user_messages:
-                    user_messages[uid] = {'container': [], 'document': []}
+                ensure_user_bucket(uid)
                 user_messages[uid]['container'].append({
                     'id': msg['id'],
                     'container_id': msg['container_id'],
@@ -22897,8 +22950,57 @@ def api_container_messages_pending_reminders():
                 })
 
         # ====================================================================
-        # 2. DOCUMENT MESSAGES — приходы, отгрузки, системные уведомления
-        #    Адресованы всем админам с telegram_chat_id
+        # 2a. DOCUMENT MESSAGES (sender_type='web') — переписка в приходах/отгрузках
+        #     Админ написал → Telegram-пользователь не ответил → напоминаем ему
+        # ====================================================================
+        cursor.execute('''
+            SELECT dm.id, dm.doc_type, dm.doc_id, dm.message, dm.sender_name,
+                   dm.sender_type, dm.telegram_chat_id, dm.created_at
+            FROM document_messages dm
+            WHERE dm.is_read = 0
+              AND dm.reminder_sent = 0
+              AND dm.sender_type = 'web'
+              AND dm.telegram_chat_id IS NOT NULL
+              AND dm.created_at <= datetime('now', '-24 hours')
+        ''')
+        for msg in cursor.fetchall():
+            document_ids_to_mark.append(msg['id'])
+            doc_label = doc_type_labels.get(msg['doc_type'], '📋 Документ')
+            tg_chat_id = msg['telegram_chat_id']
+
+            # Находим user_id получателя по его telegram_chat_id
+            recipient_uid = get_user_by_chat_id(tg_chat_id)
+            if recipient_uid:
+                ensure_user_bucket(recipient_uid)
+                user_messages[recipient_uid]['document'].append({
+                    'id': msg['id'],
+                    'doc_type': msg['doc_type'],
+                    'doc_id': msg['doc_id'],
+                    'doc_label': doc_label,
+                    'message': msg['message'][:100],
+                    'sender_name': msg['sender_name'],
+                    'sender_type': msg['sender_type'],
+                    'created_at': msg['created_at']
+                })
+            else:
+                # Telegram-пользователь не привязан к users — используем chat_id напрямую
+                key = f'chat:{tg_chat_id}'
+                ensure_user_bucket(key)
+                user_messages[key]['document'].append({
+                    'id': msg['id'],
+                    'doc_type': msg['doc_type'],
+                    'doc_id': msg['doc_id'],
+                    'doc_label': doc_label,
+                    'message': msg['message'][:100],
+                    'sender_name': msg['sender_name'],
+                    'sender_type': msg['sender_type'],
+                    'created_at': msg['created_at']
+                })
+
+        # ====================================================================
+        # 2b. DOCUMENT MESSAGES (sender_type='telegram'/'system') — от Telegram/системы
+        #     Telegram-пользователь написал → админы не прочитали → напоминаем админам
+        #     Системное уведомление → админы не обработали → напоминаем админам
         # ====================================================================
         cursor.execute('''
             SELECT dm.id, dm.doc_type, dm.doc_id, dm.message, dm.sender_name,
@@ -22909,9 +23011,9 @@ def api_container_messages_pending_reminders():
               AND dm.sender_type IN ('telegram', 'system')
               AND dm.created_at <= datetime('now', '-24 hours')
         ''')
-        doc_messages = cursor.fetchall()
+        doc_messages_for_admins = cursor.fetchall()
 
-        if doc_messages:
+        if doc_messages_for_admins:
             # Получаем всех админов с привязанным Telegram
             cursor.execute('''
                 SELECT id FROM users
@@ -22919,21 +23021,12 @@ def api_container_messages_pending_reminders():
             ''')
             admin_ids = [row['id'] for row in cursor.fetchall()]
 
-            # Названия типов документов для отображения
-            doc_type_labels = {
-                'receipt': '📄 Приход',
-                'shipment': '🚚 Отгрузка',
-                'finance_distribution': '💰 Распределение расхода',
-                'finance_plan_distribution': '💰 Распределение плана'
-            }
-
-            for msg in doc_messages:
+            for msg in doc_messages_for_admins:
                 document_ids_to_mark.append(msg['id'])
                 doc_label = doc_type_labels.get(msg['doc_type'], '📋 Документ')
 
                 for admin_id in admin_ids:
-                    if admin_id not in user_messages:
-                        user_messages[admin_id] = {'container': [], 'document': []}
+                    ensure_user_bucket(admin_id)
                     user_messages[admin_id]['document'].append({
                         'id': msg['id'],
                         'doc_type': msg['doc_type'],
@@ -22946,7 +23039,7 @@ def api_container_messages_pending_reminders():
                     })
 
         # ====================================================================
-        # 3. Собираем результат — группируем по пользователю
+        # 3. Собираем результат — группируем по получателю
         # ====================================================================
         if not user_messages:
             conn.close()
@@ -22954,16 +23047,42 @@ def api_container_messages_pending_reminders():
 
         reminders = []
         for uid, msgs_by_type in user_messages.items():
-            cursor.execute('SELECT telegram_chat_id, display_name, username FROM users WHERE id = ?', (uid,))
-            user = cursor.fetchone()
-            if user and user['telegram_chat_id']:
+            # Пропускаем пустые корзины
+            if not msgs_by_type['container'] and not msgs_by_type['document']:
+                continue
+
+            if isinstance(uid, str) and uid.startswith('chat:'):
+                # Непривязанный Telegram-пользователь — используем chat_id напрямую
+                raw_chat_id = int(uid.split(':')[1])
+                # Пытаемся найти имя из telegram_users
+                cursor.execute(
+                    'SELECT first_name, username FROM telegram_users WHERE chat_id = ?',
+                    (raw_chat_id,)
+                )
+                tg_user = cursor.fetchone()
+                display_name = (tg_user['first_name'] or tg_user['username']) if tg_user else 'Пользователь'
                 reminders.append({
-                    'user_id': uid,
-                    'chat_id': int(user['telegram_chat_id']),
-                    'display_name': user['display_name'] or user['username'],
+                    'user_id': 0,
+                    'chat_id': raw_chat_id,
+                    'display_name': display_name,
                     'container_messages': msgs_by_type['container'],
                     'document_messages': msgs_by_type['document']
                 })
+            else:
+                # Зарегистрированный пользователь — берём chat_id из users
+                cursor.execute(
+                    'SELECT telegram_chat_id, display_name, username FROM users WHERE id = ?',
+                    (uid,)
+                )
+                user = cursor.fetchone()
+                if user and user['telegram_chat_id']:
+                    reminders.append({
+                        'user_id': uid,
+                        'chat_id': int(user['telegram_chat_id']),
+                        'display_name': user['display_name'] or user['username'],
+                        'container_messages': msgs_by_type['container'],
+                        'document_messages': msgs_by_type['document']
+                    })
 
         # ====================================================================
         # 4. Помечаем все как reminder_sent = 1
