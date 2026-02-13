@@ -2929,6 +2929,7 @@ async def shipment_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(
         "🚚 *Создание отправки*\n\n"
         "Введите комментарий к отправке (обязательно):\n\n"
+        "📎 На следующем шаге можно будет прикрепить файл\n"
         "Для отмены нажмите /cancel",
         parse_mode='Markdown',
         reply_markup=ReplyKeyboardRemove()
