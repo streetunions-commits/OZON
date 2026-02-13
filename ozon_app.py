@@ -7346,6 +7346,108 @@ HTML_TEMPLATE = '''
             font-size: 14px;
         }
 
+        /* ============================================================================
+           КНОПКИ РЕДАКТИРОВАНИЯ/УДАЛЕНИЯ СООБЩЕНИЙ
+           ============================================================================ */
+
+        /* Контейнер кнопок — скрыт по умолчанию, показывается при наведении */
+        .msg-actions {
+            display: none;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .container-msg-bubble:hover .msg-actions,
+        .chat-message:hover .msg-actions,
+        .message-card:hover .msg-actions {
+            display: inline-flex;
+        }
+
+        /* На мобильных кнопки всегда видны (нет hover) */
+        @media (max-width: 768px) {
+            .msg-actions {
+                display: inline-flex;
+            }
+        }
+
+        .msg-action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            opacity: 0.5;
+            transition: opacity 0.2s, background 0.2s;
+            line-height: 1;
+        }
+
+        .msg-action-btn:hover {
+            opacity: 1;
+            background: rgba(0, 0, 0, 0.06);
+        }
+
+        .msg-action-btn.msg-delete-btn:hover {
+            background: rgba(198, 40, 40, 0.1);
+        }
+
+        /* Инлайн-редактирование сообщения */
+        .msg-edit-textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 2px solid #2196f3;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        .msg-edit-textarea:focus {
+            border-color: #1976d2;
+            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.15);
+        }
+
+        .msg-edit-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 8px;
+        }
+
+        .msg-edit-save {
+            padding: 6px 18px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .msg-edit-save:hover {
+            background: #1976d2;
+        }
+
+        .msg-edit-cancel {
+            padding: 6px 18px;
+            background: #e9ecef;
+            color: #333;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .msg-edit-cancel:hover {
+            background: #dee2e6;
+        }
+
         /* Модальное окно ответа */
         .reply-modal {
             display: none;
@@ -11072,6 +11174,7 @@ HTML_TEMPLATE = '''
                         if (data.messages.length === 0) {
                             messagesDiv.innerHTML = '<div class="chat-empty">Нет сообщений</div>';
                         } else {
+                            const isAdmin = currentUser && currentUser.role === 'admin';
                             messagesDiv.innerHTML = data.messages.map(msg => {
                                 const date = new Date(msg.created_at);
                                 const timeStr = date.toLocaleString('ru-RU', {
@@ -11080,11 +11183,22 @@ HTML_TEMPLATE = '''
                                 });
                                 const typeClass = msg.sender_type === 'telegram' ? 'telegram' : 'web';
                                 const icon = msg.sender_type === 'telegram' ? '📱' : '💻';
+
+                                const actionsHtml = isAdmin ? `
+                                    <span class="msg-actions">
+                                        <button class="msg-action-btn" onclick="editMessage('document', ${msg.id}, this.closest('.chat-message'))" title="Редактировать">✏️</button>
+                                        <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('document', ${msg.id})" title="Удалить">🗑️</button>
+                                    </span>
+                                ` : '';
+
                                 return `
-                                    <div class="chat-message ${typeClass}">
+                                    <div class="chat-message ${typeClass}" data-message-id="${msg.id}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
                                         <div class="chat-message-header">
                                             <span>${icon} ${msg.sender_name || 'Неизвестно'}</span>
-                                            <span>${timeStr}</span>
+                                            <div style="display: flex; align-items: center; gap: 6px;">
+                                                ${actionsHtml}
+                                                <span>${timeStr}</span>
+                                            </div>
                                         </div>
                                         <div class="chat-message-text">${escapeHtml(msg.message)}</div>
                                     </div>
@@ -14103,14 +14217,25 @@ HTML_TEMPLATE = '''
                             // Иконка источника: system/telegram/web
                             const senderIcon = msg.sender_type === 'system' ? '🤖' : (msg.sender_type === 'telegram' ? '📱' : '🌐');
 
+                            const msgSource = isContainer ? 'container' : 'document';
+                            const isAdminUser = currentUser && currentUser.role === 'admin';
+
                             return `
-                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}">
+                                <div class="message-card ${unreadClass}" data-message-id="${msg.id}" data-doc-type="${msg.doc_type}" data-doc-id="${msg.doc_id}" data-msg-source="${msg.msg_source || 'document'}" data-message-text="${escapeHtml(msg.message).replace(/"/g, '&quot;')}">
                                     <div class="message-card-header">
                                         <div class="message-card-info">
                                             <div class="message-card-doc">${docIcon} ${docInfo}</div>
                                             <div class="message-card-sender">${senderIcon} ${escapeHtml(msg.sender_name || 'Telegram')}</div>
                                         </div>
-                                        <div class="message-card-time">${timeStr}</div>
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            ${isAdminUser ? `
+                                                <span class="msg-actions">
+                                                    <button class="msg-action-btn" onclick="editMessage('${msgSource}', ${msg.id}, this.closest('.message-card'))" title="Редактировать">✏️</button>
+                                                    <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('${msgSource}', ${msg.id})" title="Удалить">🗑️</button>
+                                                </span>
+                                            ` : ''}
+                                            <div class="message-card-time">${timeStr}</div>
+                                        </div>
                                     </div>
                                     <div class="message-card-text">${escapeHtml(msg.message)}</div>
                                     <div class="message-card-actions">
@@ -18623,13 +18748,29 @@ HTML_TEMPLATE = '''
                     }
 
                     const msgDiv = document.createElement('div');
+                    msgDiv.className = 'container-msg-bubble';
+                    msgDiv.setAttribute('data-message-id', msg.id);
+                    msgDiv.setAttribute('data-message-text', msg.message || '');
                     msgDiv.style.cssText = `padding: 10px; margin-bottom: 8px; background: ${bgColor}; border-radius: 6px; border-left: 3px solid ${isFromTelegram ? '#2196f3' : '#ff9800'};`;
+
+                    // Кнопки редактирования/удаления (только для admin)
+                    const isAdmin = currentUser && currentUser.role === 'admin';
+                    const actionsHtml = isAdmin ? `
+                        <span class="msg-actions">
+                            ${msg.message ? `<button class="msg-action-btn" onclick="editMessage('container', ${msg.id}, this.closest('.container-msg-bubble'))" title="Редактировать">✏️</button>` : ''}
+                            <button class="msg-action-btn msg-delete-btn" onclick="deleteMessage('container', ${msg.id})" title="Удалить">🗑️</button>
+                        </span>
+                    ` : '';
+
                     msgDiv.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                             <strong>${icon} ${escapeHtml(msg.sender_name)}</strong>
-                            <small style="color: #666;">${time}</small>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                ${actionsHtml}
+                                <small style="color: #666;">${time}</small>
+                            </div>
                         </div>
-                        ${msg.message ? '<div style="white-space: pre-wrap;">' + escapeHtml(msg.message) + '</div>' : ''}
+                        ${msg.message ? '<div class="msg-text-content" style="white-space: pre-wrap;">' + escapeHtml(msg.message) + '</div>' : ''}
                         ${filesHtml}
                         ${msg.recipient_names ? `<div style="margin-top: 4px; font-size: 11px; color: #666;">Кому: ${escapeHtml(msg.recipient_names)}</div>` : ''}
                     `;
@@ -18745,6 +18886,158 @@ HTML_TEMPLATE = '''
             } catch (err) {
                 console.error('Ошибка отправки сообщения:', err);
                 alert('Ошибка отправки');
+            }
+        }
+
+        // ============================================================================
+        // РЕДАКТИРОВАНИЕ И УДАЛЕНИЕ СООБЩЕНИЙ
+        // ============================================================================
+
+        /**
+         * Начать инлайн-редактирование сообщения.
+         * Заменяет текстовый блок на textarea с кнопками Сохранить/Отмена.
+         *
+         * @param {string} msgSource - 'container' или 'document'
+         * @param {number} messageId - ID сообщения в БД
+         * @param {HTMLElement} msgElement - DOM-элемент пузыря сообщения (с data-message-text)
+         */
+        function editMessage(msgSource, messageId, msgElement) {
+            const currentText = msgElement.getAttribute('data-message-text') || '';
+
+            // Находим текстовый контейнер
+            const textDiv = msgElement.querySelector('.msg-text-content')
+                || msgElement.querySelector('.chat-message-text')
+                || msgElement.querySelector('.message-card-text');
+            if (!textDiv) return;
+
+            // Сохраняем оригинальный HTML для отмены
+            const originalHtml = textDiv.innerHTML;
+            textDiv.setAttribute('data-original-html', originalHtml);
+
+            // Заменяем на textarea + кнопки
+            textDiv.innerHTML = `
+                <textarea class="msg-edit-textarea">${escapeHtml(currentText)}</textarea>
+                <div class="msg-edit-actions">
+                    <button class="msg-edit-cancel" onclick="cancelEditMessage(this)">Отмена</button>
+                    <button class="msg-edit-save" onclick="saveEditMessage('${msgSource}', ${messageId}, this)">Сохранить</button>
+                </div>
+            `;
+
+            // Фокус на textarea и курсор в конец
+            const textarea = textDiv.querySelector('.msg-edit-textarea');
+            textarea.focus();
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+
+        /**
+         * Сохранить отредактированное сообщение.
+         * Отправляет POST-запрос на соответствующий API.
+         */
+        async function saveEditMessage(msgSource, messageId, btnElement) {
+            const textDiv = btnElement.closest('.msg-edit-actions').parentElement;
+            const textarea = textDiv.querySelector('.msg-edit-textarea');
+            const newMessage = textarea.value.trim();
+
+            if (!newMessage) {
+                alert('Сообщение не может быть пустым');
+                return;
+            }
+
+            const apiUrl = msgSource === 'container'
+                ? '/api/container-messages/edit'
+                : '/api/document-messages/edit';
+
+            try {
+                btnElement.disabled = true;
+                btnElement.textContent = '...';
+
+                const resp = await authFetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: messageId, message: newMessage })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    reloadCurrentMessages(msgSource);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                    btnElement.disabled = false;
+                    btnElement.textContent = 'Сохранить';
+                }
+            } catch (err) {
+                console.error('Ошибка редактирования сообщения:', err);
+                alert('Ошибка редактирования сообщения');
+                btnElement.disabled = false;
+                btnElement.textContent = 'Сохранить';
+            }
+        }
+
+        /**
+         * Отменить редактирование — вернуть оригинальный текст.
+         */
+        function cancelEditMessage(btnElement) {
+            const textDiv = btnElement.closest('.msg-edit-actions').parentElement;
+            const originalHtml = textDiv.getAttribute('data-original-html');
+            if (originalHtml !== null) {
+                textDiv.innerHTML = originalHtml;
+                textDiv.removeAttribute('data-original-html');
+            }
+        }
+
+        /**
+         * Удалить сообщение с подтверждением.
+         *
+         * @param {string} msgSource - 'container' или 'document'
+         * @param {number} messageId - ID сообщения
+         */
+        async function deleteMessage(msgSource, messageId) {
+            if (!confirm('Удалить сообщение? Это действие нельзя отменить.')) return;
+
+            const apiUrl = msgSource === 'container'
+                ? '/api/container-messages/delete'
+                : '/api/document-messages/delete';
+
+            try {
+                const resp = await authFetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: messageId })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    reloadCurrentMessages(msgSource);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (err) {
+                console.error('Ошибка удаления сообщения:', err);
+                alert('Ошибка удаления сообщения');
+            }
+        }
+
+        /**
+         * Перезагрузить текущий список сообщений в зависимости от контекста.
+         * Вызывается после успешного редактирования/удаления.
+         */
+        function reloadCurrentMessages(msgSource) {
+            // Перезагрузка контейнерных сообщений (модалка ВЭД)
+            if (msgSource === 'container' && typeof editingVedContainerId !== 'undefined' && editingVedContainerId) {
+                loadContainerMessages(editingVedContainerId);
+            }
+            // Перезагрузка документных сообщений (модалка прихода)
+            if (msgSource === 'document' && typeof editingDocId !== 'undefined' && editingDocId) {
+                loadDocumentMessages('receipt', editingDocId);
+            }
+            // Перезагрузка вкладки Сообщения (если активна)
+            const messagesTab = document.getElementById('messages');
+            if (messagesTab && messagesTab.style.display !== 'none') {
+                loadAllMessages();
+            }
+            // Обновляем badge непрочитанных
+            if (typeof updateMessagesBadge === 'function') {
+                updateMessagesBadge();
             }
         }
 
@@ -22178,6 +22471,141 @@ def api_container_messages_mark_read():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/container-messages/edit', methods=['POST'])
+@require_auth(['admin'])
+def api_container_messages_edit():
+    """
+    Редактировать текст сообщения контейнера.
+    Также редактирует соответствующие сообщения в Telegram.
+    Файлы не затрагиваются — меняется только текст.
+    """
+    try:
+        data = request.json or {}
+        message_id = data.get('message_id')
+        new_message = (data.get('message') or '').strip()
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'message_id не указан'})
+        if not new_message:
+            return jsonify({'success': False, 'error': 'Сообщение не может быть пустым'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем текущее сообщение
+        cursor.execute('SELECT * FROM container_messages WHERE id = ?', (message_id,))
+        msg = cursor.fetchone()
+        if not msg:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Обновляем текст в БД
+        cursor.execute('UPDATE container_messages SET message = ? WHERE id = ?', (new_message, message_id))
+        conn.commit()
+
+        # Синхронизация с Telegram
+        container_id = msg['container_id']
+        tg_msg_ids = [x.strip() for x in (msg['telegram_message_ids'] or '').split(',') if x.strip()]
+        recipient_ids = [x.strip() for x in (msg['recipient_ids'] or '').split(',') if x.strip()]
+
+        if tg_msg_ids:
+            # Получаем информацию о контейнере для формирования текста
+            cursor.execute('SELECT container_date, supplier FROM ved_container_docs WHERE id = ?', (container_id,))
+            container = cursor.fetchone()
+            site_url = os.environ.get('SITE_URL', 'https://moscowseller.ru')
+            container_url = f"{site_url}/#ved:ved-containers:{container_id}"
+
+            sender_name = msg['sender_name'] or 'Неизвестно'
+            tg_text = f"📦 *Контейнер #{container_id}*\n"
+            if container:
+                tg_text += f"📅 {container['container_date']} | {container['supplier']}\n\n"
+            tg_text += f"💬 *Сообщение от {sender_name}:*\n{new_message}\n\n"
+            tg_text += f"✏️ _(отредактировано)_\n\n"
+            tg_text += f"🔗 [Открыть контейнер]({container_url})"
+
+            for i, tg_msg_id in enumerate(tg_msg_ids):
+                # Находим chat_id получателя
+                r_id = recipient_ids[i] if i < len(recipient_ids) else None
+                if r_id:
+                    cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (int(r_id),))
+                    user = cursor.fetchone()
+                    if user and user['telegram_chat_id']:
+                        edit_telegram_message(user['telegram_chat_id'], int(tg_msg_id), tg_text, parse_mode='Markdown')
+
+        conn.close()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_edit: {e}", file=sys.stderr)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/container-messages/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_container_messages_delete():
+    """
+    Удалить сообщение контейнера и его файлы.
+    Также удаляет соответствующие сообщения в Telegram.
+    """
+    try:
+        data = request.json or {}
+        message_id = data.get('message_id')
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'message_id не указан'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Получаем сообщение
+        cursor.execute('SELECT * FROM container_messages WHERE id = ?', (message_id,))
+        msg = cursor.fetchone()
+        if not msg:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        container_id = msg['container_id']
+
+        # Удаляем файлы с диска (CASCADE не работает без PRAGMA foreign_keys = ON)
+        cursor.execute('SELECT * FROM container_message_files WHERE message_id = ?', (message_id,))
+        files = cursor.fetchall()
+        for f in files:
+            try:
+                file_path = os.path.join(UPLOAD_FOLDER, str(container_id), 'messages', f['stored_filename'])
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as fe:
+                print(f"⚠️ Ошибка удаления файла {f['stored_filename']}: {fe}", file=sys.stderr)
+
+        # Удаляем записи файлов из БД
+        cursor.execute('DELETE FROM container_message_files WHERE message_id = ?', (message_id,))
+
+        # Удаляем сообщение из БД
+        cursor.execute('DELETE FROM container_messages WHERE id = ?', (message_id,))
+        conn.commit()
+
+        # Синхронизация с Telegram — удаляем сообщения
+        tg_msg_ids = [x.strip() for x in (msg['telegram_message_ids'] or '').split(',') if x.strip()]
+        recipient_ids = [x.strip() for x in (msg['recipient_ids'] or '').split(',') if x.strip()]
+
+        for i, tg_msg_id in enumerate(tg_msg_ids):
+            r_id = recipient_ids[i] if i < len(recipient_ids) else None
+            if r_id:
+                cursor.execute('SELECT telegram_chat_id FROM users WHERE id = ?', (int(r_id),))
+                user = cursor.fetchone()
+                if user and user['telegram_chat_id']:
+                    delete_telegram_message(user['telegram_chat_id'], int(tg_msg_id))
+
+        conn.close()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_delete: {e}", file=sys.stderr)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def send_telegram_container_message(chat_id, text, container_id, message_id):
     """
     Отправить сообщение в Telegram с кнопкой "Ответить".
@@ -22257,6 +22685,66 @@ def send_telegram_container_files(chat_id, files_info):
                     )
         except Exception as e:
             print(f"⚠️ Ошибка отправки файла в Telegram: {e}")
+
+
+def edit_telegram_message(chat_id, message_id, new_text, parse_mode='Markdown'):
+    """
+    Редактировать текст сообщения в Telegram через editMessageText API.
+    Возвращает True при успехе, False при ошибке.
+    Ошибки логируются, но НЕ прерывают основную операцию.
+    """
+    import requests as req_lib
+
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token or not chat_id or not message_id:
+        return False
+    try:
+        response = req_lib.post(
+            f"https://api.telegram.org/bot{bot_token}/editMessageText",
+            json={
+                "chat_id": int(chat_id),
+                "message_id": int(message_id),
+                "text": new_text,
+                "parse_mode": parse_mode
+            },
+            timeout=10
+        )
+        result = response.json()
+        if not result.get('ok'):
+            print(f"⚠️ Telegram editMessageText failed: {result}", file=sys.stderr)
+        return result.get('ok', False)
+    except Exception as e:
+        print(f"⚠️ Telegram editMessageText error: {e}", file=sys.stderr)
+        return False
+
+
+def delete_telegram_message(chat_id, message_id):
+    """
+    Удалить сообщение в Telegram через deleteMessage API.
+    Возвращает True при успехе, False при ошибке.
+    Бот может удалять свои сообщения всегда, чужие — только в течение 48 часов.
+    """
+    import requests as req_lib
+
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token or not chat_id or not message_id:
+        return False
+    try:
+        response = req_lib.post(
+            f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+            json={
+                "chat_id": int(chat_id),
+                "message_id": int(message_id)
+            },
+            timeout=10
+        )
+        result = response.json()
+        if not result.get('ok'):
+            print(f"⚠️ Telegram deleteMessage failed: {result}", file=sys.stderr)
+        return result.get('ok', False)
+    except Exception as e:
+        print(f"⚠️ Telegram deleteMessage error: {e}", file=sys.stderr)
+        return False
 
 
 @app.route('/api/container-messages/pending-reminders', methods=['POST'])
@@ -25714,6 +26202,103 @@ def send_document_message():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/document-messages/edit', methods=['POST'])
+@require_auth(['admin'])
+def api_document_messages_edit():
+    """
+    Редактировать текст документного сообщения.
+    Также редактирует соответствующее сообщение в Telegram (parse_mode=HTML).
+    """
+    try:
+        data = request.json or {}
+        message_id = data.get('message_id')
+        new_message = (data.get('message') or '').strip()
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'message_id не указан'})
+        if not new_message:
+            return jsonify({'success': False, 'error': 'Сообщение не может быть пустым'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT * FROM document_messages WHERE id = ?', (message_id,))
+        msg = cursor.fetchone()
+        if not msg:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Обновляем текст в БД
+        cursor.execute('UPDATE document_messages SET message = ? WHERE id = ?', (new_message, message_id))
+        conn.commit()
+
+        # Синхронизация с Telegram
+        if msg['telegram_chat_id'] and msg['telegram_message_id']:
+            doc_type = msg['doc_type']
+            doc_id = msg['doc_id']
+            sender_name = msg['sender_name'] or 'Администратор'
+            doc_type_name = 'Приход' if doc_type == 'receipt' else 'Отгрузка' if doc_type == 'shipment' else 'Документ'
+            subtab = 'wh-receipt' if doc_type == 'receipt' else 'wh-shipments'
+            doc_url = f'http://moscowseller.ru/#warehouse:{subtab}:{doc_id}'
+
+            tg_text = (
+                f"💬 <b>Сообщение к {doc_type_name.lower()}у #{doc_id}</b>\n\n"
+                f"{new_message}\n\n"
+                f"<i>✏️ (отредактировано)</i>\n\n"
+                f"<i>— {sender_name}</i>\n\n"
+                f"🔗 <a href=\"{doc_url}\">Открыть {doc_type_name.lower()} #{doc_id}</a>"
+            )
+            edit_telegram_message(msg['telegram_chat_id'], msg['telegram_message_id'], tg_text, parse_mode='HTML')
+
+        conn.close()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_document_messages_edit: {e}", file=sys.stderr)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/document-messages/delete', methods=['POST'])
+@require_auth(['admin'])
+def api_document_messages_delete():
+    """
+    Удалить документное сообщение.
+    Также удаляет соответствующее сообщение в Telegram.
+    """
+    try:
+        data = request.json or {}
+        message_id = data.get('message_id')
+
+        if not message_id:
+            return jsonify({'success': False, 'error': 'message_id не указан'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT * FROM document_messages WHERE id = ?', (message_id,))
+        msg = cursor.fetchone()
+        if not msg:
+            conn.close()
+            return jsonify({'success': False, 'error': 'Сообщение не найдено'}), 404
+
+        # Удаляем из БД
+        cursor.execute('DELETE FROM document_messages WHERE id = ?', (message_id,))
+        conn.commit()
+
+        # Синхронизация с Telegram
+        if msg['telegram_chat_id'] and msg['telegram_message_id']:
+            delete_telegram_message(msg['telegram_chat_id'], msg['telegram_message_id'])
+
+        conn.close()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_document_messages_delete: {e}", file=sys.stderr)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/document-messages/receive', methods=['POST'])
