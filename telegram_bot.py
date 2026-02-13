@@ -3014,6 +3014,7 @@ async def shipment_skip_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """
     query = update.callback_query
     await query.answer()
+    logger.info("shipment_skip_file called, переход к подтверждению")
 
     return await _show_shipment_confirm(update, context, is_callback=True)
 
@@ -3026,13 +3027,17 @@ async def _show_shipment_confirm(update: Update, context: ContextTypes.DEFAULT_T
     comment = shipment.get('comment', '')
     filename = shipment.get('filename', '')
 
-    text = "🚚 *Подтверждение отправки*\n\n"
-    text += f"💬 *Комментарий:*\n{escape_md(comment)}\n\n"
+    logger.info(f"_show_shipment_confirm: comment='{comment}', filename='{filename}', is_callback={is_callback}")
+
+    text = (
+        "🚚 Подтверждение отправки\n\n"
+        f"💬 Комментарий:\n{comment}\n\n"
+    )
 
     if filename:
-        text += f"📎 *Файл:* {escape_md(filename)}\n\n"
+        text += f"📎 Файл: {filename}\n\n"
     else:
-        text += "📎 *Файл:* нет\n\n"
+        text += "📎 Файл: нет\n\n"
 
     text += "Создать отправку?"
 
@@ -3045,13 +3050,14 @@ async def _show_shipment_confirm(update: Update, context: ContextTypes.DEFAULT_T
 
     if is_callback:
         await update.callback_query.edit_message_text(
-            text, parse_mode='Markdown', reply_markup=keyboard
+            text, reply_markup=keyboard
         )
     else:
         await update.message.reply_text(
-            text, parse_mode='Markdown', reply_markup=keyboard
+            text, reply_markup=keyboard
         )
 
+    logger.info(f"_show_shipment_confirm: подтверждение показано, возвращаю STATE_SHIPMENT_CONFIRM={STATE_SHIPMENT_CONFIRM}")
     return STATE_SHIPMENT_CONFIRM
 
 
@@ -3061,6 +3067,8 @@ async def shipment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """
     query = update.callback_query
     await query.answer()
+
+    logger.info(f"shipment_confirm called, callback_data={query.data}")
 
     action = query.data.replace('ship_confirm:', '')
 
@@ -3083,6 +3091,22 @@ async def shipment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     file_data = shipment.get('file_data')
     filename = shipment.get('filename')
 
+    logger.info(f"shipment_confirm: comment='{comment}', has_file={file_data is not None}")
+
+    if not comment:
+        logger.warning("shipment_confirm: comment пустой, данные потеряны (бот перезапускался?)")
+        await query.edit_message_text(
+            "❌ Данные отправки потеряны (бот был перезапущен).\n"
+            "Пожалуйста, начните создание отправки заново."
+        )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Выберите действие:",
+            reply_markup=get_main_menu()
+        )
+        context.user_data.pop('shipment', None)
+        return ConversationHandler.END
+
     chat_id = update.effective_chat.id
     user = query.from_user
     sender_name = f"@{user.username}" if user.username else user.first_name or str(chat_id)
@@ -3091,21 +3115,25 @@ async def shipment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await query.edit_message_text("⏳ Создаю отправку...")
 
     # Вызываем API
-    result = create_shipment(
-        chat_id=chat_id,
-        comment=comment,
-        sender_name=sender_name,
-        file_data=file_data,
-        filename=filename
-    )
+    try:
+        result = create_shipment(
+            chat_id=chat_id,
+            comment=comment,
+            sender_name=sender_name,
+            file_data=file_data,
+            filename=filename
+        )
+        logger.info(f"shipment_confirm: API result={result}")
+    except Exception as e:
+        logger.error(f"shipment_confirm: API exception: {e}")
+        result = {'success': False, 'error': str(e)}
 
     if result.get('success'):
         doc_id = result.get('doc_id', '?')
         await query.edit_message_text(
-            f"✅ Отправка *#{doc_id}* успешно создана!\n\n"
+            f"✅ Отправка #{doc_id} успешно создана!\n\n"
             f"💬 Комментарий сохранён в сообщениях контейнера.\n"
-            f"📢 Уведомления отправлены администраторам.",
-            parse_mode='Markdown'
+            f"📢 Уведомления отправлены администраторам."
         )
     else:
         error = result.get('error', 'Неизвестная ошибка')
@@ -3358,6 +3386,25 @@ def main():
     application.add_handler(shipment_handler)  # Создание отправки (контейнера)
     application.add_handler(finance_handler)  # Финансы: доход/расход
     application.add_handler(receipt_handler)
+
+    # Обработчик "потерянных" кнопок отправки (если бот перезапустился и состояние потеряно)
+    async def orphaned_shipment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        logger.info(f"orphaned_shipment_callback: {query.data} (состояние диалога потеряно)")
+        await query.edit_message_text(
+            "⚠️ Сессия истекла (бот был перезапущен).\n"
+            "Нажмите 🚚 Отправка товара, чтобы начать заново."
+        )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Выберите действие:",
+            reply_markup=get_main_menu()
+        )
+
+    application.add_handler(CallbackQueryHandler(
+        orphaned_shipment_callback, pattern=r'^ship_'
+    ))
 
     # Обработчик кнопок главного меню (должен быть после receipt_handler)
     # "📦 Новый приход" обрабатывается в ConversationHandler
