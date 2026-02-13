@@ -11480,6 +11480,13 @@ HTML_TEMPLATE = '''
             records.forEach((rec, idx) => {
                 const tr = document.createElement('tr');
 
+                // Подсветка строки бледно-красным, если распределение требуется, но не сделано
+                const needsContainerDist = rec.record_type === 'expense' && rec.is_container_linked && !rec.has_distributions;
+                const needsPlanDist = rec.record_type === 'expense' && rec.is_plan_linked && rec.yuan_amount > 0 && !rec.has_plan_distributions;
+                if (needsContainerDist || needsPlanDist) {
+                    tr.style.backgroundColor = '#fff0f0';
+                }
+
                 // № (порядковый)
                 const tdNum = document.createElement('td');
                 tdNum.textContent = idx + 1;
@@ -27149,10 +27156,29 @@ def api_finance_records():
             for row in cursor.fetchall():
                 file_counts[row['finance_record_id']] = row['cnt']
 
+        # Получаем флаги is_container_linked / is_plan_linked для категорий
+        category_flags = {}
+        cat_ids = list(set(r['category_id'] for r in records if r.get('category_id')))
+        if cat_ids:
+            cat_placeholders = ','.join('?' * len(cat_ids))
+            cursor.execute(f'''
+                SELECT id, COALESCE(is_container_linked, 0) as is_container_linked,
+                       COALESCE(is_plan_linked, 0) as is_plan_linked
+                FROM finance_categories WHERE id IN ({cat_placeholders})
+            ''', cat_ids)
+            for row in cursor.fetchall():
+                category_flags[row['id']] = {
+                    'is_container_linked': row['is_container_linked'],
+                    'is_plan_linked': row['is_plan_linked']
+                }
+
         for rec in records:
             rec['has_distributions'] = dist_counts.get(rec['id'], 0) > 0
             rec['has_plan_distributions'] = plan_dist_counts.get(rec['id'], 0) > 0
             rec['file_count'] = file_counts.get(rec['id'], 0)
+            cat_f = category_flags.get(rec.get('category_id'), {})
+            rec['is_container_linked'] = cat_f.get('is_container_linked', 0)
+            rec['is_plan_linked'] = cat_f.get('is_plan_linked', 0)
 
         # Рассчитываем сводку с теми же фильтрами
         summary_query = f'''
