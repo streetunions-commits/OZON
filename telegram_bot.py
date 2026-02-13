@@ -106,6 +106,11 @@ STATE_FIN_DESCRIPTION = 304        # Ввод описания (на что)
 STATE_FIN_CONFIRM = 305            # Подтверждение перед сохранением
 STATE_FIN_YUAN_AMOUNT = 306        # Ввод суммы в юанях (для категорий с requires_yuan)
 
+# Состояния для создания отправки (400-402)
+STATE_SHIPMENT_COMMENT = 400       # Ввод комментария к отправке (обязательно)
+STATE_SHIPMENT_FILE = 401          # Прикрепление файла (опционально)
+STATE_SHIPMENT_CONFIRM = 402       # Подтверждение создания отправки
+
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
 
@@ -318,6 +323,55 @@ def format_amount(amount: float) -> str:
     return f"{amount:,.2f}".replace(',', ' ')
 
 
+def create_shipment(chat_id: int, comment: str, sender_name: str,
+                    file_data: bytes = None, filename: str = None) -> dict:
+    """
+    Создать новую отправку (контейнер) через API.
+
+    Аргументы:
+        chat_id: Telegram chat_id отправителя
+        comment: Комментарий к отправке (обязательный)
+        sender_name: Имя отправителя (@username или имя)
+        file_data: Байты файла (опционально)
+        filename: Имя файла (опционально)
+
+    Возвращает:
+        {'success': True, 'doc_id': N, 'message_id': N} или {'success': False, 'error': '...'}
+    """
+    try:
+        if file_data and filename:
+            # Multipart/form-data для файлов
+            response = requests.post(
+                f'{API_BASE_URL}/api/telegram/create-shipment',
+                data={
+                    'token': TELEGRAM_BOT_SECRET,
+                    'chat_id': chat_id,
+                    'comment': comment,
+                    'sender_name': sender_name
+                },
+                files={
+                    'files': (filename, file_data)
+                },
+                timeout=30
+            )
+        else:
+            # JSON для текстовых запросов
+            response = requests.post(
+                f'{API_BASE_URL}/api/telegram/create-shipment',
+                json={
+                    'token': TELEGRAM_BOT_SECRET,
+                    'chat_id': chat_id,
+                    'comment': comment,
+                    'sender_name': sender_name
+                },
+                timeout=15
+            )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка создания отправки: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 def send_reply_to_server(chat_id: int, message: str, reply_to_message_id: int, sender_name: str) -> dict:
     """
     Отправить ответ пользователя на сервер.
@@ -408,6 +462,7 @@ def get_main_menu():
     """
     keyboard = [
         ["📦 Новый приход"],
+        ["🚚 Отправка товара"],
         ["💰 Финансы"],
         ["✉️ Сообщение", "📊 Остатки"],
         ["❓ Помощь"]
@@ -2854,6 +2909,233 @@ async def finance_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # ============================================================================
+# СОЗДАНИЕ ОТПРАВКИ (КОНТЕЙНЕРА) ЧЕРЕЗ TELEGRAM
+# ============================================================================
+
+async def shipment_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Начало создания отправки.
+    Запрашивает комментарий (обязательный).
+    """
+    chat_id = update.effective_chat.id
+
+    if not is_authorized(chat_id):
+        await update.message.reply_text("⛔ У вас нет доступа к этому боту.")
+        return ConversationHandler.END
+
+    # Очищаем предыдущие данные
+    context.user_data['shipment'] = {}
+
+    await update.message.reply_text(
+        "🚚 *Создание отправки*\n\n"
+        "Введите комментарий к отправке (обязательно):\n\n"
+        "Для отмены нажмите /cancel",
+        parse_mode='Markdown',
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return STATE_SHIPMENT_COMMENT
+
+
+async def shipment_comment_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Получен комментарий к отправке.
+    Предлагает прикрепить файл или пропустить.
+    """
+    comment = update.message.text.strip()
+
+    if not comment:
+        await update.message.reply_text(
+            "❌ Комментарий не может быть пустым. Введите комментарий:"
+        )
+        return STATE_SHIPMENT_COMMENT
+
+    context.user_data['shipment']['comment'] = comment
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏩ Пропустить файл", callback_data="ship_skip_file")]
+    ])
+
+    await update.message.reply_text(
+        "📎 Можете прикрепить файл (фото или документ) к отправке.\n\n"
+        "Отправьте файл или нажмите кнопку ниже, чтобы пропустить:",
+        reply_markup=keyboard
+    )
+    return STATE_SHIPMENT_FILE
+
+
+async def shipment_file_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Получен файл (фото или документ) для отправки.
+    Показывает подтверждение.
+    """
+    message = update.message
+
+    try:
+        if message.photo:
+            # Фото — берём самое большое разрешение
+            file_obj = await message.photo[-1].get_file()
+            filename = f"photo_{message.photo[-1].file_unique_id}.jpg"
+        elif message.document:
+            file_obj = await message.document.get_file()
+            filename = message.document.file_name or f"file_{message.document.file_unique_id}"
+        else:
+            await message.reply_text("❌ Неподдерживаемый тип файла. Отправьте фото или документ.")
+            return STATE_SHIPMENT_FILE
+
+        # Скачиваем файл в память
+        file_bytes = await file_obj.download_as_bytearray()
+
+        context.user_data['shipment']['file_data'] = bytes(file_bytes)
+        context.user_data['shipment']['filename'] = filename
+
+        # Текст подписи (caption) если есть — добавляем к комментарию
+        if message.caption:
+            existing_comment = context.user_data['shipment'].get('comment', '')
+            context.user_data['shipment']['comment'] = f"{existing_comment}\n{message.caption}".strip()
+
+    except Exception as e:
+        logger.error(f"Ошибка скачивания файла для отправки: {e}")
+        await message.reply_text(
+            "❌ Ошибка при загрузке файла. Попробуйте ещё раз или пропустите.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⏩ Пропустить файл", callback_data="ship_skip_file")]
+            ])
+        )
+        return STATE_SHIPMENT_FILE
+
+    return await _show_shipment_confirm(update, context)
+
+
+async def shipment_skip_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Пользователь пропустил прикрепление файла.
+    Показывает подтверждение.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    return await _show_shipment_confirm(update, context, is_callback=True)
+
+
+async def _show_shipment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE, is_callback: bool = False) -> int:
+    """
+    Показывает итоговое подтверждение перед созданием отправки.
+    """
+    shipment = context.user_data.get('shipment', {})
+    comment = shipment.get('comment', '')
+    filename = shipment.get('filename', '')
+
+    text = "🚚 *Подтверждение отправки*\n\n"
+    text += f"💬 *Комментарий:*\n{escape_md(comment)}\n\n"
+
+    if filename:
+        text += f"📎 *Файл:* {escape_md(filename)}\n\n"
+    else:
+        text += "📎 *Файл:* нет\n\n"
+
+    text += "Создать отправку?"
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Создать", callback_data="ship_confirm:yes"),
+            InlineKeyboardButton("❌ Отменить", callback_data="ship_confirm:no")
+        ]
+    ])
+
+    if is_callback:
+        await update.callback_query.edit_message_text(
+            text, parse_mode='Markdown', reply_markup=keyboard
+        )
+    else:
+        await update.message.reply_text(
+            text, parse_mode='Markdown', reply_markup=keyboard
+        )
+
+    return STATE_SHIPMENT_CONFIRM
+
+
+async def shipment_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка подтверждения создания отправки.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data.replace('ship_confirm:', '')
+
+    if action != 'yes':
+        await query.edit_message_text(
+            "❌ Создание отправки отменено.",
+        )
+        # Возвращаем главное меню
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Выберите действие:",
+            reply_markup=get_main_menu()
+        )
+        context.user_data.pop('shipment', None)
+        return ConversationHandler.END
+
+    # Получаем данные для создания
+    shipment = context.user_data.get('shipment', {})
+    comment = shipment.get('comment', '')
+    file_data = shipment.get('file_data')
+    filename = shipment.get('filename')
+
+    chat_id = update.effective_chat.id
+    user = query.from_user
+    sender_name = f"@{user.username}" if user.username else user.first_name or str(chat_id)
+
+    # Показываем "в процессе"
+    await query.edit_message_text("⏳ Создаю отправку...")
+
+    # Вызываем API
+    result = create_shipment(
+        chat_id=chat_id,
+        comment=comment,
+        sender_name=sender_name,
+        file_data=file_data,
+        filename=filename
+    )
+
+    if result.get('success'):
+        doc_id = result.get('doc_id', '?')
+        await query.edit_message_text(
+            f"✅ Отправка *#{doc_id}* успешно создана\\!\n\n"
+            f"💬 Комментарий сохранён в сообщениях контейнера\\.\n"
+            f"📢 Уведомления отправлены администраторам\\.",
+            parse_mode='MarkdownV2'
+        )
+    else:
+        error = result.get('error', 'Неизвестная ошибка')
+        await query.edit_message_text(
+            f"❌ Ошибка создания отправки: {error}"
+        )
+
+    # Возвращаем главное меню
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Выберите действие:",
+        reply_markup=get_main_menu()
+    )
+
+    context.user_data.pop('shipment', None)
+    return ConversationHandler.END
+
+
+async def shipment_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Отмена создания отправки через /cancel.
+    """
+    context.user_data.pop('shipment', None)
+    await update.message.reply_text(
+        "❌ Создание отправки отменено.",
+        reply_markup=get_main_menu()
+    )
+    return ConversationHandler.END
+
+
+# ============================================================================
 # ЗАПУСК БОТА
 # ============================================================================
 
@@ -3040,12 +3322,39 @@ def main():
         ]
     )
 
+    # Обработчик создания отправки (контейнера)
+    shipment_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r'^🚚 Отправка товара$'), shipment_start)
+        ],
+        states={
+            STATE_SHIPMENT_COMMENT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, shipment_comment_received)
+            ],
+            STATE_SHIPMENT_FILE: [
+                # PHOTO/Document ПЕРЕД callback (фото с caption)
+                MessageHandler(filters.PHOTO | filters.Document.ALL, shipment_file_received),
+                CallbackQueryHandler(shipment_skip_file, pattern=r'^ship_skip_file$'),
+            ],
+            STATE_SHIPMENT_CONFIRM: [
+                CallbackQueryHandler(shipment_confirm, pattern=r'^ship_confirm:'),
+            ],
+        },
+        fallbacks=[
+            CommandHandler('cancel', shipment_cancel),
+            CommandHandler('stop', shipment_cancel),
+            # Позволяем перезапустить флоу
+            MessageHandler(filters.Regex(r'^🚚 Отправка товара$'), shipment_start),
+        ]
+    )
+
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(container_reply_handler)  # Обработчик ответов на контейнеры
     application.add_handler(send_message_handler)  # Отправка сообщений в контейнер
+    application.add_handler(shipment_handler)  # Создание отправки (контейнера)
     application.add_handler(finance_handler)  # Финансы: доход/расход
     application.add_handler(receipt_handler)
 
