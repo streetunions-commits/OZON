@@ -3412,7 +3412,7 @@ async def check_unanswered_messages_job(context: ContextTypes.DEFAULT_TYPE):
         logger.info("📬 Сегодня выходной — напоминания не отправляем")
         return
 
-    logger.info("📬 Проверяю неотвеченные сообщения контейнеров...")
+    logger.info("📬 Проверяю неотвеченные сообщения...")
 
     try:
         response = requests.post(
@@ -3442,31 +3442,60 @@ async def check_unanswered_messages_job(context: ContextTypes.DEFAULT_TYPE):
         for reminder in reminders:
             chat_id = reminder['chat_id']
             display_name = reminder['display_name']
-            messages = reminder['messages']
+            container_msgs = reminder.get('container_messages', [])
+            document_msgs = reminder.get('document_messages', [])
+            total_count = len(container_msgs) + len(document_msgs)
+
+            if total_count == 0:
+                continue
 
             # Формируем текст напоминания
-            text = f"⏰ *Напоминание о неотвеченных сообщениях*\n\n"
-            text += f"Привет, {display_name}! У тебя есть неотвеченные сообщения:\n\n"
+            text = f"⏰ *Напоминание о непрочитанных сообщениях*\n\n"
+            text += f"Привет, {display_name}! "
+            text += f"У тебя {total_count} непрочитанных сообщений:\n\n"
 
-            for msg in messages[:5]:  # Показываем максимум 5 сообщений
+            shown = 0
+            max_shown = 7  # Максимум строк в одном уведомлении
+
+            # --- Сообщения контейнеров (ВЭД) ---
+            for msg in container_msgs:
+                if shown >= max_shown:
+                    break
                 container_id = msg['container_id']
                 container_info = f"#{container_id}"
-                if msg['container_date']:
+                if msg.get('container_date'):
                     container_info += f" ({msg['container_date']}"
-                    if msg['supplier']:
+                    if msg.get('supplier'):
                         container_info += f", {msg['supplier']}"
                     container_info += ")"
 
                 text += f"📦 Контейнер {container_info}\n"
                 text += f"   От: {msg['sender_name']}\n"
-                # URL с / перед # для корректного парсинга в Telegram
                 container_url = f"{site_url}/#ved:ved-containers:{container_id}"
                 text += f"   🔗 [Открыть]({container_url})\n\n"
+                shown += 1
 
-            if len(messages) > 5:
-                text += f"_...и ещё {len(messages) - 5} сообщений_\n\n"
+            # --- Сообщения документов (приходы, отгрузки, финансы) ---
+            for msg in document_msgs:
+                if shown >= max_shown:
+                    break
+                doc_label = msg.get('doc_label', '📋 Документ')
+                doc_id = msg.get('doc_id', '')
 
-            text += "💬 Пожалуйста, ответь на сообщения, когда будет возможность."
+                text += f"{doc_label} #{doc_id}\n"
+                if msg.get('sender_type') == 'telegram':
+                    text += f"   От: {msg['sender_name']}\n"
+                text += f"   {msg['message'][:80]}\n"
+                # Ссылка на вкладку Сообщения
+                messages_url = f"{site_url}/#messages"
+                text += f"   🔗 [Открыть]({messages_url})\n\n"
+                shown += 1
+
+            remaining = total_count - shown
+            if remaining > 0:
+                text += f"_...и ещё {remaining} сообщений_\n\n"
+
+            text += "💬 Пожалуйста, проверь сообщения, когда будет возможность."
 
             try:
                 await context.bot.send_message(
@@ -3475,7 +3504,10 @@ async def check_unanswered_messages_job(context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='Markdown',
                     disable_web_page_preview=True
                 )
-                logger.info(f"📬 Напоминание отправлено пользователю {display_name} (chat_id={chat_id}), сообщений: {len(messages)}")
+                logger.info(
+                    f"📬 Напоминание отправлено {display_name} (chat_id={chat_id}): "
+                    f"контейнеры={len(container_msgs)}, документы={len(document_msgs)}"
+                )
             except Exception as e:
                 logger.error(f"📬 Ошибка отправки напоминания chat_id={chat_id}: {e}")
 
