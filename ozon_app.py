@@ -18028,10 +18028,11 @@ HTML_TEMPLATE = '''
                 document.getElementById('confirm-delete-input').style.borderColor = '#c62828';
                 return;
             }
+            // Сохраняем колбэк ДО закрытия модалки, т.к. closeDeleteConfirmModal() обнуляет его
+            const callback = _deleteConfirmCallback;
             closeDeleteConfirmModal();
-            if (_deleteConfirmCallback) {
-                _deleteConfirmCallback();
-                _deleteConfirmCallback = null;
+            if (callback) {
+                callback();
             }
         }
 
