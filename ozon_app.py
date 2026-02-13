@@ -8148,6 +8148,24 @@ HTML_TEMPLATE = '''
         </div>
     </div>
 
+    <!-- Модалка подтверждения удаления (нужно ввести "удалить") -->
+    <div id="confirm-delete-modal" class="modal-overlay hidden">
+        <div class="modal-box" style="max-width: 420px;">
+            <h3 style="color: #c62828;">⚠️ Подтверждение удаления</h3>
+            <p id="confirm-delete-message" style="color: #666; margin-bottom: 16px;"></p>
+            <div class="form-group">
+                <label>Для подтверждения введите слово <strong style="color: #c62828;">удалить</strong></label>
+                <input type="text" id="confirm-delete-input" placeholder="Введите: удалить" autocomplete="off"
+                    style="width: 100%; padding: 10px 12px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 14px;">
+                <small id="confirm-delete-error" style="color: #c62828; display: none; margin-top: 4px;">Введите слово «удалить» для подтверждения</small>
+            </div>
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeDeleteConfirmModal()">Отмена</button>
+                <button class="save-btn" id="confirm-delete-btn" style="background: #c62828;" onclick="executeDeleteConfirm()">Удалить</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container" id="main-container" style="display: none;">
         <div class="header">
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -17212,16 +17230,18 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Удалить строку товара из контейнера ВЭД
+         * Удалить строку товара из контейнера ВЭД (через модалку с вводом "удалить")
          */
         function removeVedContainerItemRow(id) {
-            if (!confirm('Вы уверены, что хотите удалить эту строку?')) {
-                return;
-            }
-            const row = document.getElementById('ved-container-item-' + id);
-            if (row) row.remove();
-            updateVedContainerTotals();
-            renumberVedContainerItems();
+            showDeleteConfirmModal(
+                'Вы собираетесь удалить строку товара №' + id + ' из контейнера.',
+                function() {
+                    const row = document.getElementById('ved-container-item-' + id);
+                    if (row) row.remove();
+                    updateVedContainerTotals();
+                    renumberVedContainerItems();
+                }
+            );
         }
 
         /**
@@ -17834,32 +17854,93 @@ HTML_TEMPLATE = '''
             }
         }
 
-        /**
-         * Удалить контейнер ВЭД (с подтверждением)
+        /* ================================================================
+         * МОДАЛКА ПОДТВЕРЖДЕНИЯ УДАЛЕНИЯ (нужно ввести "удалить")
+         * ================================================================
+         * Универсальная модалка для безопасного удаления.
+         * Пользователь должен ввести слово "удалить" для подтверждения.
+         * _deleteConfirmCallback — колбэк, который вызывается при успешном подтверждении.
          */
-        async function deleteVedContainer(docId) {
-            if (!confirm('Вы уверены, что хотите удалить контейнер №' + docId + '?')) {
+        let _deleteConfirmCallback = null;
+
+        /**
+         * Показать модалку подтверждения удаления.
+         * @param {string} message — текст, что именно будет удалено
+         * @param {Function} onConfirm — колбэк при успешном вводе "удалить"
+         */
+        function showDeleteConfirmModal(message, onConfirm) {
+            _deleteConfirmCallback = onConfirm;
+            document.getElementById('confirm-delete-message').textContent = message;
+            document.getElementById('confirm-delete-input').value = '';
+            document.getElementById('confirm-delete-error').style.display = 'none';
+            document.getElementById('confirm-delete-modal').classList.remove('hidden');
+            // Фокус на поле ввода
+            setTimeout(() => document.getElementById('confirm-delete-input').focus(), 100);
+        }
+
+        /**
+         * Закрыть модалку подтверждения удаления
+         */
+        function closeDeleteConfirmModal() {
+            document.getElementById('confirm-delete-modal').classList.add('hidden');
+            _deleteConfirmCallback = null;
+        }
+
+        /**
+         * Выполнить удаление после ввода слова "удалить"
+         */
+        function executeDeleteConfirm() {
+            const input = document.getElementById('confirm-delete-input').value.trim().toLowerCase();
+            if (input !== 'удалить') {
+                document.getElementById('confirm-delete-error').style.display = 'block';
+                document.getElementById('confirm-delete-input').style.borderColor = '#c62828';
                 return;
             }
-
-            try {
-                const response = await authFetch('/api/ved/containers/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: docId })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    loadVedContainersHistory();
-                } else {
-                    alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
-                }
-            } catch (error) {
-                console.error('Ошибка удаления контейнера:', error);
-                alert('Ошибка удаления контейнера');
+            closeDeleteConfirmModal();
+            if (_deleteConfirmCallback) {
+                _deleteConfirmCallback();
+                _deleteConfirmCallback = null;
             }
+        }
+
+        // Закрытие модалки по клику на оверлей
+        document.getElementById('confirm-delete-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeDeleteConfirmModal();
+        });
+
+        // Enter в поле ввода — подтвердить, Escape — отмена
+        document.getElementById('confirm-delete-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') executeDeleteConfirm();
+            if (e.key === 'Escape') closeDeleteConfirmModal();
+        });
+
+        /**
+         * Удалить контейнер ВЭД (с подтверждением через модалку)
+         */
+        async function deleteVedContainer(docId) {
+            showDeleteConfirmModal(
+                'Вы собираетесь удалить контейнер №' + docId + ' со всеми позициями.',
+                async function() {
+                    try {
+                        const response = await authFetch('/api/ved/containers/delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: docId })
+                        });
+
+                        const result = await response.json();
+
+                        if (result.success) {
+                            loadVedContainersHistory();
+                        } else {
+                            alert('Ошибка удаления: ' + (result.error || 'Неизвестная ошибка'));
+                        }
+                    } catch (error) {
+                        console.error('Ошибка удаления контейнера:', error);
+                        alert('Ошибка удаления контейнера');
+                    }
+                }
+            );
         }
 
         /**
