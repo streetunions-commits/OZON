@@ -27328,9 +27328,7 @@ def api_finance_records_add():
             _save_finance_plan_distributions(cursor, new_id, plan_distributions, yuan_amount)
 
         # Расходная категория привязана к плану, но распределений нет — уведомляем
-        import sys; print(f'🔍 [DEBUG plan_notif] record_type={record_type}, is_plan_linked={is_plan_linked}, yuan_amount={yuan_amount}, plan_distributions={plan_distributions}', file=sys.stderr, flush=True)
         if record_type == 'expense' and is_plan_linked and yuan_amount and not plan_distributions:
-            print(f'📋 Создаём уведомление о распределении по плану для записи #{new_id}', file=sys.stderr, flush=True)
             _create_finance_plan_distribution_notification(
                 cursor, new_id, yuan_amount, amount, category_name, description,
                 user_info.get('username', ''), record_date
@@ -28628,6 +28626,14 @@ def api_telegram_finance_add():
         if record_type == 'expense' and is_container_linked:
             _create_finance_distribution_notification(
                 cursor, new_id, amount, category_name, description,
+                created_by, record_date
+            )
+
+        # Telegram не поддерживает распределение по плану — уведомляем
+        # для расходных категорий, привязанных к плану закупок
+        if record_type == 'expense' and is_plan_linked and yuan_amount:
+            _create_finance_plan_distribution_notification(
+                cursor, new_id, yuan_amount, amount, category_name, description,
                 created_by, record_date
             )
 
