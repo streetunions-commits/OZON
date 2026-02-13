@@ -464,8 +464,7 @@ def get_main_menu():
         ["📦 Новый приход"],
         ["🚚 Отправка товара"],
         ["💰 Финансы"],
-        ["✉️ Сообщение", "📊 Остатки"],
-        ["❓ Помощь"]
+        ["✉️ Сообщение"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -491,31 +490,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 Привет! Я бот *Moscow Seller*.\n\n"
         "Выберите действие из меню ниже 👇",
-        parse_mode='Markdown',
-        reply_markup=get_main_menu()
-    )
-
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Обработчик команды /помощь или /help.
-    """
-    await update.message.reply_text(
-        "📖 *Справка по боту Moscow Seller*\n\n"
-        "*Создание прихода:*\n"
-        "1. Нажмите «📦 Новый приход»\n"
-        "2. Укажите имя приёмщика\n"
-        "3. Выберите дату прихода\n"
-        "4. Выберите товары и количество\n"
-        "5. Добавьте комментарий (опционально)\n"
-        "6. Подтвердите создание\n\n"
-        "*Поиск товаров:*\n"
-        "При выборе товара можно ввести:\n"
-        "• SKU (числовой код)\n"
-        "• Часть названия\n"
-        "• Артикул\n\n"
-        "Документ появится во вкладке Склад → Оприходование\n"
-        "с пометкой 📱 TG и статусом 🔴 Новый",
         parse_mode='Markdown',
         reply_markup=get_main_menu()
     )
@@ -1034,24 +1008,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         reply_markup=get_main_menu()
     )
     return ConversationHandler.END
-
-
-async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Обработчик нажатий на кнопки главного меню.
-    Кнопка "📦 Новый приход" обрабатывается в ConversationHandler.
-    """
-    text = update.message.text
-
-    if text == "📊 Остатки":
-        await update.message.reply_text(
-            "🚧 Функция в разработке.\n\n"
-            "Скоро здесь можно будет проверить остатки товаров.",
-            reply_markup=get_main_menu()
-        )
-
-    elif text == "❓ Помощь":
-        await help_command(update, context)
 
 
 async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3379,7 +3335,6 @@ def main():
 
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('help', help_command))
     application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(container_reply_handler)  # Обработчик ответов на контейнеры
     application.add_handler(send_message_handler)  # Отправка сообщений в контейнер
@@ -3404,13 +3359,6 @@ def main():
 
     application.add_handler(CallbackQueryHandler(
         orphaned_shipment_callback, pattern=r'^ship_'
-    ))
-
-    # Обработчик кнопок главного меню (должен быть после receipt_handler)
-    # "📦 Новый приход" обрабатывается в ConversationHandler
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r'^(📊 Остатки|❓ Помощь)$'),
-        menu_handler
     ))
 
     # Обработчик ответов на сообщения от администратора
