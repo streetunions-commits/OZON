@@ -22885,6 +22885,40 @@ def api_container_messages_pending_reminders():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        # ====================================================================
+        # 0. ОЧИСТКА: помечаем reminder_sent=1 для сообщений удалённых сущностей
+        #    Чтобы orphan-сообщения не попадали в выборку каждый час
+        # ====================================================================
+
+        # Контейнерные сообщения, чей контейнер удалён
+        cursor.execute('''
+            UPDATE container_messages SET reminder_sent = 1
+            WHERE reminder_sent = 0 AND is_read = 0
+              AND id NOT IN (
+                  SELECT cm.id FROM container_messages cm
+                  INNER JOIN ved_container_docs vcd ON cm.container_id = vcd.id
+                  WHERE cm.reminder_sent = 0 AND cm.is_read = 0
+              )
+        ''')
+
+        # Сообщения документов, чей приход/отгрузка удалён
+        cursor.execute('''
+            UPDATE document_messages SET reminder_sent = 1
+            WHERE reminder_sent = 0 AND is_read = 0
+              AND doc_type = 'receipt'
+              AND NOT EXISTS (SELECT 1 FROM warehouse_receipt_docs WHERE id = document_messages.doc_id)
+        ''')
+        cursor.execute('''
+            UPDATE document_messages SET reminder_sent = 1
+            WHERE reminder_sent = 0 AND is_read = 0
+              AND doc_type = 'shipment'
+              AND NOT EXISTS (SELECT 1 FROM warehouse_shipment_docs WHERE id = document_messages.doc_id)
+        ''')
+
+        orphan_cleaned = cursor.rowcount  # Для логирования (последний запрос)
+        if orphan_cleaned > 0:
+            conn.commit()
+
         # Структура: {ключ_получателя: {'container': [...], 'document': [...]}}
         # Ключ: user_id (int) для зарегистрированных или 'chat:CHAT_ID' для Telegram-только
         user_messages = {}
@@ -22922,6 +22956,7 @@ def api_container_messages_pending_reminders():
 
         # ====================================================================
         # 1. CONTAINER MESSAGES — адресованы конкретным получателям
+        #    Пропускаем сообщения, если контейнер был удалён (vcd.id IS NULL)
         # ====================================================================
         cursor.execute('''
             SELECT cm.id, cm.container_id, cm.message, cm.sender_name, cm.recipient_ids,
@@ -22933,6 +22968,7 @@ def api_container_messages_pending_reminders():
               AND cm.recipient_ids IS NOT NULL
               AND cm.recipient_ids != ''
               AND cm.created_at <= datetime('now', '-24 hours')
+              AND vcd.id IS NOT NULL
         ''')
         for msg in cursor.fetchall():
             container_ids_to_mark.append(msg['id'])
@@ -22952,6 +22988,7 @@ def api_container_messages_pending_reminders():
         # ====================================================================
         # 2a. DOCUMENT MESSAGES (sender_type='web') — переписка в приходах/отгрузках
         #     Админ написал → Telegram-пользователь не ответил → напоминаем ему
+        #     Пропускаем сообщения, если документ-сущность уже удалён
         # ====================================================================
         cursor.execute('''
             SELECT dm.id, dm.doc_type, dm.doc_id, dm.message, dm.sender_name,
@@ -22962,6 +22999,11 @@ def api_container_messages_pending_reminders():
               AND dm.sender_type = 'web'
               AND dm.telegram_chat_id IS NOT NULL
               AND dm.created_at <= datetime('now', '-24 hours')
+              AND (
+                  (dm.doc_type = 'receipt' AND EXISTS (SELECT 1 FROM warehouse_receipt_docs WHERE id = dm.doc_id))
+                  OR (dm.doc_type = 'shipment' AND EXISTS (SELECT 1 FROM warehouse_shipment_docs WHERE id = dm.doc_id))
+                  OR (dm.doc_type NOT IN ('receipt', 'shipment'))
+              )
         ''')
         for msg in cursor.fetchall():
             document_ids_to_mark.append(msg['id'])
@@ -23001,6 +23043,7 @@ def api_container_messages_pending_reminders():
         # 2b. DOCUMENT MESSAGES (sender_type='telegram'/'system') — от Telegram/системы
         #     Telegram-пользователь написал → админы не прочитали → напоминаем админам
         #     Системное уведомление → админы не обработали → напоминаем админам
+        #     Пропускаем сообщения, если документ-сущность уже удалён
         # ====================================================================
         cursor.execute('''
             SELECT dm.id, dm.doc_type, dm.doc_id, dm.message, dm.sender_name,
@@ -23010,6 +23053,11 @@ def api_container_messages_pending_reminders():
               AND dm.reminder_sent = 0
               AND dm.sender_type IN ('telegram', 'system')
               AND dm.created_at <= datetime('now', '-24 hours')
+              AND (
+                  (dm.doc_type = 'receipt' AND EXISTS (SELECT 1 FROM warehouse_receipt_docs WHERE id = dm.doc_id))
+                  OR (dm.doc_type = 'shipment' AND EXISTS (SELECT 1 FROM warehouse_shipment_docs WHERE id = dm.doc_id))
+                  OR (dm.doc_type NOT IN ('receipt', 'shipment'))
+              )
         ''')
         doc_messages_for_admins = cursor.fetchall()
 
