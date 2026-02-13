@@ -712,6 +712,13 @@ def init_database():
         )
     ''')
 
+    # Миграция: добавляем колонку reminder_sent для отслеживания отправленных напоминаний
+    # 0 = напоминание ещё не отправлено, 1 = напоминание уже отправлено через 24ч
+    try:
+        cursor.execute('ALTER TABLE container_messages ADD COLUMN reminder_sent INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Колонка уже существует
+
     # Миграция: добавляем колонку is_completed для контейнеров ВЭД
     try:
         cursor.execute('ALTER TABLE ved_container_docs ADD COLUMN is_completed INTEGER DEFAULT 0')
@@ -22250,6 +22257,96 @@ def send_telegram_container_files(chat_id, files_info):
                     )
         except Exception as e:
             print(f"⚠️ Ошибка отправки файла в Telegram: {e}")
+
+
+@app.route('/api/container-messages/pending-reminders', methods=['POST'])
+def api_container_messages_pending_reminders():
+    """
+    Получить список неотвеченных сообщений, ожидающих напоминания (старше 24ч).
+    Вызывается периодически из telegram_bot.py.
+    Возвращает сгруппированные по получателю данные и помечает reminder_sent = 1.
+
+    Авторизация: через TELEGRAM_BOT_SECRET токен.
+    """
+    try:
+        data = request.json or {}
+        token = data.get('token', '')
+        expected_token = os.environ.get('TELEGRAM_BOT_SECRET', '')
+        if not expected_token or token != expected_token:
+            return jsonify({'success': False, 'error': 'Неверный токен'}), 403
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Находим сообщения: не прочитаны, напоминание не отправлено, старше 24 часов
+        cursor.execute('''
+            SELECT cm.id, cm.container_id, cm.message, cm.sender_name, cm.recipient_ids,
+                   cm.created_at, vcd.supplier, vcd.container_date
+            FROM container_messages cm
+            LEFT JOIN ved_container_docs vcd ON cm.container_id = vcd.id
+            WHERE cm.is_read = 0
+              AND cm.reminder_sent = 0
+              AND cm.recipient_ids IS NOT NULL
+              AND cm.recipient_ids != ''
+              AND cm.created_at <= datetime('now', '-24 hours')
+        ''')
+        messages = cursor.fetchall()
+
+        if not messages:
+            conn.close()
+            return jsonify({'success': True, 'reminders': []})
+
+        # Группируем по получателю: {user_id: [список сообщений]}
+        user_messages = {}
+        message_ids_to_mark = []
+
+        for msg in messages:
+            message_ids_to_mark.append(msg['id'])
+            recipient_ids = [int(x) for x in msg['recipient_ids'].split(',') if x.strip()]
+            for uid in recipient_ids:
+                if uid not in user_messages:
+                    user_messages[uid] = []
+                user_messages[uid].append({
+                    'id': msg['id'],
+                    'container_id': msg['container_id'],
+                    'message': msg['message'][:100],  # Первые 100 символов
+                    'sender_name': msg['sender_name'],
+                    'created_at': msg['created_at'],
+                    'supplier': msg['supplier'] or '',
+                    'container_date': msg['container_date'] or ''
+                })
+
+        # Получаем telegram_chat_id для каждого получателя
+        reminders = []
+        for uid, msgs in user_messages.items():
+            cursor.execute('SELECT telegram_chat_id, display_name, username FROM users WHERE id = ?', (uid,))
+            user = cursor.fetchone()
+            if user and user['telegram_chat_id']:
+                reminders.append({
+                    'user_id': uid,
+                    'chat_id': int(user['telegram_chat_id']),
+                    'display_name': user['display_name'] or user['username'],
+                    'messages': msgs
+                })
+
+        # Помечаем все найденные сообщения как отправленные (reminder_sent = 1)
+        if message_ids_to_mark:
+            placeholders = ','.join('?' * len(message_ids_to_mark))
+            cursor.execute(f'''
+                UPDATE container_messages SET reminder_sent = 1
+                WHERE id IN ({placeholders})
+            ''', message_ids_to_mark)
+            conn.commit()
+
+        conn.close()
+        return jsonify({'success': True, 'reminders': reminders})
+
+    except Exception as e:
+        print(f"❌ Ошибка api_container_messages_pending_reminders: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/container-messages/files/<int:file_id>')

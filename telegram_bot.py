@@ -3372,9 +3372,119 @@ def main():
         reply_handler
     ), group=1)
 
+    # ========================================================================
+    # ПЕРИОДИЧЕСКАЯ ПРОВЕРКА НЕОТВЕЧЕННЫХ СООБЩЕНИЙ (НАПОМИНАНИЯ ЧЕРЕЗ 24Ч)
+    # ========================================================================
+    # Запускаем проверку каждый час. Если сообщение не отвечено >24ч —
+    # отправляем напоминание получателю. В выходные (сб, вс) не отправляем.
+    job_queue = application.job_queue
+    job_queue.run_repeating(
+        check_unanswered_messages_job,
+        interval=3600,   # Каждый час
+        first=60,        # Первая проверка через 60 сек после старта
+        name='unanswered_messages_reminder'
+    )
+    logger.info("📬 Периодическая проверка неотвеченных сообщений запущена (интервал: 1 час)")
+
     # Запускаем бота
     print("✅ Бот запущен. Нажмите Ctrl+C для остановки.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+# ============================================================================
+# ПЕРИОДИЧЕСКАЯ ПРОВЕРКА НЕОТВЕЧЕННЫХ СООБЩЕНИЙ
+# ============================================================================
+
+async def check_unanswered_messages_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Периодическая задача: проверяет наличие неотвеченных сообщений контейнеров
+    старше 24 часов и отправляет напоминания получателям в Telegram.
+
+    Правила:
+    - Не отправляем напоминания в субботу и воскресенье (по московскому времени)
+    - Каждое сообщение получает напоминание только один раз (reminder_sent = 1)
+    - Вызываем API /api/container-messages/pending-reminders из ozon_app.py
+    """
+    from zoneinfo import ZoneInfo
+
+    # Проверяем день недели по московскому времени
+    moscow_tz = ZoneInfo('Europe/Moscow')
+    now_moscow = datetime.now(moscow_tz)
+    weekday = now_moscow.weekday()  # 0=пн, 1=вт, ..., 5=сб, 6=вс
+
+    if weekday >= 5:
+        logger.info("📬 Сегодня выходной — напоминания не отправляем")
+        return
+
+    logger.info("📬 Проверяю неотвеченные сообщения контейнеров...")
+
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/container-messages/pending-reminders",
+            json={'token': TELEGRAM_BOT_SECRET},
+            timeout=15
+        )
+
+        if response.status_code != 200:
+            logger.error(f"📬 API вернул статус {response.status_code}: {response.text}")
+            return
+
+        data = response.json()
+        if not data.get('success'):
+            logger.error(f"📬 API ошибка: {data.get('error', 'unknown')}")
+            return
+
+        reminders = data.get('reminders', [])
+        if not reminders:
+            logger.info("📬 Нет неотвеченных сообщений для напоминания")
+            return
+
+        logger.info(f"📬 Найдено {len(reminders)} пользователей с неотвеченными сообщениями")
+
+        site_url = os.getenv('SITE_URL', 'https://moscowseller.ru')
+
+        for reminder in reminders:
+            chat_id = reminder['chat_id']
+            display_name = reminder['display_name']
+            messages = reminder['messages']
+
+            # Формируем текст напоминания
+            text = f"⏰ *Напоминание о неотвеченных сообщениях*\n\n"
+            text += f"Привет, {display_name}! У тебя есть неотвеченные сообщения:\n\n"
+
+            for msg in messages[:5]:  # Показываем максимум 5 сообщений
+                container_id = msg['container_id']
+                container_info = f"#{container_id}"
+                if msg['container_date']:
+                    container_info += f" ({msg['container_date']}"
+                    if msg['supplier']:
+                        container_info += f", {msg['supplier']}"
+                    container_info += ")"
+
+                text += f"📦 Контейнер {container_info}\n"
+                text += f"   От: {msg['sender_name']}\n"
+                # URL с / перед # для корректного парсинга в Telegram
+                container_url = f"{site_url}/#ved:ved-containers:{container_id}"
+                text += f"   🔗 [Открыть]({container_url})\n\n"
+
+            if len(messages) > 5:
+                text += f"_...и ещё {len(messages) - 5} сообщений_\n\n"
+
+            text += "💬 Пожалуйста, ответь на сообщения, когда будет возможность."
+
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode='Markdown',
+                    disable_web_page_preview=True
+                )
+                logger.info(f"📬 Напоминание отправлено пользователю {display_name} (chat_id={chat_id}), сообщений: {len(messages)}")
+            except Exception as e:
+                logger.error(f"📬 Ошибка отправки напоминания chat_id={chat_id}: {e}")
+
+    except Exception as e:
+        logger.error(f"📬 Ошибка проверки неотвеченных сообщений: {e}")
 
 
 if __name__ == '__main__':
