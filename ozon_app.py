@@ -9460,7 +9460,6 @@ HTML_TEMPLATE = '''
                                         <th>Возвраты</th>
                                         <th>Продажи (гросс)</th>
                                         <th>Комиссия</th>
-                                        <th>Кросс-докинг</th>
                                         <th>К получению</th>
                                     </tr>
                                 </thead>
@@ -12962,10 +12961,6 @@ HTML_TEMPLATE = '''
         // комиссии, возвраты — числа совпадают с разделом «Начисления» Ozon.
         // ============================================================================
 
-        // Глобальные переменные для связки данных реализации и транзакций
-        let _realProducts = [];            // Товары из /v2/finance/realization
-        let _crossdockingBySku = {};       // Кросс-докинг по SKU из /v3/finance/transaction/list
-
         /**
          * Инициализировать select месяца: последние 12 месяцев, текущий по умолчанию.
          */
@@ -13178,9 +13173,8 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-summary').style.display = 'grid';
 
-                // Таблица по товарам (сохраняем для перерисовки после загрузки транзакций)
-                _realProducts = data.products || [];
-                renderRealizationProducts(_realProducts);
+                // Таблица по товарам
+                renderRealizationProducts(data.products || []);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13215,16 +13209,10 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            const cdMap = _crossdockingBySku || {};
-
             tbody.innerHTML = products.map(p => {
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                // Кросс-докинг: ищем по SKU или offer_id
-                const cdVal = cdMap[p.sku] || cdMap[p.offer_id] || 0;
-                const cdText = cdVal ? fmtRealMoney(cdVal) : '—';
-                const cdCls = cdVal < 0 ? 'real-amount-negative' : (cdVal > 0 ? 'real-amount-positive' : '');
                 return '<tr>' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
@@ -13233,7 +13221,6 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
-                    '<td class="real-amount-right ' + cdCls + '">' + cdText + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
                 '</tr>';
             }).join('');
@@ -13276,22 +13263,6 @@ HTML_TEMPLATE = '''
 
                 renderTransactionsBreakdown(data);
 
-                // Распределяем кросс-докинг пропорционально доставкам по товарам
-                const cdTotal = data.crossdocking_total || 0;
-                _crossdockingBySku = {};
-                if (cdTotal !== 0 && _realProducts.length > 0) {
-                    const totalDeliveries = _realProducts.reduce((s, p) => s + (p.delivery_qty || 0), 0);
-                    if (totalDeliveries > 0) {
-                        _realProducts.forEach(p => {
-                            const share = (p.delivery_qty || 0) / totalDeliveries;
-                            const key = p.sku || p.offer_id;
-                            if (key) _crossdockingBySku[key] = Math.round(cdTotal * share * 100) / 100;
-                        });
-                    }
-                }
-                if (_realProducts.length > 0) {
-                    renderRealizationProducts(_realProducts);
-                }
             } catch (e) {
                 console.error('Transactions breakdown fetch error:', e);
             }
@@ -30277,7 +30248,6 @@ def api_finance_transactions_breakdown():
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
-    crossdocking_total = 0.0  # Общая сумма кросс-докинга (по operation_type)
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -30371,12 +30341,6 @@ def api_finance_transactions_breakdown():
                         svc_totals[sn] = {'sum': 0.0, 'count': 0}
                     svc_totals[sn]['sum'] += sp
                     svc_totals[sn]['count'] += 1
-
-            # Кросс-докинг: operation_type (не service name!), items пустые,
-            # привязан к поставке FBO. Считаем общую сумму — фронт распределит
-            # пропорционально по количеству доставок товаров.
-            if ot == 'MarketplaceServiceItemCrossdocking' and amt != 0:
-                crossdocking_total += amt
 
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
@@ -30480,8 +30444,7 @@ def api_finance_transactions_breakdown():
             'total_operations': total_ops,
             'operations': operations_list,
             'services': services_list,
-            'alerts': alerts,
-            'crossdocking_total': round(crossdocking_total, 2)
+            'alerts': alerts
         }
 
         # ── Сохраняем в кэш ──
