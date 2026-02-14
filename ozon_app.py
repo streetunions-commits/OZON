@@ -6329,10 +6329,9 @@ HTML_TEMPLATE = '''
         .real-card-storage .real-card-value { color: #c05621; }
 
         .real-category-tooltip {
-            display: none; position: absolute; left: 0; top: 100%; margin-top: 8px;
+            display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 8px;
             background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            padding: 14px 18px; z-index: 100; min-width: 280px; max-width: 400px;
-            max-height: 400px; overflow-y: auto;
+            padding: 14px 18px; z-index: 100; min-width: 320px; max-width: 450px;
         }
         .real-card-other-deductions:hover .real-category-tooltip,
         .real-card-acquiring:hover .real-category-tooltip,
@@ -6343,7 +6342,7 @@ HTML_TEMPLATE = '''
             padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0;
         }
         .real-category-tooltip .real-tooltip-row:last-child { border-bottom: none; }
-        .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+        .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
         .real-card-other-deductions .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #805ad5; white-space: nowrap; }
         .real-card-acquiring .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #2b6cb0; white-space: nowrap; }
         .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
