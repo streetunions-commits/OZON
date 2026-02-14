@@ -29778,7 +29778,7 @@ def api_finance_realization():
             commission_total += d_total_comm + r_total_comm
             seller_receives += d_amount + r_amount
             bonuses_total += d_bonus + r_bonus
-            standard_fee_total += d_std_fee + r_std_fee
+            standard_fee_total += d_std_fee  # Только доставки (подтверждено пользователем)
             stars_total += d_stars
             bank_coinvest_total += d_bank
             acquiring_total += d_acquiring + r_acquiring
@@ -29813,7 +29813,7 @@ def api_finance_realization():
                 p['total_deductions'] += d_total_comm + r_total_comm
                 p['seller_receives'] += d_amount + r_amount
                 p['bonus'] += d_bonus + r_bonus
-                p['standard_fee'] += d_std_fee + r_std_fee
+                p['standard_fee'] += d_std_fee  # Только доставки
                 p['acquiring'] += d_acquiring + r_acquiring
                 p['bank_coinvestment'] += d_bank
                 if d_qty > 0:
@@ -29822,14 +29822,11 @@ def api_finance_realization():
         # ── Итоги ──
         net_total = seller_receives
 
-        # Комиссия МП = standard_fee + acquiring (эквайринг)
-        marketplace_commission = standard_fee_total + acquiring_total
+        # Комиссия МП = только delivery standard_fee (подтверждено пользователем: 10,758,875 ₽ за дек 2025)
+        marketplace_commission = standard_fee_total
 
-        # База для расчёта % = гросс-продажи минус соинвест (bank_coinvestment)
-        commission_base = gross_sales - bank_coinvest_total
-
-        # Фактический % комиссии = (комиссия МП + эквайринг) / (гросс - соинвест)
-        avg_commission_pct = (marketplace_commission / commission_base * 100) if commission_base > 0 else 0
+        # Фактический % комиссии = delivery standard_fee / гросс-продажи
+        avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
@@ -29838,10 +29835,9 @@ def api_finance_realization():
             dq = pdata['delivery_qty']
             avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
 
-            # Фактический % комиссии МП по товару = (std_fee + acquiring) / (gross - coinvest)
-            p_commission = pdata['standard_fee'] + pdata['acquiring']
-            p_base = pdata['gross_sales'] - pdata['bank_coinvestment']
-            p_commission_pct = (p_commission / p_base * 100) if p_base > 0 else 0
+            # Фактический % комиссии МП по товару = delivery standard_fee / gross
+            p_commission = pdata['standard_fee']
+            p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
 
             products_list.append({
                 'sku': pdata['sku'],
@@ -29880,7 +29876,7 @@ def api_finance_realization():
             'summary': {
                 'gross_sales': round(gross_sales, 2),
                 'returns': round(returns_total, 2),
-                'commission': round(marketplace_commission, 2),     # Комиссия МП + эквайринг
+                'commission': round(marketplace_commission, 2),     # Комиссия МП (delivery standard_fee)
                 'total_deductions': round(commission_total, 2),     # Все удержания (total)
                 'seller_receives': round(seller_receives, 2),
                 'bonuses': round(bonuses_total, 2),
@@ -29889,7 +29885,7 @@ def api_finance_realization():
                 'stars': round(stars_total, 2),
                 'bank_coinvestment': round(bank_coinvest_total, 2),
                 'net_total': round(net_total, 2),
-                'avg_commission_pct': round(avg_commission_pct, 2),  # % = (std_fee+acquiring) / (gross-coinvest)
+                'avg_commission_pct': round(avg_commission_pct, 2),  # % = delivery standard_fee / gross
                 'delivery_count': delivery_count,
                 'return_count': return_count
             },
