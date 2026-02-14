@@ -13310,22 +13310,33 @@ HTML_TEMPLATE = '''
             wrapper.style.display = 'block';
 
             // ── Карточка «Логистика» ──
-            // 3 сервиса из Transaction API:
-            //   MarketplaceServiceItemDirectFlowLogistic     → Логистика (-2.9M за дек 2025)
-            //   MarketplaceServiceItemReturnFlowLogistic     → Доставка и обработка возврата (-179k)
-            //   MarketplaceServiceItemRedistributionLastMileCourier → Последняя миля (-26k)
-            const logSvcMap = {
-                'MarketplaceServiceItemDirectFlowLogistic': 'Логистика',
-                'MarketplaceServiceItemReturnFlowLogistic': 'Доставка и обработка возврата',
-                'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля'
-            };
+            // Источники:
+            //   service  MarketplaceServiceItemDirectFlowLogistic          → Логистика (-2.9M)
+            //   operation OperationItemReturn                              → Доставка и обработка возврата (-309k)
+            //   service  MarketplaceServiceItemRedistributionLastMileCourier → Последняя миля (-26k)
             let logTotal = 0;
             const logDetails = [];
+
+            // 1) Логистика — из services
             (data.services || []).forEach(svc => {
-                if (logSvcMap[svc.name]) {
+                if (svc.name === 'MarketplaceServiceItemDirectFlowLogistic') {
                     const val = Math.abs(svc.sum);
                     logTotal += val;
-                    logDetails.push({label: logSvcMap[svc.name], value: val});
+                    logDetails.push({label: 'Логистика', value: val});
+                }
+                if (svc.name === 'MarketplaceServiceItemRedistributionLastMileCourier') {
+                    const val = Math.abs(svc.sum);
+                    logTotal += val;
+                    logDetails.push({label: 'Последняя миля', value: val});
+                }
+            });
+
+            // 2) Доставка и обработка возврата — из operations (OperationItemReturn)
+            (data.operations || []).forEach(op => {
+                if (op.type === 'OperationItemReturn') {
+                    const val = Math.abs(op.sum);
+                    logTotal += val;
+                    logDetails.push({label: 'Доставка и обработка возврата', value: val});
                 }
             });
 
