@@ -1183,6 +1183,15 @@ def init_database():
         )
     ''')
 
+    # Кеш результатов Transaction API (чтобы не загружать 5 страниц каждый раз)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transaction_breakdown_cache (
+            period_key TEXT PRIMARY KEY,
+            response_json TEXT NOT NULL,
+            cached_at TEXT NOT NULL
+        )
+    ''')
+
     # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
@@ -30090,6 +30099,37 @@ def api_finance_transactions_breakdown():
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
 
+    # ── Проверяем кэш (чтобы не ждать 10-15 секунд каждый раз) ──
+    force_refresh = request.args.get('refresh', '') == '1'
+    cache_key = quarter_str if quarter_str else month_str
+
+    if not force_refresh:
+        try:
+            cache_db = sqlite3.connect(DB_PATH)
+            cache_db.row_factory = sqlite3.Row
+            cache_row = cache_db.execute(
+                'SELECT response_json, cached_at FROM transaction_breakdown_cache WHERE period_key = ?',
+                (cache_key,)
+            ).fetchone()
+            cache_db.close()
+
+            if cache_row:
+                cached_at = _dt.strptime(cache_row['cached_at'], '%Y-%m-%d %H:%M:%S')
+                age_hours = (_dt.now() - cached_at).total_seconds() / 3600
+                # Кэш живёт 24 часа
+                if age_hours < 24:
+                    print(f"  ⚡ Транзакции {period_label}: из кэша (возраст {age_hours:.1f}ч)")
+                    cached_data = json.loads(cache_row['response_json'])
+                    cached_data['from_cache'] = True
+                    cached_data['cache_age_hours'] = round(age_hours, 1)
+                    return jsonify(cached_data)
+                else:
+                    print(f"  ♻️ Транзакции {period_label}: кэш устарел ({age_hours:.1f}ч), обновляем...")
+        except Exception as cache_err:
+            print(f"  ⚠️ Ошибка чтения кэша: {cache_err}")
+    else:
+        print(f"  🔄 Транзакции {period_label}: принудительное обновление кэша")
+
     # ── Запросы к Ozon Transaction API (параллельно) ──
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
@@ -30254,14 +30294,31 @@ def api_finance_transactions_breakdown():
         if new_types or missing_types:
             _notify_transaction_type_changes(period_label, new_types, missing_types)
 
-        return jsonify({
+        response_data = {
             'success': True,
             'period': period_label,
             'total_operations': total_ops,
             'operations': operations_list,
             'services': services_list,
             'alerts': alerts
-        })
+        }
+
+        # ── Сохраняем в кэш ──
+        try:
+            cache_db = sqlite3.connect(DB_PATH)
+            cache_db.execute('''
+                INSERT OR REPLACE INTO transaction_breakdown_cache
+                (period_key, response_json, cached_at)
+                VALUES (?, ?, ?)
+            ''', (cache_key, json.dumps(response_data, ensure_ascii=False),
+                  _dt.now().strftime('%Y-%m-%d %H:%M:%S')))
+            cache_db.commit()
+            cache_db.close()
+            print(f"  💾 Транзакции {period_label}: кэш сохранён")
+        except Exception as save_err:
+            print(f"  ⚠️ Ошибка сохранения кэша: {save_err}")
+
+        return jsonify(response_data)
 
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Таймаут запроса к Ozon API'}), 504
