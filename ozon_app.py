@@ -30059,7 +30059,8 @@ def api_finance_transactions_breakdown():
 
         # ── Сверка с реестром типов в БД ──
         today = _dt.now().strftime('%Y-%m-%d')
-        db = get_db()
+        db = sqlite3.connect(DB_PATH)
+        db.row_factory = sqlite3.Row
         cursor = db.cursor()
 
         # Текущие типы из БД
@@ -30112,6 +30113,7 @@ def api_finance_transactions_breakdown():
                 missing_types.append({'key': tk, 'category': tc, 'name': dn})
 
         db.commit()
+        db.close()
 
         # ── Формируем ответ ──
         operations_list = []
