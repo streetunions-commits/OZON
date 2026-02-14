@@ -6288,6 +6288,8 @@ HTML_TEMPLATE = '''
         .real-card-label { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
         .real-card-value { font-size: 20px; font-weight: 700; }
         .real-card-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+        .real-card-realization { border-left-color: #276749; }
+        .real-card-realization .real-card-value { color: #276749; font-size: 22px; }
         .real-card-sales { border-left-color: #38a169; }
         .real-card-sales .real-card-value { color: #38a169; }
         .real-card-returns { border-left-color: #e53e3e; }
@@ -9385,6 +9387,11 @@ HTML_TEMPLATE = '''
 
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
+                        <div class="real-card real-card-realization">
+                            <div class="real-card-label">Реализация</div>
+                            <div class="real-card-value" id="real-realization">0 ₽</div>
+                            <div class="real-card-hint" id="real-realization-hint"></div>
+                        </div>
                         <div class="real-card real-card-sales">
                             <div class="real-card-label">Продажи до СПП</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
@@ -13123,6 +13130,10 @@ HTML_TEMPLATE = '''
                 const s = data.summary || {};
 
                 // Сводные карточки
+                document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
+                const realHint = document.getElementById('real-realization-hint');
+                if (realHint) realHint.textContent = (s.delivery_count - s.return_count) + ' шт. (нетто)';
+
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 const grossHint = document.getElementById('real-gross-hint');
                 if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
