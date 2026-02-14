@@ -29751,8 +29751,8 @@ def api_finance_realization():
 
             # Гросс-продажи = цена продавца * кол-во доставок
             row_gross_sales = seller_price * d_qty
-            # Возвраты = цена продавца * кол-во возвратов (отрицательное)
-            row_returns = seller_price * r_qty
+            # Возвраты = return_commission.amount (Возвращено на сумму)
+            row_returns = abs(r_amount) if r_amount else 0
 
             # Эквайринг (поле commission в API)
             d_acquiring = dc.get('commission', 0)
