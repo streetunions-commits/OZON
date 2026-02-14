@@ -13231,8 +13231,12 @@ HTML_TEMPLATE = '''
             }
 
             // ── Карточки категорий: Иные удержания, Кросс-докинг, Реклама, Хранение ──
-            // Маппинг service/operation name → категория
-            const categoryMap = {
+            // ВАЖНО: operations и services — два представления ОДНИХ данных.
+            // operation.amount ≈ sum(operation.services.price), поэтому нельзя
+            // суммировать из обоих массивов — будет двойной подсчёт.
+            // serviceCatMap — ищем ТОЛЬКО в data.services (по svc.name)
+            // operationCatMap — ищем ТОЛЬКО в data.operations (по op.type)
+            const serviceCatMap = {
                 // === Иные удержания (services) ===
                 'MarketplaceRedistributionOfAcquiringOperation': 'other_deductions',
                 'MarketplaceServiceBrandCommission': 'other_deductions',
