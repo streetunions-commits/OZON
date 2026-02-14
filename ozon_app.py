@@ -13230,41 +13230,30 @@ HTML_TEMPLATE = '''
             // ВАЖНО: operations и services — два представления ОДНИХ данных.
             // operation.amount ≈ sum(operation.services.price), поэтому нельзя
             // суммировать из обоих массивов — будет двойной подсчёт.
-            // serviceCatMap — ищем ТОЛЬКО в data.services (по svc.name)
-            // operationCatMap — ищем ТОЛЬКО в data.operations (по op.type)
-            const serviceCatMap = {
-                // Иные удержания (service names — из data.services)
+            // Используем ТОЛЬКО data.operations (по op.type).
+            // Каждый рубль в API учтён ровно один раз как operation.amount.
+            // Services — это вложенная разбивка ТЕХ ЖЕ денег, суммировать оба = двойной подсчёт.
+            // Названия берём из op.name (operation_type_name из API).
+            const operationCatMap = {
+                // Иные удержания
                 'MarketplaceRedistributionOfAcquiringOperation': 'other_deductions',
                 'MarketplaceServiceBrandCommission': 'other_deductions',
                 'PremiumMembership': 'other_deductions',
-                'PremiumMembershipCommission': 'other_deductions',
-                'MarketplaceServiceItemTemporaryStorageRedistribution': 'other_deductions',
-                'MarketplaceServiceProductMovementFromWarehouse': 'other_deductions',
-                'MarketplaceServiceSellerReturnsCargoAssortment': 'other_deductions',
-                'MarketplaceServiceItemReturnFlowLogistic': 'other_deductions',
-                'MarketplaceServiceItemReturnNotDelivToCustomer': 'other_deductions',
-                'MarketplaceServiceItemReturnAfterDelivToCustomer': 'other_deductions',
-                'MarketplaceServiceItemRedistributionReturnsPVZ': 'other_deductions',
-                'MarketplaceSellerCorrectionOperation': 'other_deductions',
-                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
-                // Кросс-докинг
-                'MarketplaceServiceItemCrossdocking': 'crossdocking',
-                // Хранение
-                'MarketplaceServiceItemTemporaryStorage': 'storage'
-            };
-
-            const operationCatMap = {
-                // Иные удержания (operation types — из data.operations)
                 'OperationSubscriptionPremiumPro': 'other_deductions',
                 'OperationSubscriptionPremiumPlus': 'other_deductions',
                 'OperationSubscriptionPremium': 'other_deductions',
                 'OperationMarketPlaceItemPinReview': 'other_deductions',
+                'OperationMarketplaceItemTemporaryStorageRedistribution': 'other_deductions',
                 'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
                 'OperationMarketplaceServiceSupplyInboundCargoShortage': 'other_deductions',
                 'OperationSellerReturnsCargoAssortmentInvalid': 'other_deductions',
                 'AccrualConsigWriteOff': 'other_deductions',
                 'AccrualInternalClaim': 'other_deductions',
                 'SellerReturnsDeliveryToPickupPoint': 'other_deductions',
+                'MarketplaceSellerCorrectionOperation': 'other_deductions',
+                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
+                // Кросс-докинг
+                'MarketplaceServiceItemCrossdocking': 'crossdocking',
                 // Реклама
                 'OperationMarketplaceCostPerClick': 'advertising',
                 'OperationPromotionWithCostPerOrder': 'advertising',
@@ -13272,57 +13261,15 @@ HTML_TEMPLATE = '''
                 'TemporaryStorage': 'storage'
             };
 
-            const catDisplayNames = {
-                // Services
-                'MarketplaceRedistributionOfAcquiringOperation': 'Эквайринг',
-                'MarketplaceServiceBrandCommission': 'Продвижение бренда',
-                'PremiumMembership': 'Premium Pro (процент)',
-                'PremiumMembershipCommission': 'Premium (процент)',
-                'MarketplaceServiceItemTemporaryStorageRedistribution': 'Временное размещение партнёрами',
-                'MarketplaceServiceProductMovementFromWarehouse': 'Перемещение со склада',
-                'MarketplaceServiceSellerReturnsCargoAssortment': 'Подготовка возвратов',
-                'MarketplaceServiceItemReturnFlowLogistic': 'Обратная логистика возвратов',
-                'MarketplaceServiceItemReturnNotDelivToCustomer': 'Возврат — не доставлен',
-                'MarketplaceServiceItemReturnAfterDelivToCustomer': 'Возврат — после доставки',
-                'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возвраты ПВЗ',
-                'MarketplaceSellerCorrectionOperation': 'Корректировки стоимости услуг',
-                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'Декомпенсации и возврат на сток',
-                'MarketplaceServiceItemCrossdocking': 'Кросс-докинг',
-                'MarketplaceServiceItemTemporaryStorage': 'Временное хранение',
-                // Operations
-                'OperationSubscriptionPremiumPro': 'Premium Pro (фикс)',
-                'OperationSubscriptionPremiumPlus': 'Premium Plus',
-                'OperationSubscriptionPremium': 'Premium',
-                'OperationMarketPlaceItemPinReview': 'Закрепление отзыва',
-                'OperationMarketplaceServiceProcessingSpoilageSurplus': 'Обработка брака с приёмки',
-                'OperationMarketplaceServiceSupplyInboundCargoShortage': 'Поставка с неполным составом',
-                'OperationSellerReturnsCargoAssortmentInvalid': 'Подготовка к вывозу: Брак',
-                'AccrualConsigWriteOff': 'Потеря по вине Ozon (склад)',
-                'AccrualInternalClaim': 'Потеря по вине Ozon (логистика)',
-                'SellerReturnsDeliveryToPickupPoint': 'Вывоз товара: доставка до ПВЗ',
-                'OperationMarketplaceCostPerClick': 'Оплата за клик',
-                'OperationPromotionWithCostPerOrder': 'Продвижение с оплатой за заказ',
-                'TemporaryStorage': 'Временное хранение в СЦ/ПВЗ'
-            };
-
             const catTotals = { other_deductions: 0, crossdocking: 0, advertising: 0, storage: 0 };
             const catDetails = { other_deductions: [], crossdocking: [], advertising: [], storage: [] };
 
-            // Из services — по svc.name через serviceCatMap
-            (data.services || []).forEach(svc => {
-                const cat = serviceCatMap[svc.name];
-                if (cat) {
-                    catTotals[cat] += svc.sum;
-                    catDetails[cat].push({ label: catDisplayNames[svc.name] || svc.name, value: svc.sum });
-                }
-            });
-
-            // Из operations — по op.type через operationCatMap (без пересечений с serviceCatMap)
+            // Только из operations — op.name содержит русское название из API
             (data.operations || []).forEach(op => {
                 const cat = operationCatMap[op.type];
                 if (cat) {
                     catTotals[cat] += op.sum;
-                    catDetails[cat].push({ label: catDisplayNames[op.type] || op.name || op.type, value: op.sum });
+                    catDetails[cat].push({ label: op.name || op.type, value: op.sum });
                 }
             });
 
