@@ -13310,7 +13310,11 @@ HTML_TEMPLATE = '''
             wrapper.style.display = 'block';
 
             // ── Карточка «Логистика» ──
-            const logisticsServices = {
+            // 3 сервиса из Transaction API:
+            //   MarketplaceServiceItemDirectFlowLogistic     → Логистика (-2.9M за дек 2025)
+            //   MarketplaceServiceItemReturnFlowLogistic     → Доставка и обработка возврата (-179k)
+            //   MarketplaceServiceItemRedistributionLastMileCourier → Последняя миля (-26k)
+            const logSvcMap = {
                 'MarketplaceServiceItemDirectFlowLogistic': 'Логистика',
                 'MarketplaceServiceItemReturnFlowLogistic': 'Доставка и обработка возврата',
                 'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля'
@@ -13318,12 +13322,13 @@ HTML_TEMPLATE = '''
             let logTotal = 0;
             const logDetails = [];
             (data.services || []).forEach(svc => {
-                if (logisticsServices[svc.name]) {
+                if (logSvcMap[svc.name]) {
                     const val = Math.abs(svc.sum);
                     logTotal += val;
-                    logDetails.push({label: logisticsServices[svc.name], value: val});
+                    logDetails.push({label: logSvcMap[svc.name], value: val});
                 }
             });
+
             const logCard = document.getElementById('real-logistics-card');
             if (logCard && logTotal > 0) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
