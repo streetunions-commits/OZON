@@ -13409,6 +13409,132 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-logistics-tooltip').innerHTML = tooltipHtml;
                 logCard.style.display = '';
             }
+
+            // ── Карточки категорий: Иные удержания, Кросс-докинг, Реклама, Хранение ──
+            // Маппинг service/operation name → категория
+            const categoryMap = {
+                // === Иные удержания (services) ===
+                'MarketplaceRedistributionOfAcquiringOperation': 'other_deductions',
+                'MarketplaceServiceBrandCommission': 'other_deductions',
+                'PremiumMembership': 'other_deductions',
+                'PremiumMembershipCommission': 'other_deductions',
+                'MarketplaceServiceItemTemporaryStorageRedistribution': 'other_deductions',
+                'MarketplaceServiceProductMovementFromWarehouse': 'other_deductions',
+                'MarketplaceServiceSellerReturnsCargoAssortment': 'other_deductions',
+                'MarketplaceServiceItemReturnFlowLogistic': 'other_deductions',
+                'MarketplaceServiceItemReturnNotDelivToCustomer': 'other_deductions',
+                'MarketplaceServiceItemReturnAfterDelivToCustomer': 'other_deductions',
+                'MarketplaceServiceItemRedistributionReturnsPVZ': 'other_deductions',
+                // === Иные удержания (operations) ===
+                'OperationSubscriptionPremiumPro': 'other_deductions',
+                'OperationSubscriptionPremiumPlus': 'other_deductions',
+                'OperationSubscriptionPremium': 'other_deductions',
+                'OperationMarketPlaceItemPinReview': 'other_deductions',
+                'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
+                'OperationMarketplaceServiceSupplyInboundCargoShortage': 'other_deductions',
+                'OperationSellerReturnsCargoAssortmentInvalid': 'other_deductions',
+                'AccrualConsigWriteOff': 'other_deductions',
+                'AccrualInternalClaim': 'other_deductions',
+                'SellerReturnsDeliveryToPickupPoint': 'other_deductions',
+                'MarketplaceSellerCorrectionOperation': 'other_deductions',
+                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
+                // === Кросс-докинг ===
+                'MarketplaceServiceItemCrossdocking': 'crossdocking',
+                // === Реклама ===
+                'OperationMarketplaceCostPerClick': 'advertising',
+                'OperationPromotionWithCostPerOrder': 'advertising',
+                // === Хранение ===
+                'TemporaryStorage': 'storage',
+                'MarketplaceServiceItemTemporaryStorage': 'storage'
+            };
+
+            // Русские названия для тултипов
+            const categoryNames = {
+                'MarketplaceRedistributionOfAcquiringOperation': 'Оплата эквайринга',
+                'MarketplaceServiceBrandCommission': 'Продвижение бренда',
+                'PremiumMembership': 'Premium Pro (процент)',
+                'PremiumMembershipCommission': 'Premium (процент)',
+                'MarketplaceServiceItemTemporaryStorageRedistribution': 'Перераспределение хранения',
+                'MarketplaceServiceProductMovementFromWarehouse': 'Перемещение со склада',
+                'MarketplaceServiceSellerReturnsCargoAssortment': 'Подготовка возвратов',
+                'MarketplaceServiceItemReturnFlowLogistic': 'Обратная логистика возвратов',
+                'MarketplaceServiceItemReturnNotDelivToCustomer': 'Возврат — не доставлен',
+                'MarketplaceServiceItemReturnAfterDelivToCustomer': 'Возврат — после доставки',
+                'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возвраты ПВЗ',
+                'OperationSubscriptionPremiumPro': 'Premium Pro (фикс)',
+                'OperationSubscriptionPremiumPlus': 'Premium Plus',
+                'OperationSubscriptionPremium': 'Premium',
+                'OperationMarketPlaceItemPinReview': 'Закрепление отзыва',
+                'OperationMarketplaceServiceProcessingSpoilageSurplus': 'Обработка брака с приёмки',
+                'OperationMarketplaceServiceSupplyInboundCargoShortage': 'Поставка с неполным составом',
+                'OperationSellerReturnsCargoAssortmentInvalid': 'Подготовка к вывозу: Брак',
+                'AccrualConsigWriteOff': 'Потеря по вине Ozon (склад)',
+                'AccrualInternalClaim': 'Потеря по вине Ozon (логистика)',
+                'SellerReturnsDeliveryToPickupPoint': 'Вывоз товара: доставка до ПВЗ',
+                'MarketplaceSellerCorrectionOperation': 'Корректировки стоимости услуг',
+                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'Декомпенсации и возврат на сток',
+                'MarketplaceServiceItemCrossdocking': 'Кросс-докинг',
+                'OperationMarketplaceCostPerClick': 'Оплата за клик',
+                'OperationPromotionWithCostPerOrder': 'Продвижение с оплатой за заказ',
+                'TemporaryStorage': 'Временное хранение в СЦ/ПВЗ',
+                'MarketplaceServiceItemTemporaryStorage': 'Временное хранение'
+            };
+
+            // Считаем суммы по категориям
+            const catTotals = { other_deductions: 0, crossdocking: 0, advertising: 0, storage: 0 };
+            const catDetails = { other_deductions: [], crossdocking: [], advertising: [], storage: [] };
+
+            // Из services
+            (data.services || []).forEach(svc => {
+                const cat = categoryMap[svc.name];
+                if (cat) {
+                    const val = svc.sum;
+                    catTotals[cat] += val;
+                    const label = categoryNames[svc.name] || svc.name;
+                    catDetails[cat].push({ label: label, value: val });
+                }
+            });
+
+            // Из operations
+            (data.operations || []).forEach(op => {
+                const cat = categoryMap[op.type];
+                if (cat) {
+                    const val = op.sum;
+                    catTotals[cat] += val;
+                    const label = categoryNames[op.type] || op.name || op.type;
+                    catDetails[cat].push({ label: label, value: val });
+                }
+            });
+
+            // Отображение карточек
+            const catConfig = [
+                { key: 'other_deductions', cardId: 'real-other-deductions-card', totalId: 'real-other-deductions-total', tooltipId: 'real-other-deductions-tooltip' },
+                { key: 'crossdocking', cardId: 'real-crossdocking-card', totalId: 'real-crossdocking-total', tooltipId: null },
+                { key: 'advertising', cardId: 'real-advertising-card', totalId: 'real-advertising-total', tooltipId: 'real-advertising-tooltip' },
+                { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', tooltipId: 'real-storage-tooltip' }
+            ];
+
+            catConfig.forEach(cfg => {
+                const total = catTotals[cfg.key];
+                const card = document.getElementById(cfg.cardId);
+                if (card && total !== 0) {
+                    document.getElementById(cfg.totalId).textContent = fmtRealMoney(total);
+                    // Тултип с деталями
+                    if (cfg.tooltipId && catDetails[cfg.key].length > 0) {
+                        let html = '';
+                        catDetails[cfg.key]
+                            .sort((a, b) => a.value - b.value)
+                            .forEach(d => {
+                                html += '<div class="real-tooltip-row">' +
+                                    '<span class="real-tooltip-label">' + escapeHtml(d.label) + '</span>' +
+                                    '<span class="real-tooltip-value">' + fmtRealMoney(d.value) + '</span>' +
+                                    '</div>';
+                            });
+                        document.getElementById(cfg.tooltipId).innerHTML = html;
+                    }
+                    card.style.display = '';
+                }
+            });
         }
 
         // ============================================================================
