@@ -9386,7 +9386,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-hint" id="real-returns-hint"></div>
                         </div>
                         <div class="real-card real-card-commission">
-                            <div class="real-card-label">Комиссия Ozon</div>
+                            <div class="real-card-label">Комиссия МП</div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                             <div class="real-card-hint" id="real-commission-hint"></div>
                         </div>
@@ -13085,7 +13085,7 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
                 const comHint = document.getElementById('real-commission-hint');
-                if (comHint) comHint.textContent = 'Средняя: ' + (s.avg_commission_pct || 0) + '%';
+                if (comHint) comHint.textContent = (s.avg_commission_pct || 0) + '% от реализации';
 
                 document.getElementById('real-bonuses').textContent = fmtRealMoney(s.bonuses);
                 document.getElementById('real-standard-fee').textContent = fmtRealMoney(s.standard_fee);
@@ -29570,8 +29570,7 @@ def api_finance_realization():
         bank_coinvest_total = 0.0   # Софинансирование банком
         delivery_count = 0          # Количество доставок
         return_count = 0            # Количество возвратов
-        weighted_ratio_sum = 0.0    # Сумма (ratio * d_qty) — для средневзвешенной комиссии %
-        weighted_ratio_count = 0    # Сумма d_qty строк с ratio > 0
+        acquiring_total = 0.0       # Эквайринг (delivery_commission.commission)
 
         # Агрегация по товарам (SKU)
         products_map = {}
@@ -29609,6 +29608,10 @@ def api_finance_realization():
             # Возвраты = цена продавца * кол-во возвратов (отрицательное)
             row_returns = seller_price * r_qty
 
+            # Эквайринг (поле commission в API)
+            d_acquiring = dc.get('commission', 0)
+            r_acquiring = rc.get('commission', 0) if rc else 0
+
             gross_sales += row_gross_sales
             returns_total += row_returns
             commission_total += d_total_comm + r_total_comm
@@ -29617,12 +29620,9 @@ def api_finance_realization():
             standard_fee_total += d_std_fee + r_std_fee
             stars_total += d_stars
             bank_coinvest_total += d_bank
+            acquiring_total += d_acquiring + r_acquiring
             delivery_count += d_qty
             return_count += r_qty
-
-            if ratio > 0 and d_qty > 0:
-                weighted_ratio_sum += ratio * d_qty
-                weighted_ratio_count += d_qty
 
             # Агрегация по товарам
             product_key = sku or offer_id or barcode
@@ -29632,13 +29632,15 @@ def api_finance_realization():
                         'name': name[:80],
                         'sku': sku,
                         'offer_id': offer_id,
-                        'seller_price_sum': 0.0,      # Сумма (seller_price * d_qty) для средневзвешенной цены
-                        'ratio_weighted_sum': 0.0,     # Сумма (ratio * d_qty) для средневзвешенной комиссии %
+                        'seller_price_sum': 0.0,       # Сумма (seller_price * d_qty) для средневзвешенной цены
+                        'standard_fee': 0.0,           # Комиссия МП по товару
+                        'acquiring': 0.0,              # Эквайринг по товару
+                        'bank_coinvestment': 0.0,      # Соинвест по товару
                         'delivery_qty': 0,
                         'return_qty': 0,
                         'gross_sales': 0.0,
                         'returns': 0.0,
-                        'commission': 0.0,
+                        'total_deductions': 0.0,       # Все удержания (total)
                         'seller_receives': 0.0,
                         'bonus': 0.0
                     }
@@ -29647,40 +29649,50 @@ def api_finance_realization():
                 p['return_qty'] += r_qty
                 p['gross_sales'] += row_gross_sales
                 p['returns'] += row_returns
-                p['commission'] += d_total_comm + r_total_comm
+                p['total_deductions'] += d_total_comm + r_total_comm
                 p['seller_receives'] += d_amount + r_amount
                 p['bonus'] += d_bonus + r_bonus
-                # Аккумулируем для средневзвешенных значений
+                p['standard_fee'] += d_std_fee + r_std_fee
+                p['acquiring'] += d_acquiring + r_acquiring
+                p['bank_coinvestment'] += d_bank
                 if d_qty > 0:
                     p['seller_price_sum'] += seller_price * d_qty
-                    p['ratio_weighted_sum'] += ratio * d_qty
 
         # ── Итоги ──
-        # Итого начислено = к получению продавцом (сумма delivery_commission.amount + return_commission.amount)
         net_total = seller_receives
-        # Средневзвешенная комиссия % = сумма(ratio * кол-во продаж) / общее кол-во продаж
-        avg_commission = weighted_ratio_sum / weighted_ratio_count if weighted_ratio_count > 0 else 0
+
+        # Комиссия МП = standard_fee + acquiring (эквайринг)
+        marketplace_commission = standard_fee_total + acquiring_total
+
+        # База для расчёта % = гросс-продажи минус соинвест (bank_coinvestment)
+        commission_base = gross_sales - bank_coinvest_total
+
+        # Фактический % комиссии = (комиссия МП + эквайринг) / (гросс - соинвест)
+        avg_commission_pct = (marketplace_commission / commission_base * 100) if commission_base > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
         for key, pdata in sorted(products_map.items(),
                                   key=lambda x: abs(x[1]['gross_sales']), reverse=True):
-            # Средневзвешенная цена и комиссия % по количеству продаж товара
             dq = pdata['delivery_qty']
             avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
-            avg_ratio = pdata['ratio_weighted_sum'] / dq if dq > 0 else 0
+
+            # Фактический % комиссии МП по товару = (std_fee + acquiring) / (gross - coinvest)
+            p_commission = pdata['standard_fee'] + pdata['acquiring']
+            p_base = pdata['gross_sales'] - pdata['bank_coinvestment']
+            p_commission_pct = (p_commission / p_base * 100) if p_base > 0 else 0
 
             products_list.append({
                 'sku': pdata['sku'],
                 'offer_id': pdata['offer_id'],
                 'name': pdata['name'],
                 'seller_price': round(avg_price, 2),
-                'commission_ratio': round(avg_ratio * 100, 1),
+                'commission_ratio': round(p_commission_pct, 2),
                 'delivery_qty': pdata['delivery_qty'],
                 'return_qty': pdata['return_qty'],
                 'gross_sales': round(pdata['gross_sales'], 2),
                 'returns': round(pdata['returns'], 2),
-                'commission': round(pdata['commission'], 2),
+                'commission': round(p_commission, 2),
                 'seller_receives': round(pdata['seller_receives'], 2),
                 'bonus': round(pdata['bonus'], 2)
             })
@@ -29707,14 +29719,16 @@ def api_finance_realization():
             'summary': {
                 'gross_sales': round(gross_sales, 2),
                 'returns': round(returns_total, 2),
-                'commission': round(commission_total, 2),
+                'commission': round(marketplace_commission, 2),     # Комиссия МП + эквайринг
+                'total_deductions': round(commission_total, 2),     # Все удержания (total)
                 'seller_receives': round(seller_receives, 2),
                 'bonuses': round(bonuses_total, 2),
                 'standard_fee': round(standard_fee_total, 2),
+                'acquiring': round(acquiring_total, 2),
                 'stars': round(stars_total, 2),
                 'bank_coinvestment': round(bank_coinvest_total, 2),
                 'net_total': round(net_total, 2),
-                'avg_commission_pct': round(avg_commission * 100, 1),
+                'avg_commission_pct': round(avg_commission_pct, 2),  # % = (std_fee+acquiring) / (gross-coinvest)
                 'delivery_count': delivery_count,
                 'return_count': return_count
             },
