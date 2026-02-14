@@ -6245,6 +6245,11 @@ HTML_TEMPLATE = '''
             background: #fff; cursor: pointer; min-width: 180px; height: 38px;
             appearance: auto;
         }
+        .real-period-type {
+            padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+            background: #fff; cursor: pointer; min-width: 120px; height: 38px; appearance: auto;
+        }
+        .real-period-type:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
         .real-month-select:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
         .real-load-btn {
             padding: 10px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px;
@@ -9330,11 +9335,20 @@ HTML_TEMPLATE = '''
                         Гросс-продажи, комиссии, возвраты. Числа совпадают с кабинетом Ozon.
                     </div>
 
-                    <!-- Фильтр: выбор месяца + кнопка загрузки -->
+                    <!-- Фильтр: выбор периода (месяц / квартал) + кнопка загрузки -->
                     <div class="real-filters">
                         <div class="real-filter-group">
-                            <label class="real-filter-label">Месяц:</label>
+                            <label class="real-filter-label">Период:</label>
+                            <select id="real-period-type" class="real-period-type" onchange="toggleRealPeriodType()">
+                                <option value="month">Месяц</option>
+                                <option value="quarter">Квартал</option>
+                            </select>
+                        </div>
+                        <div class="real-filter-group" id="real-month-group">
                             <select id="real-month-select" class="real-month-select"></select>
+                        </div>
+                        <div class="real-filter-group" id="real-quarter-group" style="display: none;">
+                            <select id="real-quarter-select" class="real-month-select"></select>
                         </div>
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
@@ -9420,7 +9434,7 @@ HTML_TEMPLATE = '''
 
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty">
-                        <p>Выберите месяц и нажмите «Загрузить из Ozon»</p>
+                        <p>Выберите месяц или квартал и нажмите «Загрузить из Ozon»</p>
                         <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Акт реализации — данные как в разделе «Начисления» кабинета Ozon</p>
                     </div>
 
@@ -12935,6 +12949,53 @@ HTML_TEMPLATE = '''
         }
 
         /**
+         * Инициализировать select кварталов: последние 8 кварталов.
+         */
+        function initRealizationQuarterSelect() {
+            const sel = document.getElementById('real-quarter-select');
+            if (!sel || sel.options.length > 0) return;
+
+            const now = new Date();
+            const currentQ = Math.floor(now.getMonth() / 3) + 1;
+            const currentYear = now.getFullYear();
+
+            const qMonths = {1: 'Янв — Мар', 2: 'Апр — Июн', 3: 'Июл — Сен', 4: 'Окт — Дек'};
+
+            // Генерируем 8 кварталов назад от текущего
+            let y = currentYear;
+            let q = currentQ;
+            for (let i = 0; i < 8; i++) {
+                const val = y + '-Q' + q;
+                const label = q + ' квартал ' + y + ' (' + qMonths[q] + ')';
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                sel.appendChild(opt);
+
+                q--;
+                if (q === 0) { q = 4; y--; }
+            }
+        }
+
+        /**
+         * Переключение типа периода (Месяц / Квартал) в фильтрах реализации.
+         */
+        function toggleRealPeriodType() {
+            const type = document.getElementById('real-period-type').value;
+            const monthGroup = document.getElementById('real-month-group');
+            const quarterGroup = document.getElementById('real-quarter-group');
+
+            if (type === 'quarter') {
+                monthGroup.style.display = 'none';
+                quarterGroup.style.display = '';
+                initRealizationQuarterSelect();
+            } else {
+                monthGroup.style.display = '';
+                quarterGroup.style.display = 'none';
+            }
+        }
+
+        /**
          * Форматировать число как деньги: 12 345,67 ₽
          */
         function fmtRealMoney(val) {
@@ -12947,12 +13008,19 @@ HTML_TEMPLATE = '''
          * Читает месяц из select и отправляет на /api/finance/realization?month=YYYY-MM.
          */
         async function loadRealizationData() {
-            const sel = document.getElementById('real-month-select');
-            const month = sel ? sel.value : '';
+            const periodType = document.getElementById('real-period-type').value;
+            let url;
 
-            if (!month) {
-                alert('Выберите месяц');
-                return;
+            if (periodType === 'quarter') {
+                const qsel = document.getElementById('real-quarter-select');
+                const quarter = qsel ? qsel.value : '';
+                if (!quarter) { alert('Выберите квартал'); return; }
+                url = '/api/finance/realization?quarter=' + encodeURIComponent(quarter);
+            } else {
+                const sel = document.getElementById('real-month-select');
+                const month = sel ? sel.value : '';
+                if (!month) { alert('Выберите месяц'); return; }
+                url = '/api/finance/realization?month=' + encodeURIComponent(month);
             }
 
             // Скрыть всё, показать загрузку
@@ -12966,10 +13034,10 @@ HTML_TEMPLATE = '''
             const btn = document.querySelector('.real-load-btn');
             if (btn) { btn.disabled = true; }
             const btnText = document.getElementById('real-load-btn-text');
-            if (btnText) { btnText.textContent = 'Загрузка...'; }
+            const loadingMsg = periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...';
+            if (btnText) { btnText.textContent = loadingMsg; }
 
             try {
-                const url = '/api/finance/realization?month=' + encodeURIComponent(month);
                 const resp = await authFetch(url);
                 const data = await resp.json();
 
@@ -29376,63 +29444,115 @@ def api_finance_realization():
     """
     Получить акт реализации из Ozon API (/v2/finance/realization).
 
-    Использует эндпоинт /v2/finance/realization, который возвращает данные
-    акта реализации — гросс-продажи, детальную разбивку комиссий, возвраты.
-    Числа совпадают с разделом «Начисления» в кабинете Ozon.
+    Поддерживает два режима:
+    1. По месяцу: ?month=YYYY-MM — один запрос к Ozon API
+    2. По кварталу: ?quarter=YYYY-Q1..Q4 — три запроса (по месяцу на каждый), агрегация
 
-    API принимает только {year, month} — данные за целый месяц.
-
-    Аргументы (query params):
-        month (str): Месяц в формате YYYY-MM (например, 2026-01)
+    Ozon API принимает только {year, month} — данные за целый месяц.
+    Для квартала делаем 3 последовательных запроса и объединяем результаты.
 
     Возвращает:
         JSON: header акта, сводка (продажи, возвраты, комиссии), таблица по товарам.
     """
+    import calendar
     from datetime import datetime as _dt
 
-    # ── Парсинг месяца из параметров запроса ──
+    # ── Определяем режим: месяц или квартал ──
+    quarter_str = request.args.get('quarter', '')
     month_str = request.args.get('month', '')
 
-    # Если месяц не указан — берём текущий
-    if not month_str:
-        now = _dt.now()
-        month_str = now.strftime('%Y-%m')
+    # Маппинг квартал → месяцы (номера)
+    quarter_months = {
+        1: [1, 2, 3],    # Q1: Янв–Мар
+        2: [4, 5, 6],    # Q2: Апр–Июн
+        3: [7, 8, 9],    # Q3: Июл–Сен
+        4: [10, 11, 12],  # Q4: Окт–Дек
+    }
+
+    # Список (year, month) для запросов к API
+    months_to_fetch = []
+    is_quarter = False
+    period_label = ''
+
+    if quarter_str:
+        # Формат: YYYY-Q1 ... YYYY-Q4
+        import re
+        m = re.match(r'^(\d{4})-Q([1-4])$', quarter_str)
+        if not m:
+            return jsonify({'success': False, 'error': 'Неверный формат квартала. Используйте YYYY-Q1..Q4'}), 400
+        q_year = int(m.group(1))
+        q_num = int(m.group(2))
+        months_to_fetch = [(q_year, mo) for mo in quarter_months[q_num]]
+        is_quarter = True
+        period_label = f"Q{q_num} {q_year}"
+    else:
+        # Режим одного месяца (обратная совместимость)
+        if not month_str:
+            now = _dt.now()
+            month_str = now.strftime('%Y-%m')
+        try:
+            dt = _dt.strptime(month_str, '%Y-%m')
+            months_to_fetch = [(dt.year, dt.month)]
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
+        period_label = month_str
+
+    # ── Запросы к Ozon API /v2/finance/realization ──
+    ozon_headers = get_ozon_headers()
+    all_rows = []
+    first_header = {}
+    errors = []
 
     try:
-        dt = _dt.strptime(month_str, '%Y-%m')
-        year = dt.year
-        month = dt.month
-    except (ValueError, TypeError):
-        return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
+        for yr, mo in months_to_fetch:
+            payload = {"year": yr, "month": mo}
+            print(f"  📊 Запрос акта реализации: {yr}-{mo:02d}")
 
-    # ── Запрос к Ozon API /v2/finance/realization ──
-    headers = get_ozon_headers()
+            resp = requests.post(
+                f"{OZON_HOST}/v2/finance/realization",
+                json=payload,
+                headers=ozon_headers,
+                timeout=60
+            )
 
-    try:
-        payload = {"year": year, "month": month}
-        print(f"  📊 Запрос акта реализации: {year}-{month:02d}")
+            if resp.status_code != 200:
+                err_text = resp.text[:300]
+                print(f"  ❌ Ozon API /v2/finance/realization: HTTP {resp.status_code} — {err_text}")
+                errors.append(f"{yr}-{mo:02d}: HTTP {resp.status_code}")
+                continue
 
-        resp = requests.post(
-            f"{OZON_HOST}/v2/finance/realization",
-            json=payload,
-            headers=headers,
-            timeout=60
-        )
+            data = resp.json()
+            result = data.get('result', {})
+            header = result.get('header', {})
+            rows = result.get('rows', [])
 
-        if resp.status_code != 200:
-            err_text = resp.text[:300]
-            print(f"  ❌ Ozon API /v2/finance/realization: HTTP {resp.status_code} — {err_text}")
+            # Сохраняем header первого месяца как базовый
+            if not first_header and header:
+                first_header = header
+
+            all_rows.extend(rows)
+            print(f"  ✅ Получено {len(rows)} строк за {yr}-{mo:02d}")
+
+        if errors and not all_rows:
             return jsonify({
                 'success': False,
-                'error': f'Ozon API вернул ошибку {resp.status_code}: {err_text[:200]}'
-            }), resp.status_code
+                'error': 'Ошибки загрузки: ' + '; '.join(errors)
+            }), 502
 
-        data = resp.json()
-        result = data.get('result', {})
-        header = result.get('header', {})
-        rows = result.get('rows', [])
+        rows = all_rows
+        header = first_header
 
-        print(f"  ✅ Получено {len(rows)} строк акта реализации за {year}-{month:02d}")
+        # Для квартала подменяем даты периода в header
+        if is_quarter and header:
+            first_mo = months_to_fetch[0]
+            last_mo = months_to_fetch[-1]
+            last_day = calendar.monthrange(last_mo[0], last_mo[1])[1]
+            header['start_date'] = f"{first_mo[0]}-{first_mo[1]:02d}-01"
+            header['stop_date'] = f"{last_mo[0]}-{last_mo[1]:02d}-{last_day}"
+            header['number'] = f"{period_label} (сводный)"
+
+        total_rows_count = len(rows)
+        print(f"  📊 Итого строк для агрегации: {total_rows_count} ({period_label})")
 
         # ── Агрегация данных по строкам ──
         # Каждая строка — товарная позиция (может быть доставка и/или возврат).
@@ -29556,7 +29676,8 @@ def api_finance_realization():
         # ── Формируем ответ ──
         return jsonify({
             'success': True,
-            'month': month_str,
+            'period': period_label,
+            'is_quarter': is_quarter,
             'header': {
                 'number': header.get('number', ''),
                 'doc_date': header.get('doc_date', ''),
@@ -29586,8 +29707,9 @@ def api_finance_realization():
                 'return_count': return_count
             },
             'products': products_list,
-            'total_rows': len(rows),
-            'total_products': len(products_list)
+            'total_rows': total_rows_count,
+            'total_products': len(products_list),
+            'warnings': errors if errors else None
         })
 
     except requests.exceptions.Timeout:
