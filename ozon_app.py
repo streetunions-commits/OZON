@@ -12978,8 +12978,8 @@ HTML_TEMPLATE = '''
                             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
             sel.innerHTML = '';
-            // Генерируем 12 месяцев: от текущего вниз
-            for (let i = 0; i < 12; i++) {
+            // Генерируем 24 месяца: от текущего вниз
+            for (let i = 0; i < 24; i++) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
                 const label = months[d.getMonth()] + ' ' + d.getFullYear();
@@ -13276,8 +13276,19 @@ HTML_TEMPLATE = '''
 
                 renderTransactionsBreakdown(data);
 
-                // Сохраняем кросс-докинг по SKU и перерисовываем таблицу товаров
-                _crossdockingBySku = data.crossdocking_by_sku || {};
+                // Распределяем кросс-докинг пропорционально доставкам по товарам
+                const cdTotal = data.crossdocking_total || 0;
+                _crossdockingBySku = {};
+                if (cdTotal !== 0 && _realProducts.length > 0) {
+                    const totalDeliveries = _realProducts.reduce((s, p) => s + (p.delivery_qty || 0), 0);
+                    if (totalDeliveries > 0) {
+                        _realProducts.forEach(p => {
+                            const share = (p.delivery_qty || 0) / totalDeliveries;
+                            const key = p.sku || p.offer_id;
+                            if (key) _crossdockingBySku[key] = Math.round(cdTotal * share * 100) / 100;
+                        });
+                    }
+                }
                 if (_realProducts.length > 0) {
                     renderRealizationProducts(_realProducts);
                 }
@@ -30266,7 +30277,7 @@ def api_finance_transactions_breakdown():
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
-    crossdocking_by_sku = {}  # {sku: сумма кросс-докинга} — для столбца в таблице товаров
+    crossdocking_total = 0.0  # Общая сумма кросс-докинга (по operation_type)
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -30361,25 +30372,11 @@ def api_finance_transactions_breakdown():
                     svc_totals[sn]['sum'] += sp
                     svc_totals[sn]['count'] += 1
 
-                    # Кросс-докинг по SKU: распределяем по товарам из items
-                    if sn == 'MarketplaceServiceItemCrossdocking' and sp != 0:
-                        items = op.get('items', [])
-                        if items:
-                            per_item = sp / len(items)
-                            for item in items:
-                                item_sku = str(item.get('sku', ''))
-                                if item_sku:
-                                    crossdocking_by_sku[item_sku] = crossdocking_by_sku.get(item_sku, 0.0) + per_item
-
-        # Debug: структура первой операции с кросс-докингом
-        cd_ops_count = sum(1 for op in all_ops for svc in op.get('services', []) if svc.get('name') == 'MarketplaceServiceItemCrossdocking')
-        first_cd_op = next((op for op in all_ops if any(s.get('name') == 'MarketplaceServiceItemCrossdocking' for s in op.get('services', []))), None)
-        if first_cd_op:
-            print(f"  🔍 DEBUG Crossdocking: {cd_ops_count} операций, items={first_cd_op.get('items', 'NO_ITEMS')}, posting={first_cd_op.get('posting', 'NO_POSTING')}")
-            print(f"  🔍 DEBUG Crossdocking by SKU: {len(crossdocking_by_sku)} SKU, total={sum(crossdocking_by_sku.values()):.2f}")
-            print(f"  🔍 DEBUG op keys: {list(first_cd_op.keys())}")
-        else:
-            print(f"  🔍 DEBUG: Нет операций с кросс-докингом в периоде {period_label}")
+            # Кросс-докинг: operation_type (не service name!), items пустые,
+            # привязан к поставке FBO. Считаем общую сумму — фронт распределит
+            # пропорционально по количеству доставок товаров.
+            if ot == 'MarketplaceServiceItemCrossdocking' and amt != 0:
+                crossdocking_total += amt
 
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
@@ -30477,9 +30474,6 @@ def api_finance_transactions_breakdown():
         if new_types or missing_types:
             _notify_transaction_type_changes(period_label, new_types, missing_types)
 
-        # Округляем суммы кросс-докинга по SKU
-        crossdocking_by_sku_rounded = {sku: round(val, 2) for sku, val in crossdocking_by_sku.items() if val != 0}
-
         response_data = {
             'success': True,
             'period': period_label,
@@ -30487,7 +30481,7 @@ def api_finance_transactions_breakdown():
             'operations': operations_list,
             'services': services_list,
             'alerts': alerts,
-            'crossdocking_by_sku': crossdocking_by_sku_rounded
+            'crossdocking_total': round(crossdocking_total, 2)
         }
 
         # ── Сохраняем в кэш ──
