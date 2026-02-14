@@ -13137,7 +13137,7 @@ HTML_TEMPLATE = '''
                 // Сводные карточки
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
                 const realHint = document.getElementById('real-realization-hint');
-                if (realHint) realHint.textContent = (s.delivery_count - s.return_count) + ' шт. (нетто)';
+                if (realHint) realHint.textContent = s.delivery_count + ' шт.';
 
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 const grossHint = document.getElementById('real-gross-hint');
