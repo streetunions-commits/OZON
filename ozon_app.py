@@ -6336,9 +6336,6 @@ HTML_TEMPLATE = '''
         .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
         .real-card-storage .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #c05621; white-space: nowrap; }
 
-        /* --- Статистика --- */
-        .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
-
         /* --- Заголовки секций --- */
         .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
         .real-section-hint { font-size: 12px; color: #999; font-weight: 400; }
@@ -9423,14 +9420,8 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
-                    <!-- Информация о загрузке -->
-                    <div class="real-stats" id="real-stats" style="display: none;">
-                        <span id="real-total-rows">0</span> строк в акте &middot; <span id="real-total-products">0</span> товаров
-                    </div>
-
                     <!-- Таблица по товарам (SKU) -->
                     <div class="real-products-wrapper" id="real-products-wrapper" style="display: none;">
-                        <h3 class="real-section-title">Реализация по товарам</h3>
                         <div style="overflow-x: auto;">
                             <table class="real-types-table">
                                 <thead>
@@ -13046,7 +13037,7 @@ HTML_TEMPLATE = '''
             }
 
             // Скрыть всё, показать загрузку
-            ['real-empty', 'real-error', 'real-summary', 'real-stats',
+            ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
              'real-logistics-card',
              'real-other-deductions-card', 'real-crossdocking-card',
@@ -13095,10 +13086,6 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-summary').style.display = 'grid';
 
                 // Статистика
-                document.getElementById('real-total-rows').textContent = data.total_rows || 0;
-                document.getElementById('real-total-products').textContent = data.total_products || 0;
-                document.getElementById('real-stats').style.display = 'block';
-
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
 
