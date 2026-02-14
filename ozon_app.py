@@ -13237,7 +13237,7 @@ HTML_TEMPLATE = '''
             // serviceCatMap — ищем ТОЛЬКО в data.services (по svc.name)
             // operationCatMap — ищем ТОЛЬКО в data.operations (по op.type)
             const serviceCatMap = {
-                // === Иные удержания (services) ===
+                // Иные удержания (service names — из data.services)
                 'MarketplaceRedistributionOfAcquiringOperation': 'other_deductions',
                 'MarketplaceServiceBrandCommission': 'other_deductions',
                 'PremiumMembership': 'other_deductions',
@@ -13249,7 +13249,16 @@ HTML_TEMPLATE = '''
                 'MarketplaceServiceItemReturnNotDelivToCustomer': 'other_deductions',
                 'MarketplaceServiceItemReturnAfterDelivToCustomer': 'other_deductions',
                 'MarketplaceServiceItemRedistributionReturnsPVZ': 'other_deductions',
-                // === Иные удержания (operations) ===
+                'MarketplaceSellerCorrectionOperation': 'other_deductions',
+                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
+                // Кросс-докинг
+                'MarketplaceServiceItemCrossdocking': 'crossdocking',
+                // Хранение
+                'MarketplaceServiceItemTemporaryStorage': 'storage'
+            };
+
+            const operationCatMap = {
+                // Иные удержания (operation types — из data.operations)
                 'OperationSubscriptionPremiumPro': 'other_deductions',
                 'OperationSubscriptionPremiumPlus': 'other_deductions',
                 'OperationSubscriptionPremium': 'other_deductions',
@@ -13260,21 +13269,16 @@ HTML_TEMPLATE = '''
                 'AccrualConsigWriteOff': 'other_deductions',
                 'AccrualInternalClaim': 'other_deductions',
                 'SellerReturnsDeliveryToPickupPoint': 'other_deductions',
-                'MarketplaceSellerCorrectionOperation': 'other_deductions',
-                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
-                // === Кросс-докинг ===
-                'MarketplaceServiceItemCrossdocking': 'crossdocking',
-                // === Реклама ===
+                // Реклама
                 'OperationMarketplaceCostPerClick': 'advertising',
                 'OperationPromotionWithCostPerOrder': 'advertising',
-                // === Хранение ===
-                'TemporaryStorage': 'storage',
-                'MarketplaceServiceItemTemporaryStorage': 'storage'
+                // Хранение
+                'TemporaryStorage': 'storage'
             };
 
-            // Русские названия для тултипов
-            const categoryNames = {
-                'MarketplaceRedistributionOfAcquiringOperation': 'Оплата эквайринга',
+            const catDisplayNames = {
+                // Services
+                'MarketplaceRedistributionOfAcquiringOperation': 'Эквайринг',
                 'MarketplaceServiceBrandCommission': 'Продвижение бренда',
                 'PremiumMembership': 'Premium Pro (процент)',
                 'PremiumMembershipCommission': 'Premium (процент)',
@@ -13285,6 +13289,11 @@ HTML_TEMPLATE = '''
                 'MarketplaceServiceItemReturnNotDelivToCustomer': 'Возврат — не доставлен',
                 'MarketplaceServiceItemReturnAfterDelivToCustomer': 'Возврат — после доставки',
                 'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возвраты ПВЗ',
+                'MarketplaceSellerCorrectionOperation': 'Корректировки стоимости услуг',
+                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'Декомпенсации и возврат на сток',
+                'MarketplaceServiceItemCrossdocking': 'Кросс-докинг',
+                'MarketplaceServiceItemTemporaryStorage': 'Временное хранение',
+                // Operations
                 'OperationSubscriptionPremiumPro': 'Premium Pro (фикс)',
                 'OperationSubscriptionPremiumPlus': 'Premium Plus',
                 'OperationSubscriptionPremium': 'Premium',
@@ -13295,38 +13304,29 @@ HTML_TEMPLATE = '''
                 'AccrualConsigWriteOff': 'Потеря по вине Ozon (склад)',
                 'AccrualInternalClaim': 'Потеря по вине Ozon (логистика)',
                 'SellerReturnsDeliveryToPickupPoint': 'Вывоз товара: доставка до ПВЗ',
-                'MarketplaceSellerCorrectionOperation': 'Корректировки стоимости услуг',
-                'MarketplaceSellerDecompensationItemByTypeDocOperation': 'Декомпенсации и возврат на сток',
-                'MarketplaceServiceItemCrossdocking': 'Кросс-докинг',
                 'OperationMarketplaceCostPerClick': 'Оплата за клик',
                 'OperationPromotionWithCostPerOrder': 'Продвижение с оплатой за заказ',
-                'TemporaryStorage': 'Временное хранение в СЦ/ПВЗ',
-                'MarketplaceServiceItemTemporaryStorage': 'Временное хранение'
+                'TemporaryStorage': 'Временное хранение в СЦ/ПВЗ'
             };
 
-            // Считаем суммы по категориям
             const catTotals = { other_deductions: 0, crossdocking: 0, advertising: 0, storage: 0 };
             const catDetails = { other_deductions: [], crossdocking: [], advertising: [], storage: [] };
 
-            // Из services
+            // Из services — по svc.name через serviceCatMap
             (data.services || []).forEach(svc => {
-                const cat = categoryMap[svc.name];
+                const cat = serviceCatMap[svc.name];
                 if (cat) {
-                    const val = svc.sum;
-                    catTotals[cat] += val;
-                    const label = categoryNames[svc.name] || svc.name;
-                    catDetails[cat].push({ label: label, value: val });
+                    catTotals[cat] += svc.sum;
+                    catDetails[cat].push({ label: catDisplayNames[svc.name] || svc.name, value: svc.sum });
                 }
             });
 
-            // Из operations
+            // Из operations — по op.type через operationCatMap (без пересечений с serviceCatMap)
             (data.operations || []).forEach(op => {
-                const cat = categoryMap[op.type];
+                const cat = operationCatMap[op.type];
                 if (cat) {
-                    const val = op.sum;
-                    catTotals[cat] += val;
-                    const label = categoryNames[op.type] || op.name || op.type;
-                    catDetails[cat].push({ label: label, value: val });
+                    catTotals[cat] += op.sum;
+                    catDetails[cat].push({ label: catDisplayNames[op.type] || op.name || op.type, value: op.sum });
                 }
             });
 
