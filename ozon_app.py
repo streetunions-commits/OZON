@@ -13068,11 +13068,11 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Форматировать число как деньги: 12 345,67 ₽
+         * Форматировать число как деньги: 12 346 ₽ (без копеек)
          */
         function fmtRealMoney(val) {
             if (val == null || isNaN(val)) return '0 ₽';
-            return val.toLocaleString('ru-RU', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ₽';
+            return Math.round(val).toLocaleString('ru-RU') + ' ₽';
         }
 
         /**
@@ -13144,7 +13144,7 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
                 const comHint = document.getElementById('real-commission-hint');
-                if (comHint) comHint.textContent = (s.avg_commission_pct || 0) + '% от реализации';
+                if (comHint) comHint.textContent = Math.round(s.avg_commission_pct || 0) + '% от реализации';
 
                 document.getElementById('real-summary').style.display = 'grid';
 
@@ -13191,7 +13191,7 @@ HTML_TEMPLATE = '''
                 return '<tr>' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + p.commission_ratio + '%</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(p.commission_ratio) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + p.delivery_qty + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
