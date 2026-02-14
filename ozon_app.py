@@ -6323,6 +6323,8 @@ HTML_TEMPLATE = '''
         .real-card-crossdocking .real-card-value { color: #319795; }
         .real-card-advertising { border-left-color: #d53f8c; position: relative; cursor: pointer; }
         .real-card-advertising .real-card-value { color: #d53f8c; }
+        .real-card-acquiring { border-left-color: #2b6cb0; position: relative; cursor: pointer; }
+        .real-card-acquiring .real-card-value { color: #2b6cb0; }
         .real-card-storage { border-left-color: #c05621; position: relative; cursor: pointer; }
         .real-card-storage .real-card-value { color: #c05621; }
 
@@ -6333,6 +6335,7 @@ HTML_TEMPLATE = '''
             max-height: 400px; overflow-y: auto;
         }
         .real-card-other-deductions:hover .real-category-tooltip,
+        .real-card-acquiring:hover .real-category-tooltip,
         .real-card-advertising:hover .real-category-tooltip,
         .real-card-storage:hover .real-category-tooltip { display: block; }
         .real-category-tooltip .real-tooltip-row {
@@ -6342,6 +6345,7 @@ HTML_TEMPLATE = '''
         .real-category-tooltip .real-tooltip-row:last-child { border-bottom: none; }
         .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
         .real-card-other-deductions .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #805ad5; white-space: nowrap; }
+        .real-card-acquiring .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #2b6cb0; white-space: nowrap; }
         .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
         .real-card-storage .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #c05621; white-space: nowrap; }
 
@@ -9413,6 +9417,11 @@ HTML_TEMPLATE = '''
                         <div class="real-card real-card-crossdocking" id="real-crossdocking-card" style="display:none;">
                             <div class="real-card-label">Кросс-докинг</div>
                             <div class="real-card-value" id="real-crossdocking-total">0 ₽</div>
+                            <div class="real-card-hint"></div>
+                        </div>
+                        <div class="real-card real-card-acquiring" id="real-acquiring-card" style="display:none;">
+                            <div class="real-card-label">Эквайринг</div>
+                            <div class="real-card-value" id="real-acquiring-total">0 ₽</div>
                             <div class="real-card-hint"></div>
                         </div>
                         <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;">
@@ -13048,7 +13057,7 @@ HTML_TEMPLATE = '''
             ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
              'real-logistics-card',
-             'real-other-deductions-card', 'real-crossdocking-card',
+             'real-other-deductions-card', 'real-acquiring-card', 'real-crossdocking-card',
              'real-advertising-card', 'real-storage-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
@@ -13233,8 +13242,9 @@ HTML_TEMPLATE = '''
             // Services — это вложенная разбивка ТЕХ ЖЕ денег, суммировать оба = двойной подсчёт.
             // Названия берём из op.name (operation_type_name из API).
             const operationCatMap = {
+                // Эквайринг
+                'MarketplaceRedistributionOfAcquiringOperation': 'acquiring',
                 // Иные удержания
-                'MarketplaceRedistributionOfAcquiringOperation': 'other_deductions',
                 'MarketplaceServiceBrandCommission': 'other_deductions',
                 'PremiumMembership': 'other_deductions',
                 'OperationSubscriptionPremiumPro': 'other_deductions',
@@ -13259,8 +13269,8 @@ HTML_TEMPLATE = '''
                 'TemporaryStorage': 'storage'
             };
 
-            const catTotals = { other_deductions: 0, crossdocking: 0, advertising: 0, storage: 0 };
-            const catDetails = { other_deductions: [], crossdocking: [], advertising: [], storage: [] };
+            const catTotals = { other_deductions: 0, acquiring: 0, crossdocking: 0, advertising: 0, storage: 0 };
+            const catDetails = { other_deductions: [], acquiring: [], crossdocking: [], advertising: [], storage: [] };
 
             // Только из operations — op.name содержит русское название из API
             (data.operations || []).forEach(op => {
@@ -13274,6 +13284,7 @@ HTML_TEMPLATE = '''
             // Отображение карточек
             const catConfig = [
                 { key: 'other_deductions', cardId: 'real-other-deductions-card', totalId: 'real-other-deductions-total', tooltipId: 'real-other-deductions-tooltip' },
+                { key: 'acquiring', cardId: 'real-acquiring-card', totalId: 'real-acquiring-total', tooltipId: null },
                 { key: 'crossdocking', cardId: 'real-crossdocking-card', totalId: 'real-crossdocking-total', tooltipId: null },
                 { key: 'advertising', cardId: 'real-advertising-card', totalId: 'real-advertising-total', tooltipId: 'real-advertising-tooltip' },
                 { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', tooltipId: 'real-storage-tooltip' }
