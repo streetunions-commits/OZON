@@ -13261,10 +13261,12 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
+                console.log('[TX] Data received:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length, 'cache:', data.from_cache);
                 renderTransactionsBreakdown(data);
+                console.log('[TX] Render complete');
 
             } catch (e) {
-                console.error('Transactions breakdown fetch error:', e);
+                console.error('[TX] Transactions breakdown fetch error:', e);
             }
         }
 
@@ -13272,6 +13274,7 @@ HTML_TEMPLATE = '''
          * Отрисовать детализацию удержаний: операции, услуги, оповещения.
          */
         function renderTransactionsBreakdown(data) {
+            console.log('[TX] renderTransactionsBreakdown called');
             // ── Карточка «Логистика» ──
             // Источники:
             //   service  MarketplaceServiceItemDirectFlowLogistic          → Логистика (-2.9M)
@@ -13303,6 +13306,7 @@ HTML_TEMPLATE = '''
                 }
             });
 
+            console.log('[TX] logTotal:', logTotal, 'details:', logDetails.length);
             const logCard = document.getElementById('real-logistics-card');
             if (logCard && logTotal > 0) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
@@ -13374,9 +13378,11 @@ HTML_TEMPLATE = '''
                 { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', tooltipId: 'real-storage-tooltip' }
             ];
 
+            console.log('[TX] catTotals:', JSON.stringify(catTotals));
             catConfig.forEach(cfg => {
                 const total = catTotals[cfg.key];
                 const card = document.getElementById(cfg.cardId);
+                console.log('[TX] card', cfg.key, 'total:', total, 'card:', !!card);
                 if (card && total !== 0) {
                     document.getElementById(cfg.totalId).textContent = fmtRealMoney(total);
                     // Тултип с деталями
