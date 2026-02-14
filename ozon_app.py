@@ -9457,6 +9457,7 @@ HTML_TEMPLATE = '''
                                         <th>Возвраты</th>
                                         <th>Продажи (гросс)</th>
                                         <th>Комиссия</th>
+                                        <th>Кросс-докинг</th>
                                         <th>К получению</th>
                                     </tr>
                                 </thead>
@@ -12958,6 +12959,10 @@ HTML_TEMPLATE = '''
         // комиссии, возвраты — числа совпадают с разделом «Начисления» Ozon.
         // ============================================================================
 
+        // Глобальные переменные для связки данных реализации и транзакций
+        let _realProducts = [];            // Товары из /v2/finance/realization
+        let _crossdockingBySku = {};       // Кросс-докинг по SKU из /v3/finance/transaction/list
+
         /**
          * Инициализировать select месяца: последние 12 месяцев, текущий по умолчанию.
          */
@@ -13148,8 +13153,9 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-summary').style.display = 'grid';
 
-                // Таблица по товарам
-                renderRealizationProducts(data.products || []);
+                // Таблица по товарам (сохраняем для перерисовки после загрузки транзакций)
+                _realProducts = data.products || [];
+                renderRealizationProducts(_realProducts);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13184,10 +13190,16 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            const cdMap = _crossdockingBySku || {};
+
             tbody.innerHTML = products.map(p => {
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                // Кросс-докинг: ищем по SKU (ключ в cdMap — строковый SKU из транзакций)
+                const cdVal = cdMap[p.sku] || 0;
+                const cdText = cdVal ? fmtRealMoney(cdVal) : '—';
+                const cdCls = cdVal < 0 ? 'real-amount-negative' : (cdVal > 0 ? 'real-amount-positive' : '');
                 return '<tr>' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
@@ -13196,6 +13208,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
+                    '<td class="real-amount-right ' + cdCls + '">' + cdText + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
                 '</tr>';
             }).join('');
@@ -13233,6 +13246,12 @@ HTML_TEMPLATE = '''
                 }
 
                 renderTransactionsBreakdown(data);
+
+                // Сохраняем кросс-докинг по SKU и перерисовываем таблицу товаров
+                _crossdockingBySku = data.crossdocking_by_sku || {};
+                if (_realProducts.length > 0) {
+                    renderRealizationProducts(_realProducts);
+                }
             } catch (e) {
                 console.error('Transactions breakdown fetch error:', e);
             }
@@ -30144,6 +30163,7 @@ def api_finance_transactions_breakdown():
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
+    crossdocking_by_sku = {}  # {sku: сумма кросс-докинга} — для столбца в таблице товаров
     total_ops = 0
 
     def _fetch_tx_page(pg):
@@ -30207,6 +30227,16 @@ def api_finance_transactions_breakdown():
                         svc_totals[sn] = {'sum': 0.0, 'count': 0}
                     svc_totals[sn]['sum'] += sp
                     svc_totals[sn]['count'] += 1
+
+                    # Кросс-докинг по SKU: распределяем по товарам из items
+                    if sn == 'MarketplaceServiceItemCrossdocking' and sp != 0:
+                        items = op.get('items', [])
+                        if items:
+                            per_item = sp / len(items)
+                            for item in items:
+                                item_sku = str(item.get('sku', ''))
+                                if item_sku:
+                                    crossdocking_by_sku[item_sku] = crossdocking_by_sku.get(item_sku, 0.0) + per_item
 
         print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page_count} стр.")
 
@@ -30304,13 +30334,17 @@ def api_finance_transactions_breakdown():
         if new_types or missing_types:
             _notify_transaction_type_changes(period_label, new_types, missing_types)
 
+        # Округляем суммы кросс-докинга по SKU
+        crossdocking_by_sku_rounded = {sku: round(val, 2) for sku, val in crossdocking_by_sku.items() if val != 0}
+
         response_data = {
             'success': True,
             'period': period_label,
             'total_operations': total_ops,
             'operations': operations_list,
             'services': services_list,
-            'alerts': alerts
+            'alerts': alerts,
+            'crossdocking_by_sku': crossdocking_by_sku_rounded
         }
 
         # ── Сохраняем в кэш ──
