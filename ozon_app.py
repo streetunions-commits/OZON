@@ -6243,11 +6243,6 @@ HTML_TEMPLATE = '''
         /* ============================================================================
            СТИЛИ ПОДВКЛАДКИ «РЕАЛИЗАЦИЯ» (Ozon Finance API — кассовый метод)
            ============================================================================ */
-        /* --- Информационный баннер --- */
-        .real-info-banner {
-            padding: 12px 18px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
-            font-size: 13px; color: #4338ca; margin-bottom: 16px; line-height: 1.5;
-        }
         /* --- Фильтры (месяц + кнопка) --- */
         .real-filters {
             display: flex; align-items: center; gap: 12px; padding: 16px 20px;
@@ -6272,25 +6267,6 @@ HTML_TEMPLATE = '''
         }
         .real-load-btn:hover { background: #5a6fd6; }
         .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
-
-        /* --- Информация об акте --- */
-        .real-doc-header {
-            padding: 10px 16px; background: #f0f4ff; border-radius: 8px;
-            font-size: 13px; color: #4338ca; margin-bottom: 16px;
-        }
-
-        /* --- Главная карточка «К получению» --- */
-        .real-payout-hero {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px;
-            padding: 28px 32px; color: #fff; margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
-        }
-        .real-payout-hero-label { font-size: 14px; opacity: 0.85; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .real-payout-hero-value { font-size: 36px; font-weight: 800; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
-        .real-payout-hero-details { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-        .real-hero-detail { font-size: 14px; opacity: 0.9; }
-        .real-hero-detail strong { font-weight: 700; }
-        .real-hero-separator { opacity: 0.4; }
 
         /* --- Сводные карточки --- */
         .real-summary {
@@ -6402,14 +6378,9 @@ HTML_TEMPLATE = '''
             .real-summary { grid-template-columns: repeat(2, 1fr); }
         }
         @media (max-width: 768px) {
-            .real-info-banner { font-size: 12px; padding: 10px 14px; }
             .real-filters { padding: 12px 14px; gap: 10px; }
             .real-month-select { min-width: 140px; font-size: 13px; }
             .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
-            .real-payout-hero { padding: 20px 22px; }
-            .real-payout-hero-value { font-size: 28px; }
-            .real-payout-hero-details { gap: 8px; }
-            .real-hero-detail { font-size: 13px; }
             .real-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
             .real-card { padding: 12px 14px; }
             .real-card-value { font-size: 17px; }
@@ -6422,11 +6393,6 @@ HTML_TEMPLATE = '''
             .real-card { padding: 10px 12px; }
             .real-card-label { font-size: 11px; }
             .real-card-value { font-size: 16px; }
-            .real-payout-hero { padding: 16px 18px; border-radius: 12px; }
-            .real-payout-hero-label { font-size: 12px; }
-            .real-payout-hero-value { font-size: 24px; }
-            .real-payout-hero-details { flex-direction: column; gap: 4px; }
-            .real-hero-separator { display: none; }
             .real-filters { flex-direction: column; align-items: stretch; }
             .real-filter-group { width: 100%; }
             .real-month-select { width: 100%; min-width: 0; }
@@ -9388,12 +9354,6 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Реализация — акт реализации из Ozon /v2/finance/realization -->
                 <div id="finance-realization" class="finance-subtab-content">
 
-                    <!-- Пояснение -->
-                    <div class="real-info-banner">
-                        Акт реализации — данные из раздела <strong>«Начисления»</strong> Ozon.
-                        Гросс-продажи, комиссии, возвраты. Числа совпадают с кабинетом Ozon.
-                    </div>
-
                     <!-- Фильтр: выбор периода (месяц / квартал) + кнопка загрузки -->
                     <div class="real-filters">
                         <div class="real-filter-group">
@@ -9412,24 +9372,6 @@ HTML_TEMPLATE = '''
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
                         </button>
-                    </div>
-
-                    <!-- Информация об акте (номер, даты) -->
-                    <div class="real-doc-header" id="real-doc-header" style="display: none;">
-                        <span id="real-doc-info"></span>
-                    </div>
-
-                    <!-- Главная карточка: К получению -->
-                    <div class="real-payout-hero" id="real-payout-hero" style="display: none;">
-                        <div class="real-payout-hero-label">К получению (за вычетом комиссий)</div>
-                        <div class="real-payout-hero-value" id="real-payout-total">0 ₽</div>
-                        <div class="real-payout-hero-details">
-                            <span class="real-hero-detail">Доставок: <strong id="real-hero-deliveries">0</strong></span>
-                            <span class="real-hero-separator">&mdash;</span>
-                            <span class="real-hero-detail">Возвратов: <strong id="real-hero-returns-count">0</strong></span>
-                            <span class="real-hero-separator">&mdash;</span>
-                            <span class="real-hero-detail">Средняя комиссия: <strong id="real-hero-avg-commission">0%</strong></span>
-                        </div>
                     </div>
 
                     <!-- Сводные карточки -->
@@ -13105,7 +13047,7 @@ HTML_TEMPLATE = '''
 
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
-             'real-payout-hero', 'real-products-wrapper', 'real-doc-header',
+             'real-products-wrapper',
              'real-logistics-card',
              'real-other-deductions-card', 'real-crossdocking-card',
              'real-advertising-card', 'real-storage-card'].forEach(id => {
@@ -13136,29 +13078,6 @@ HTML_TEMPLATE = '''
                 }
 
                 const s = data.summary || {};
-                const h = data.header || {};
-
-                // Информация об акте (номер, даты)
-                const docHeader = document.getElementById('real-doc-header');
-                const docInfo = document.getElementById('real-doc-info');
-                if (docHeader && docInfo && h.number) {
-                    let info = 'Акт № ' + h.number;
-                    if (h.start_date && h.stop_date) {
-                        info += ' | Период: ' + h.start_date + ' — ' + h.stop_date;
-                    }
-                    if (h.doc_date) {
-                        info += ' | Дата: ' + h.doc_date;
-                    }
-                    docInfo.textContent = info;
-                    docHeader.style.display = 'block';
-                }
-
-                // Главная карточка «К получению»
-                document.getElementById('real-payout-total').textContent = fmtRealMoney(s.seller_receives);
-                document.getElementById('real-hero-deliveries').textContent = s.delivery_count || 0;
-                document.getElementById('real-hero-returns-count').textContent = s.return_count || 0;
-                document.getElementById('real-hero-avg-commission').textContent = (s.avg_commission_pct || 0) + '%';
-                document.getElementById('real-payout-hero').style.display = 'block';
 
                 // Сводные карточки
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
@@ -30046,6 +29965,93 @@ def api_finance_realization():
 # типов в БД и оповещает о новых/исчезнувших типах.
 # ============================================================================
 
+
+def _notify_transaction_type_changes(period_label, new_types, missing_types):
+    """
+    Отправить уведомления об изменениях типов транзакций:
+    1) Telegram-сообщение всем админам
+    2) Сообщение в обмен сообщениями (container_messages)
+    """
+    import requests as _req
+
+    # ── Текст для Telegram (Markdown) ──
+    lines = [f"📊 *Изменения типов транзакций* (период: {period_label})\n"]
+    if new_types:
+        lines.append(f"🆕 *Новые типы ({len(new_types)} шт):*")
+        for t in new_types:
+            cat = "операция" if t['category'] == 'operation' else "услуга"
+            lines.append(f"  • `{t['key']}` ({cat})")
+        lines.append("")
+    if missing_types:
+        lines.append(f"❌ *Исчезнувшие типы ({len(missing_types)} шт):*")
+        for t in missing_types:
+            cat = "операция" if t['category'] == 'operation' else "услуга"
+            name = t.get('name', t['key'])
+            lines.append(f"  • `{t['key']}` — {name} ({cat})")
+    tg_text = "\n".join(lines)
+
+    # ── 1) Telegram: отправка всем админам ──
+    try:
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        if bot_token:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT telegram_chat_id FROM users
+                WHERE role = 'admin' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+            ''')
+            admins = cur.fetchall()
+            conn.close()
+            for admin in admins:
+                cid = admin['telegram_chat_id']
+                try:
+                    _req.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": cid, "text": tg_text, "parse_mode": "Markdown"},
+                        timeout=10
+                    )
+                    print(f"  📨 TG уведомление: chat_id={cid}")
+                except Exception as e:
+                    print(f"  ⚠️ TG ошибка (chat_id={cid}): {e}")
+    except Exception as e:
+        print(f"  ⚠️ TG уведомления: {e}")
+
+    # ── 2) Обмен сообщениями: системное сообщение ──
+    try:
+        plain_lines = [f"Изменения типов транзакций (период: {period_label})\n"]
+        if new_types:
+            plain_lines.append(f"НОВЫЕ ТИПЫ ({len(new_types)} шт):")
+            for t in new_types:
+                cat = "операция" if t['category'] == 'operation' else "услуга"
+                plain_lines.append(f"  - {t['key']} ({cat})")
+            plain_lines.append("")
+        if missing_types:
+            plain_lines.append(f"ИСЧЕЗНУВШИЕ ТИПЫ ({len(missing_types)} шт):")
+            for t in missing_types:
+                cat = "операция" if t['category'] == 'operation' else "услуга"
+                name = t.get('name', t['key'])
+                plain_lines.append(f"  - {t['key']} — {name} ({cat})")
+        plain_text = "\n".join(plain_lines)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE role = 'admin'")
+        admin_ids = [str(r['id']) for r in cur.fetchall()]
+        if admin_ids:
+            cur.execute('''
+                INSERT INTO container_messages
+                (container_id, message, sender_id, sender_name, recipient_ids, sender_type, is_read)
+                VALUES (NULL, ?, 0, 'Система', ?, 'system', 0)
+            ''', (plain_text, ','.join(admin_ids)))
+            conn.commit()
+            print(f"  📨 Системное сообщение для {len(admin_ids)} админов")
+        conn.close()
+    except Exception as e:
+        print(f"  ⚠️ Системное сообщение: {e}")
+
+
 @app.route('/api/finance/transactions-breakdown')
 @require_auth()
 def api_finance_transactions_breakdown():
@@ -30252,6 +30258,10 @@ def api_finance_transactions_breakdown():
                 'message': f"Типы, отсутствующие в текущем периоде ({len(missing_types)} шт)",
                 'details': missing_types
             })
+
+        # ── Уведомления: Telegram + обмен сообщениями ──
+        if new_types or missing_types:
+            _notify_transaction_type_changes(period_label, new_types, missing_types)
 
         return jsonify({
             'success': True,
