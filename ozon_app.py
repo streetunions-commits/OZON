@@ -13221,8 +13221,8 @@ HTML_TEMPLATE = '''
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                // Кросс-докинг: ищем по SKU (ключ в cdMap — строковый SKU из транзакций)
-                const cdVal = cdMap[p.sku] || 0;
+                // Кросс-докинг: ищем по SKU или offer_id
+                const cdVal = cdMap[p.sku] || cdMap[p.offer_id] || 0;
                 const cdText = cdVal ? fmtRealMoney(cdVal) : '—';
                 const cdCls = cdVal < 0 ? 'real-amount-negative' : (cdVal > 0 ? 'real-amount-positive' : '');
                 return '<tr>' +
