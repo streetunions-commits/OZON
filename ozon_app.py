@@ -6294,7 +6294,7 @@ HTML_TEMPLATE = '''
 
         /* --- Сводные карточки --- */
         .real-summary {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
         }
         .real-card {
             padding: 16px 18px; border-radius: 12px; background: #fff;
@@ -6315,6 +6315,21 @@ HTML_TEMPLATE = '''
         .real-card-fee .real-card-value { color: #805ad5; }
         .real-card-stars { border-left-color: #ed8936; }
         .real-card-stars .real-card-value { color: #ed8936; }
+        .real-card-logistics { border-left-color: #3182ce; position: relative; cursor: pointer; }
+        .real-card-logistics .real-card-value { color: #3182ce; }
+        .real-logistics-tooltip {
+            display: none; position: absolute; left: 0; top: 100%; margin-top: 8px;
+            background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 14px 18px; z-index: 100; min-width: 280px; white-space: nowrap;
+        }
+        .real-card-logistics:hover .real-logistics-tooltip { display: block; }
+        .real-logistics-tooltip .real-tooltip-row {
+            display: flex; justify-content: space-between; gap: 24px;
+            padding: 6px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0;
+        }
+        .real-logistics-tooltip .real-tooltip-row:last-child { border-bottom: none; }
+        .real-logistics-tooltip .real-tooltip-label { color: #555; }
+        .real-logistics-tooltip .real-tooltip-value { font-weight: 600; color: #3182ce; }
 
         /* --- Статистика --- */
         .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
@@ -9404,6 +9419,12 @@ HTML_TEMPLATE = '''
                             <div class="real-card-label">Комиссия МП</div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                             <div class="real-card-hint" id="real-commission-hint"></div>
+                        </div>
+                        <div class="real-card real-card-logistics" id="real-logistics-card" style="display:none;">
+                            <div class="real-card-label">Логистика</div>
+                            <div class="real-card-value" id="real-logistics-total">0 ₽</div>
+                            <div class="real-card-hint">наведите для деталей</div>
+                            <div class="real-logistics-tooltip" id="real-logistics-tooltip"></div>
                         </div>
                     </div>
 
@@ -13067,7 +13088,7 @@ HTML_TEMPLATE = '''
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
              'real-payout-hero', 'real-products-wrapper', 'real-doc-header',
-             'real-transactions-wrapper'].forEach(id => {
+             'real-transactions-wrapper', 'real-logistics-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13287,6 +13308,35 @@ HTML_TEMPLATE = '''
             }).join('');
 
             wrapper.style.display = 'block';
+
+            // ── Карточка «Логистика» ──
+            const logisticsServices = {
+                'MarketplaceServiceItemDirectFlowLogistic': 'Логистика',
+                'MarketplaceServiceItemReturnFlowLogistic': 'Доставка и обработка возврата',
+                'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля'
+            };
+            let logTotal = 0;
+            const logDetails = [];
+            (data.services || []).forEach(svc => {
+                if (logisticsServices[svc.name]) {
+                    const val = Math.abs(svc.sum);
+                    logTotal += val;
+                    logDetails.push({label: logisticsServices[svc.name], value: val});
+                }
+            });
+            const logCard = document.getElementById('real-logistics-card');
+            if (logCard && logTotal > 0) {
+                document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
+                let tooltipHtml = '';
+                logDetails.forEach(d => {
+                    tooltipHtml += '<div class="real-tooltip-row">' +
+                        '<span class="real-tooltip-label">' + d.label + '</span>' +
+                        '<span class="real-tooltip-value">' + fmtRealMoney(-d.value) + '</span>' +
+                        '</div>';
+                });
+                document.getElementById('real-logistics-tooltip').innerHTML = tooltipHtml;
+                logCard.style.display = '';
+            }
         }
 
         // ============================================================================
