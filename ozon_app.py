@@ -13278,7 +13278,7 @@ HTML_TEMPLATE = '''
                 'MarketplaceServiceBrandCommission': 'Продвижение бренда',
                 'PremiumMembership': 'Premium Pro (процент)',
                 'PremiumMembershipCommission': 'Premium (процент)',
-                'MarketplaceServiceItemTemporaryStorageRedistribution': 'Перераспределение хранения',
+                'MarketplaceServiceItemTemporaryStorageRedistribution': 'Временное размещение партнёрами',
                 'MarketplaceServiceProductMovementFromWarehouse': 'Перемещение со склада',
                 'MarketplaceServiceSellerReturnsCargoAssortment': 'Подготовка возвратов',
                 'MarketplaceServiceItemReturnFlowLogistic': 'Обратная логистика возвратов',
