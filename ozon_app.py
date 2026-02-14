@@ -12975,6 +12975,42 @@ HTML_TEMPLATE = '''
             }
 
             realizationInitialized = true;
+
+            // Восстанавливаем сохранённый фильтр и автозагрузку
+            restoreRealizationState();
+        }
+
+        /**
+         * Восстановить сохранённый фильтр реализации из localStorage и автозагрузить данные.
+         */
+        function restoreRealizationState() {
+            try {
+                const savedType = localStorage.getItem('real_period_type');
+                if (!savedType) return;
+
+                const periodSel = document.getElementById('real-period-type');
+                if (savedType === 'quarter') {
+                    // Переключаем на квартал
+                    periodSel.value = 'quarter';
+                    toggleRealPeriodType();
+                    // Восстанавливаем выбранный квартал
+                    const savedQ = localStorage.getItem('real_quarter');
+                    if (savedQ) {
+                        const qsel = document.getElementById('real-quarter-select');
+                        if (qsel) qsel.value = savedQ;
+                    }
+                } else {
+                    // Восстанавливаем выбранный месяц
+                    const savedMonth = localStorage.getItem('real_month');
+                    if (savedMonth) {
+                        const msel = document.getElementById('real-month-select');
+                        if (msel) msel.value = savedMonth;
+                    }
+                }
+
+                // Автозагрузка данных
+                loadRealizationData();
+            } catch(e) {}
         }
 
         /**
@@ -13101,10 +13137,18 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-summary').style.display = 'grid';
 
-                // Статистика
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
 
+                // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
+                try {
+                    localStorage.setItem('real_period_type', periodType);
+                    if (periodType === 'quarter') {
+                        localStorage.setItem('real_quarter', document.getElementById('real-quarter-select').value);
+                    } else {
+                        localStorage.setItem('real_month', document.getElementById('real-month-select').value);
+                    }
+                } catch(e) {}
 
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
