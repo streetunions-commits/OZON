@@ -13161,7 +13161,7 @@ HTML_TEMPLATE = '''
                 renderRealizationProducts(data.products || []);
 
                 // Загружаем детализацию удержаний (логистика и т.д.)
-                loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
+                try { loadTransactionsBreakdown(); } catch(txErr) { alert('TX ERROR: ' + txErr.message); }
 
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
@@ -13215,6 +13215,7 @@ HTML_TEMPLATE = '''
          * Вызывается автоматически после успешной загрузки реализации.
          */
         async function loadTransactionsBreakdown() {
+            console.log('[TX-DEBUG] loadTransactionsBreakdown CALLED');
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
