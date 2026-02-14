@@ -30262,55 +30262,85 @@ def api_finance_transactions_breakdown():
     else:
         print(f"  🔄 Транзакции {period_label}: принудительное обновление кэша")
 
-    # ── Запросы к Ozon Transaction API (параллельно) ──
+    # ── Запросы к Ozon Transaction API ──
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
     crossdocking_by_sku = {}  # {sku: сумма кросс-докинга} — для столбца в таблице товаров
     total_ops = 0
 
-    def _fetch_tx_page(pg):
-        """Загрузить одну страницу транзакций."""
-        payload = {
-            "filter": {
-                "date": {"from": date_from, "to": date_to},
-                "posting_number": "",
-                "transaction_type": "all"
-            },
-            "page": pg,
-            "page_size": 1000
-        }
-        return requests.post(
-            f"{OZON_HOST}/v3/finance/transaction/list",
-            json=payload, headers=ozon_headers, timeout=120
-        )
-
-    try:
+    def _fetch_all_ops_for_range(d_from, d_to, label):
+        """Загрузить ВСЕ страницы транзакций за указанный период."""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # 1) Первая страница — узнаём page_count
-        print(f"  📊 Транзакции {period_label}: страница 1...")
-        resp1 = _fetch_tx_page(1)
+        def _fetch_page(pg):
+            payload = {
+                "filter": {
+                    "date": {"from": d_from, "to": d_to},
+                    "posting_number": "",
+                    "transaction_type": "all"
+                },
+                "page": pg,
+                "page_size": 1000
+            }
+            return requests.post(
+                f"{OZON_HOST}/v3/finance/transaction/list",
+                json=payload, headers=ozon_headers, timeout=120
+            )
+
+        print(f"  📊 Транзакции {label}: страница 1...")
+        resp1 = _fetch_page(1)
         if resp1.status_code != 200:
-            err = resp1.text[:300]
-            return jsonify({'success': False, 'error': f'Ozon API ошибка: {err[:200]}'}), resp1.status_code
+            print(f"  ❌ Транзакции {label}: HTTP {resp1.status_code}")
+            return []
 
         result1 = resp1.json().get('result', {})
-        all_ops = list(result1.get('operations', []))
+        ops = list(result1.get('operations', []))
         page_count = result1.get('page_count', 0)
 
-        # 2) Остальные страницы — параллельно (до 4 потоков)
         if page_count > 1:
-            print(f"  📊 Транзакции {period_label}: стр. 2-{page_count} параллельно...")
+            print(f"  📊 Транзакции {label}: стр. 2-{page_count} параллельно...")
             with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(_fetch_tx_page, pg): pg for pg in range(2, page_count + 1)}
+                futures = {executor.submit(_fetch_page, pg): pg for pg in range(2, page_count + 1)}
                 for future in as_completed(futures):
                     r = future.result()
                     if r.status_code == 200:
                         page_ops = r.json().get('result', {}).get('operations', [])
-                        all_ops.extend(page_ops)
+                        ops.extend(page_ops)
 
-        # 3) Агрегация
+        print(f"  ✅ Транзакции {label}: {len(ops)} операций, {page_count} стр.")
+        return ops
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        all_ops = []
+
+        if quarter_str:
+            # Квартал: 3 отдельных месячных запроса параллельно
+            # (один запрос за 3 месяца слишком большой и таймаутится)
+            month_ranges = []
+            for mo in months:
+                last_d = calendar.monthrange(q_year, mo)[1]
+                d_from = f"{q_year}-{mo:02d}-01T00:00:00.000Z"
+                d_to = f"{q_year}-{mo:02d}-{last_d}T23:59:59.999Z"
+                label = f"{q_year}-{mo:02d}"
+                month_ranges.append((d_from, d_to, label))
+
+            print(f"  📊 Транзакции {period_label}: 3 месяца параллельно...")
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {
+                    executor.submit(_fetch_all_ops_for_range, d_from, d_to, label): label
+                    for d_from, d_to, label in month_ranges
+                }
+                for future in as_completed(futures):
+                    month_ops = future.result()
+                    all_ops.extend(month_ops)
+        else:
+            # Один месяц: один запрос
+            all_ops = _fetch_all_ops_for_range(date_from, date_to, period_label)
+
+        # Агрегация
         for op in all_ops:
             total_ops += 1
             ot = op.get('operation_type', '')
@@ -30351,7 +30381,7 @@ def api_finance_transactions_breakdown():
         else:
             print(f"  🔍 DEBUG: Нет операций с кросс-докингом в периоде {period_label}")
 
-        print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page_count} стр.")
+        print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
         # ── Сверка с реестром типов в БД ──
         today = _dt.now().strftime('%Y-%m-%d')
