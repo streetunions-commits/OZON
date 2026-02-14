@@ -29570,7 +29570,8 @@ def api_finance_realization():
         bank_coinvest_total = 0.0   # Софинансирование банком
         delivery_count = 0          # Количество доставок
         return_count = 0            # Количество возвратов
-        commission_ratios = []      # Для расчёта средней комиссии %
+        weighted_ratio_sum = 0.0    # Сумма (ratio * d_qty) — для средневзвешенной комиссии %
+        weighted_ratio_count = 0    # Сумма d_qty строк с ratio > 0
 
         # Агрегация по товарам (SKU)
         products_map = {}
@@ -29619,8 +29620,9 @@ def api_finance_realization():
             delivery_count += d_qty
             return_count += r_qty
 
-            if ratio > 0:
-                commission_ratios.append(ratio)
+            if ratio > 0 and d_qty > 0:
+                weighted_ratio_sum += ratio * d_qty
+                weighted_ratio_count += d_qty
 
             # Агрегация по товарам
             product_key = sku or offer_id or barcode
@@ -29630,8 +29632,8 @@ def api_finance_realization():
                         'name': name[:80],
                         'sku': sku,
                         'offer_id': offer_id,
-                        'seller_price': seller_price,
-                        'commission_ratio': ratio,
+                        'seller_price_sum': 0.0,      # Сумма (seller_price * d_qty) для средневзвешенной цены
+                        'ratio_weighted_sum': 0.0,     # Сумма (ratio * d_qty) для средневзвешенной комиссии %
                         'delivery_qty': 0,
                         'return_qty': 0,
                         'gross_sales': 0.0,
@@ -29648,22 +29650,32 @@ def api_finance_realization():
                 p['commission'] += d_total_comm + r_total_comm
                 p['seller_receives'] += d_amount + r_amount
                 p['bonus'] += d_bonus + r_bonus
+                # Аккумулируем для средневзвешенных значений
+                if d_qty > 0:
+                    p['seller_price_sum'] += seller_price * d_qty
+                    p['ratio_weighted_sum'] += ratio * d_qty
 
         # ── Итоги ──
         # Итого начислено = к получению продавцом (сумма delivery_commission.amount + return_commission.amount)
         net_total = seller_receives
-        avg_commission = sum(commission_ratios) / len(commission_ratios) if commission_ratios else 0
+        # Средневзвешенная комиссия % = сумма(ratio * кол-во продаж) / общее кол-во продаж
+        avg_commission = weighted_ratio_sum / weighted_ratio_count if weighted_ratio_count > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
         for key, pdata in sorted(products_map.items(),
                                   key=lambda x: abs(x[1]['gross_sales']), reverse=True):
+            # Средневзвешенная цена и комиссия % по количеству продаж товара
+            dq = pdata['delivery_qty']
+            avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
+            avg_ratio = pdata['ratio_weighted_sum'] / dq if dq > 0 else 0
+
             products_list.append({
                 'sku': pdata['sku'],
                 'offer_id': pdata['offer_id'],
                 'name': pdata['name'],
-                'seller_price': round(pdata['seller_price'], 2),
-                'commission_ratio': round(pdata['commission_ratio'] * 100, 1),
+                'seller_price': round(avg_price, 2),
+                'commission_ratio': round(avg_ratio * 100, 1),
                 'delivery_qty': pdata['delivery_qty'],
                 'return_qty': pdata['return_qty'],
                 'gross_sales': round(pdata['gross_sales'], 2),
