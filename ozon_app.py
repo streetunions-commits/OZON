@@ -9509,43 +9509,8 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
-                    <!-- Детализация удержаний (из Transaction API) -->
-                    <div id="real-transactions-wrapper" style="display: none;">
-                        <h3 class="real-section-title">Детализация удержаний</h3>
-
-                        <!-- Оповещения о новых/исчезнувших типах -->
-                        <div id="real-tx-alerts"></div>
-
-                        <!-- Таблица: типы операций -->
-                        <h4 style="margin: 16px 0 8px; font-size: 14px; color: #555;">Операции</h4>
-                        <div style="overflow-x: auto;">
-                            <table class="real-types-table">
-                                <thead>
-                                    <tr>
-                                        <th style="text-align: left;">Тип операции</th>
-                                        <th>Кол-во</th>
-                                        <th>Сумма</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="real-tx-operations-tbody"></tbody>
-                            </table>
-                        </div>
-
-                        <!-- Таблица: услуги -->
-                        <h4 style="margin: 16px 0 8px; font-size: 14px; color: #555;">Услуги (детализация)</h4>
-                        <div style="overflow-x: auto;">
-                            <table class="real-types-table">
-                                <thead>
-                                    <tr>
-                                        <th style="text-align: left;">Услуга</th>
-                                        <th>Кол-во</th>
-                                        <th>Сумма</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="real-tx-services-tbody"></tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <!-- Скрытый контейнер для данных транзакций (используется карточкой Логистика) -->
+                    <div id="real-transactions-wrapper" style="display: none;"></div>
 
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty">
@@ -13141,7 +13106,7 @@ HTML_TEMPLATE = '''
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
              'real-payout-hero', 'real-products-wrapper', 'real-doc-header',
-             'real-transactions-wrapper', 'real-logistics-card',
+             'real-logistics-card',
              'real-other-deductions-card', 'real-crossdocking-card',
              'real-advertising-card', 'real-storage-card'].forEach(id => {
                 const el = document.getElementById(id);
@@ -13301,70 +13266,6 @@ HTML_TEMPLATE = '''
          * Отрисовать детализацию удержаний: операции, услуги, оповещения.
          */
         function renderTransactionsBreakdown(data) {
-            const wrapper = document.getElementById('real-transactions-wrapper');
-            if (!wrapper) return;
-
-            // Оповещения о новых/исчезнувших типах
-            const alertsEl = document.getElementById('real-tx-alerts');
-            alertsEl.innerHTML = '';
-            if (data.alerts && data.alerts.length > 0) {
-                data.alerts.forEach(alert => {
-                    const cls = alert.level === 'warning' ? 'background:#fff3cd;border:1px solid #ffc107;' : 'background:#d1ecf1;border:1px solid #0dcaf0;';
-                    let html = '<div style="' + cls + 'padding:12px 16px;border-radius:8px;margin-bottom:12px;font-size:13px;">';
-                    html += '<strong>' + (alert.level === 'warning' ? '\u26A0\uFE0F ' : '\u2139\uFE0F ') + alert.message + '</strong>';
-                    if (alert.details && alert.details.length > 0) {
-                        html += '<ul style="margin:8px 0 0;padding-left:20px;">';
-                        alert.details.forEach(d => {
-                            html += '<li><code>' + escapeHtml(d.key) + '</code> (' + d.category + ') — ' + escapeHtml(d.name || '') + '</li>';
-                        });
-                        html += '</ul>';
-                    }
-                    html += '</div>';
-                    alertsEl.innerHTML += html;
-                });
-            }
-
-            // Таблица операций
-            const opsTbody = document.getElementById('real-tx-operations-tbody');
-            opsTbody.innerHTML = (data.operations || []).map(op => {
-                const cls = op.sum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                return '<tr>' +
-                    '<td style="text-align:left;">' + escapeHtml(op.name) + '</td>' +
-                    '<td class="real-amount-right">' + op.count + '</td>' +
-                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(op.sum) + '</td>' +
-                '</tr>';
-            }).join('');
-
-            // Таблица услуг
-            const svcTbody = document.getElementById('real-tx-services-tbody');
-            svcTbody.innerHTML = (data.services || []).map(svc => {
-                const cls = svc.sum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                // Русские названия для известных услуг
-                const svcNames = {
-                    'MarketplaceServiceItemDirectFlowLogistic': 'Магистральная логистика',
-                    'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля',
-                    'MarketplaceServiceItemReturnFlowLogistic': 'Обратная логистика возвратов',
-                    'MarketplaceServiceItemReturnNotDelivToCustomer': 'Возврат — не доставлен',
-                    'MarketplaceServiceItemReturnAfterDelivToCustomer': 'Возврат — после доставки',
-                    'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возвраты ПВЗ',
-                    'MarketplaceRedistributionOfAcquiringOperation': 'Эквайринг',
-                    'PremiumMembershipCommission': 'Premium (процент)',
-                    'MarketplaceServiceBrandCommission': 'Продвижение бренда',
-                    'MarketplaceServiceItemTemporaryStorage': 'Временное хранение',
-                    'MarketplaceServiceItemTemporaryStorageRedistribution': 'Перераспределение хранения',
-                    'MarketplaceServiceProductMovementFromWarehouse': 'Перемещение со склада',
-                    'MarketplaceServiceSellerReturnsCargoAssortment': 'Подготовка возвратов'
-                };
-                const label = svcNames[svc.name] || svc.name;
-                return '<tr>' +
-                    '<td style="text-align:left;">' + escapeHtml(label) + ' <span style="color:#aaa;font-size:11px;">(' + escapeHtml(svc.name) + ')</span></td>' +
-                    '<td class="real-amount-right">' + svc.count + '</td>' +
-                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(svc.sum) + '</td>' +
-                '</tr>';
-            }).join('');
-
-            wrapper.style.display = 'block';
-
             // ── Карточка «Логистика» ──
             // Источники:
             //   service  MarketplaceServiceItemDirectFlowLogistic          → Логистика (-2.9M)
