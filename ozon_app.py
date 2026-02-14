@@ -9388,7 +9388,7 @@ HTML_TEMPLATE = '''
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-realization">
-                            <div class="real-card-label">Реализация</div>
+                            <div class="real-card-label">Продажи после СПП</div>
                             <div class="real-card-value" id="real-realization">0 ₽</div>
                             <div class="real-card-hint" id="real-realization-hint"></div>
                         </div>
@@ -13137,7 +13137,7 @@ HTML_TEMPLATE = '''
                 // Сводные карточки
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
                 const realHint = document.getElementById('real-realization-hint');
-                if (realHint) realHint.textContent = s.delivery_count + ' шт.';
+                if (realHint) realHint.textContent = s.delivery_count + ' шт. (нетто)';
 
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 const grossHint = document.getElementById('real-gross-hint');
@@ -29740,41 +29740,98 @@ def api_finance_realization():
             return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
         period_label = month_str
 
+    # ── Проверяем кэш реализации (аналогично transactions-breakdown) ──
+    force_refresh = request.args.get('refresh', '') == '1'
+    cache_key_real = f"real_{quarter_str}" if quarter_str else f"real_{month_str}"
+
+    if not force_refresh:
+        try:
+            cache_db = sqlite3.connect(DB_PATH)
+            cache_db.row_factory = sqlite3.Row
+            cache_row = cache_db.execute(
+                'SELECT response_json, cached_at FROM transaction_breakdown_cache WHERE period_key = ?',
+                (cache_key_real,)
+            ).fetchone()
+            cache_db.close()
+
+            if cache_row:
+                cached_at = _dt.strptime(cache_row['cached_at'], '%Y-%m-%d %H:%M:%S')
+                age_hours = (_dt.now() - cached_at).total_seconds() / 3600
+                # Кэш живёт 24 часа
+                if age_hours < 24:
+                    print(f"  ⚡ Реализация {period_label}: из кэша (возраст {age_hours:.1f}ч)")
+                    cached_data = json.loads(cache_row['response_json'])
+                    cached_data['from_cache'] = True
+                    cached_data['cache_age_hours'] = round(age_hours, 1)
+                    return jsonify(cached_data)
+                else:
+                    print(f"  ♻️ Реализация {period_label}: кэш устарел ({age_hours:.1f}ч), обновляем...")
+        except Exception as cache_err:
+            print(f"  ⚠️ Ошибка чтения кэша реализации: {cache_err}")
+    else:
+        print(f"  🔄 Реализация {period_label}: принудительное обновление кэша")
+
     # ── Запросы к Ozon API /v2/finance/realization ──
     ozon_headers = get_ozon_headers()
     all_rows = []
     first_header = {}
     errors = []
 
+    def _fetch_realization_month(yr, mo):
+        """Загрузить акт реализации за один месяц."""
+        payload = {"year": yr, "month": mo}
+        print(f"  📊 Запрос акта реализации: {yr}-{mo:02d}")
+        return yr, mo, requests.post(
+            f"{OZON_HOST}/v2/finance/realization",
+            json=payload, headers=ozon_headers, timeout=60
+        )
+
     try:
-        for yr, mo in months_to_fetch:
-            payload = {"year": yr, "month": mo}
-            print(f"  📊 Запрос акта реализации: {yr}-{mo:02d}")
+        if len(months_to_fetch) > 1:
+            # Квартал: параллельные запросы (до 3 потоков)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            print(f"  📊 Реализация {period_label}: {len(months_to_fetch)} месяцев параллельно...")
+            month_results = {}
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {
+                    executor.submit(_fetch_realization_month, yr, mo): (yr, mo)
+                    for yr, mo in months_to_fetch
+                }
+                for future in as_completed(futures):
+                    yr, mo, resp = future.result()
+                    if resp.status_code != 200:
+                        err_text = resp.text[:300]
+                        print(f"  ❌ Ozon API /v2/finance/realization: HTTP {resp.status_code} — {err_text}")
+                        errors.append(f"{yr}-{mo:02d}: HTTP {resp.status_code}")
+                    else:
+                        data = resp.json()
+                        result = data.get('result', {})
+                        header = result.get('header', {})
+                        rows = result.get('rows', [])
+                        month_results[(yr, mo)] = (header, rows)
+                        print(f"  ✅ Получено {len(rows)} строк за {yr}-{mo:02d}")
 
-            resp = requests.post(
-                f"{OZON_HOST}/v2/finance/realization",
-                json=payload,
-                headers=ozon_headers,
-                timeout=60
-            )
-
+            # Собираем результаты в порядке месяцев
+            for yr, mo in months_to_fetch:
+                if (yr, mo) in month_results:
+                    header, rows = month_results[(yr, mo)]
+                    if not first_header and header:
+                        first_header = header
+                    all_rows.extend(rows)
+        else:
+            # Один месяц: один запрос
+            yr, mo = months_to_fetch[0]
+            yr, mo, resp = _fetch_realization_month(yr, mo)
             if resp.status_code != 200:
                 err_text = resp.text[:300]
                 print(f"  ❌ Ozon API /v2/finance/realization: HTTP {resp.status_code} — {err_text}")
                 errors.append(f"{yr}-{mo:02d}: HTTP {resp.status_code}")
-                continue
-
-            data = resp.json()
-            result = data.get('result', {})
-            header = result.get('header', {})
-            rows = result.get('rows', [])
-
-            # Сохраняем header первого месяца как базовый
-            if not first_header and header:
-                first_header = header
-
-            all_rows.extend(rows)
-            print(f"  ✅ Получено {len(rows)} строк за {yr}-{mo:02d}")
+            else:
+                data = resp.json()
+                result = data.get('result', {})
+                first_header = result.get('header', {})
+                all_rows = result.get('rows', [])
+                print(f"  ✅ Получено {len(all_rows)} строк за {yr}-{mo:02d}")
 
         if errors and not all_rows:
             return jsonify({
@@ -29937,7 +29994,7 @@ def api_finance_realization():
             })
 
         # ── Формируем ответ ──
-        return jsonify({
+        response_data = {
             'success': True,
             'period': period_label,
             'is_quarter': is_quarter,
@@ -29975,7 +30032,24 @@ def api_finance_realization():
             'total_rows': total_rows_count,
             'total_products': len(products_list),
             'warnings': errors if errors else None
-        })
+        }
+
+        # ── Сохраняем в кэш (24 часа) ──
+        try:
+            cache_db = sqlite3.connect(DB_PATH)
+            cache_db.execute('''
+                INSERT OR REPLACE INTO transaction_breakdown_cache
+                (period_key, response_json, cached_at)
+                VALUES (?, ?, ?)
+            ''', (cache_key_real, json.dumps(response_data, ensure_ascii=False),
+                  _dt.now().strftime('%Y-%m-%d %H:%M:%S')))
+            cache_db.commit()
+            cache_db.close()
+            print(f"  💾 Реализация {period_label}: кэш сохранён")
+        except Exception as save_err:
+            print(f"  ⚠️ Ошибка сохранения кэша реализации: {save_err}")
+
+        return jsonify(response_data)
 
     except requests.exceptions.Timeout:
         return jsonify({'success': False, 'error': 'Таймаут запроса к Ozon API'}), 504
