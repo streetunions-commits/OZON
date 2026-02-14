@@ -13227,8 +13227,10 @@ HTML_TEMPLATE = '''
             }
 
             try {
+                console.log('[TX] fetching:', url);
                 const resp = await authFetch(url);
                 const data = await resp.json();
+                console.log('[TX] response:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length);
 
                 if (!data.success) {
                     console.error('Transactions breakdown error:', data.error);
@@ -13340,7 +13342,9 @@ HTML_TEMPLATE = '''
                 }
             });
 
+            console.log('[TX] logistics: total=' + logTotal, 'details:', logDetails);
             const logCard = document.getElementById('real-logistics-card');
+            console.log('[TX] logCard element:', logCard);
             if (logCard && logTotal > 0) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
                 let tooltipHtml = '';
