@@ -6331,6 +6331,35 @@ HTML_TEMPLATE = '''
         .real-logistics-tooltip .real-tooltip-label { color: #555; }
         .real-logistics-tooltip .real-tooltip-value { font-weight: 600; color: #3182ce; }
 
+        /* --- Карточки категорий удержаний --- */
+        .real-card-other-deductions { border-left-color: #805ad5; position: relative; cursor: pointer; }
+        .real-card-other-deductions .real-card-value { color: #805ad5; }
+        .real-card-crossdocking { border-left-color: #319795; }
+        .real-card-crossdocking .real-card-value { color: #319795; }
+        .real-card-advertising { border-left-color: #d53f8c; position: relative; cursor: pointer; }
+        .real-card-advertising .real-card-value { color: #d53f8c; }
+        .real-card-storage { border-left-color: #c05621; position: relative; cursor: pointer; }
+        .real-card-storage .real-card-value { color: #c05621; }
+
+        .real-category-tooltip {
+            display: none; position: absolute; left: 0; top: 100%; margin-top: 8px;
+            background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            padding: 14px 18px; z-index: 100; min-width: 280px; max-width: 400px;
+            max-height: 400px; overflow-y: auto;
+        }
+        .real-card-other-deductions:hover .real-category-tooltip,
+        .real-card-advertising:hover .real-category-tooltip,
+        .real-card-storage:hover .real-category-tooltip { display: block; }
+        .real-category-tooltip .real-tooltip-row {
+            display: flex; justify-content: space-between; gap: 16px;
+            padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0;
+        }
+        .real-category-tooltip .real-tooltip-row:last-child { border-bottom: none; }
+        .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+        .real-card-other-deductions .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #805ad5; white-space: nowrap; }
+        .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
+        .real-card-storage .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #c05621; white-space: nowrap; }
+
         /* --- Статистика --- */
         .real-stats { font-size: 13px; color: #888; margin-bottom: 16px; padding: 0 4px; }
 
@@ -9425,6 +9454,30 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-logistics-total">0 ₽</div>
                             <div class="real-card-hint">наведите для деталей</div>
                             <div class="real-logistics-tooltip" id="real-logistics-tooltip"></div>
+                        </div>
+                        <!-- Карточки категорий удержаний -->
+                        <div class="real-card real-card-other-deductions" id="real-other-deductions-card" style="display:none;">
+                            <div class="real-card-label">Иные удержания</div>
+                            <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
+                            <div class="real-card-hint">наведите для деталей</div>
+                            <div class="real-category-tooltip" id="real-other-deductions-tooltip"></div>
+                        </div>
+                        <div class="real-card real-card-crossdocking" id="real-crossdocking-card" style="display:none;">
+                            <div class="real-card-label">Кросс-докинг</div>
+                            <div class="real-card-value" id="real-crossdocking-total">0 ₽</div>
+                            <div class="real-card-hint"></div>
+                        </div>
+                        <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;">
+                            <div class="real-card-label">Реклама</div>
+                            <div class="real-card-value" id="real-advertising-total">0 ₽</div>
+                            <div class="real-card-hint">наведите для деталей</div>
+                            <div class="real-category-tooltip" id="real-advertising-tooltip"></div>
+                        </div>
+                        <div class="real-card real-card-storage" id="real-storage-card" style="display:none;">
+                            <div class="real-card-label">Хранение</div>
+                            <div class="real-card-value" id="real-storage-total">0 ₽</div>
+                            <div class="real-card-hint">наведите для деталей</div>
+                            <div class="real-category-tooltip" id="real-storage-tooltip"></div>
                         </div>
                     </div>
 
@@ -13088,7 +13141,9 @@ HTML_TEMPLATE = '''
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
              'real-payout-hero', 'real-products-wrapper', 'real-doc-header',
-             'real-transactions-wrapper', 'real-logistics-card'].forEach(id => {
+             'real-transactions-wrapper', 'real-logistics-card',
+             'real-other-deductions-card', 'real-crossdocking-card',
+             'real-advertising-card', 'real-storage-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -30011,68 +30066,75 @@ def api_finance_transactions_breakdown():
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
 
-    # ── Запросы к Ozon Transaction API ──
+    # ── Запросы к Ozon Transaction API (параллельно) ──
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
     total_ops = 0
 
+    def _fetch_tx_page(pg):
+        """Загрузить одну страницу транзакций."""
+        payload = {
+            "filter": {
+                "date": {"from": date_from, "to": date_to},
+                "posting_number": "",
+                "transaction_type": "all"
+            },
+            "page": pg,
+            "page_size": 1000
+        }
+        return requests.post(
+            f"{OZON_HOST}/v3/finance/transaction/list",
+            json=payload, headers=ozon_headers, timeout=120
+        )
+
     try:
-        page = 1
-        while True:
-            payload = {
-                "filter": {
-                    "date": {"from": date_from, "to": date_to},
-                    "posting_number": "",
-                    "transaction_type": "all"
-                },
-                "page": page,
-                "page_size": 1000
-            }
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            print(f"  📊 Транзакции {period_label}: страница {page}...")
-            resp = requests.post(
-                f"{OZON_HOST}/v3/finance/transaction/list",
-                json=payload, headers=ozon_headers, timeout=120
-            )
+        # 1) Первая страница — узнаём page_count
+        print(f"  📊 Транзакции {period_label}: страница 1...")
+        resp1 = _fetch_tx_page(1)
+        if resp1.status_code != 200:
+            err = resp1.text[:300]
+            return jsonify({'success': False, 'error': f'Ozon API ошибка: {err[:200]}'}), resp1.status_code
 
-            if resp.status_code != 200:
-                err = resp.text[:300]
-                print(f"  ❌ Transaction API: HTTP {resp.status_code} — {err}")
-                return jsonify({'success': False, 'error': f'Ozon API ошибка: {err[:200]}'}), resp.status_code
+        result1 = resp1.json().get('result', {})
+        all_ops = list(result1.get('operations', []))
+        page_count = result1.get('page_count', 0)
 
-            result = resp.json().get('result', {})
-            ops = result.get('operations', [])
-            page_count = result.get('page_count', 0)
+        # 2) Остальные страницы — параллельно (до 4 потоков)
+        if page_count > 1:
+            print(f"  📊 Транзакции {period_label}: стр. 2-{page_count} параллельно...")
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_fetch_tx_page, pg): pg for pg in range(2, page_count + 1)}
+                for future in as_completed(futures):
+                    r = future.result()
+                    if r.status_code == 200:
+                        page_ops = r.json().get('result', {}).get('operations', [])
+                        all_ops.extend(page_ops)
 
-            if not ops:
-                break
+        # 3) Агрегация
+        for op in all_ops:
+            total_ops += 1
+            ot = op.get('operation_type', '')
+            otn = op.get('operation_type_name', '')
+            amt = op.get('amount', 0)
 
-            for op in ops:
-                total_ops += 1
-                ot = op.get('operation_type', '')
-                otn = op.get('operation_type_name', '')
-                amt = op.get('amount', 0)
+            if ot not in op_type_totals:
+                op_type_totals[ot] = {'name': otn, 'sum': 0.0, 'count': 0}
+            op_type_totals[ot]['sum'] += amt
+            op_type_totals[ot]['count'] += 1
 
-                if ot not in op_type_totals:
-                    op_type_totals[ot] = {'name': otn, 'sum': 0.0, 'count': 0}
-                op_type_totals[ot]['sum'] += amt
-                op_type_totals[ot]['count'] += 1
+            for svc in op.get('services', []):
+                sn = svc.get('name', '')
+                sp = svc.get('price', 0)
+                if sn:
+                    if sn not in svc_totals:
+                        svc_totals[sn] = {'sum': 0.0, 'count': 0}
+                    svc_totals[sn]['sum'] += sp
+                    svc_totals[sn]['count'] += 1
 
-                for svc in op.get('services', []):
-                    sn = svc.get('name', '')
-                    sp = svc.get('price', 0)
-                    if sn:
-                        if sn not in svc_totals:
-                            svc_totals[sn] = {'sum': 0.0, 'count': 0}
-                        svc_totals[sn]['sum'] += sp
-                        svc_totals[sn]['count'] += 1
-
-            if page >= page_count:
-                break
-            page += 1
-
-        print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page} стр.")
+        print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page_count} стр.")
 
         # ── Сверка с реестром типов в БД ──
         today = _dt.now().strftime('%Y-%m-%d')
