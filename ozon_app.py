@@ -9391,7 +9391,7 @@ HTML_TEMPLATE = '''
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Продажи (гросс)</div>
+                            <div class="real-card-label">Продажи до SPP</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                             <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
@@ -9404,18 +9404,6 @@ HTML_TEMPLATE = '''
                             <div class="real-card-label">Комиссия МП</div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                             <div class="real-card-hint" id="real-commission-hint"></div>
-                        </div>
-                        <div class="real-card real-card-bonus">
-                            <div class="real-card-label">Бонусы Ozon</div>
-                            <div class="real-card-value" id="real-bonuses">0 ₽</div>
-                        </div>
-                        <div class="real-card real-card-fee">
-                            <div class="real-card-label">Стандартная комиссия</div>
-                            <div class="real-card-value" id="real-standard-fee">0 ₽</div>
-                        </div>
-                        <div class="real-card real-card-stars">
-                            <div class="real-card-label">Звёзды + банк</div>
-                            <div class="real-card-value" id="real-stars-bank">0 ₽</div>
                         </div>
                     </div>
 
@@ -13141,9 +13129,6 @@ HTML_TEMPLATE = '''
                 const comHint = document.getElementById('real-commission-hint');
                 if (comHint) comHint.textContent = (s.avg_commission_pct || 0) + '% от реализации';
 
-                document.getElementById('real-bonuses').textContent = fmtRealMoney(s.bonuses);
-                document.getElementById('real-standard-fee').textContent = fmtRealMoney(s.standard_fee);
-                document.getElementById('real-stars-bank').textContent = fmtRealMoney((s.stars || 0) + (s.bank_coinvestment || 0));
                 document.getElementById('real-summary').style.display = 'grid';
 
                 // Статистика
