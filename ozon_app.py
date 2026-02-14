@@ -9383,7 +9383,7 @@ HTML_TEMPLATE = '''
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Продажи до SPP</div>
+                            <div class="real-card-label">Продажи до СПП</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                             <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
@@ -9435,7 +9435,6 @@ HTML_TEMPLATE = '''
                             <table class="real-types-table">
                                 <thead>
                                     <tr>
-                                        <th>Товар</th>
                                         <th>Артикул</th>
                                         <th>Цена</th>
                                         <th>Комиссия %</th>
@@ -13111,7 +13110,7 @@ HTML_TEMPLATE = '''
 
         /**
          * Отрисовать таблицу реализации по товарам (SKU).
-         * Колонки: товар, артикул, цена, комиссия %, доставки, возвраты, продажи, комиссия, к получению.
+         * Колонки: артикул, цена, комиссия %, доставки, возвраты, продажи, комиссия, к получению.
          */
         function renderRealizationProducts(products) {
             const tbody = document.getElementById('real-products-tbody');
@@ -13127,7 +13126,6 @@ HTML_TEMPLATE = '''
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 return '<tr>' +
-                    '<td class="real-product-name" title="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</td>' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + p.commission_ratio + '%</td>' +
