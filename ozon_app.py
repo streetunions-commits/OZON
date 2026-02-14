@@ -1168,6 +1168,21 @@ def init_database():
         )
     ''')
 
+    # ── Реестр типов транзакций Ozon (для детекции новых/исчезнувших типов) ──
+    # Хранит все operation_type и service_name, встреченные в /v3/finance/transaction/list.
+    # При каждой загрузке сверяем текущие типы с реестром и оповещаем об изменениях.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transaction_type_registry (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type_key TEXT NOT NULL,
+            type_category TEXT NOT NULL,
+            display_name TEXT DEFAULT '',
+            first_seen_date TEXT NOT NULL,
+            last_seen_date TEXT NOT NULL,
+            UNIQUE(type_key, type_category)
+        )
+    ''')
+
     # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
@@ -9432,6 +9447,44 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
+                    <!-- Детализация удержаний (из Transaction API) -->
+                    <div id="real-transactions-wrapper" style="display: none;">
+                        <h3 class="real-section-title">Детализация удержаний</h3>
+
+                        <!-- Оповещения о новых/исчезнувших типах -->
+                        <div id="real-tx-alerts"></div>
+
+                        <!-- Таблица: типы операций -->
+                        <h4 style="margin: 16px 0 8px; font-size: 14px; color: #555;">Операции</h4>
+                        <div style="overflow-x: auto;">
+                            <table class="real-types-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left;">Тип операции</th>
+                                        <th>Кол-во</th>
+                                        <th>Сумма</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="real-tx-operations-tbody"></tbody>
+                            </table>
+                        </div>
+
+                        <!-- Таблица: услуги -->
+                        <h4 style="margin: 16px 0 8px; font-size: 14px; color: #555;">Услуги (детализация)</h4>
+                        <div style="overflow-x: auto;">
+                            <table class="real-types-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align: left;">Услуга</th>
+                                        <th>Кол-во</th>
+                                        <th>Сумма</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="real-tx-services-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty">
                         <p>Выберите месяц или квартал и нажмите «Загрузить из Ozon»</p>
@@ -13025,7 +13078,8 @@ HTML_TEMPLATE = '''
 
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary', 'real-stats',
-             'real-payout-hero', 'real-products-wrapper', 'real-doc-header'].forEach(id => {
+             'real-payout-hero', 'real-products-wrapper', 'real-doc-header',
+             'real-transactions-wrapper'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13100,6 +13154,9 @@ HTML_TEMPLATE = '''
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
 
+                // Загружаем детализацию удержаний из Transaction API
+                loadTransactionsBreakdown();
+
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
                 document.getElementById('real-error-text').textContent = 'Ошибка сети: ' + e.message;
@@ -13141,6 +13198,110 @@ HTML_TEMPLATE = '''
             }).join('');
 
             document.getElementById('real-products-wrapper').style.display = 'block';
+        }
+
+        // ============================================================================
+        // ДЕТАЛИЗАЦИЯ УДЕРЖАНИЙ — загрузка из /v3/finance/transaction/list
+        // ============================================================================
+
+        /**
+         * Загрузить детализацию удержаний из Transaction API и отрисовать.
+         * Вызывается автоматически после успешной загрузки реализации.
+         */
+        async function loadTransactionsBreakdown() {
+            const periodType = document.getElementById('real-period-type').value;
+            let url;
+
+            if (periodType === 'quarter') {
+                const qsel = document.getElementById('real-quarter-select');
+                url = '/api/finance/transactions-breakdown?quarter=' + encodeURIComponent(qsel.value);
+            } else {
+                const sel = document.getElementById('real-month-select');
+                url = '/api/finance/transactions-breakdown?month=' + encodeURIComponent(sel.value);
+            }
+
+            try {
+                const resp = await authFetch(url);
+                const data = await resp.json();
+
+                if (!data.success) {
+                    console.error('Transactions breakdown error:', data.error);
+                    return;
+                }
+
+                renderTransactionsBreakdown(data);
+            } catch (e) {
+                console.error('Transactions breakdown fetch error:', e);
+            }
+        }
+
+        /**
+         * Отрисовать детализацию удержаний: операции, услуги, оповещения.
+         */
+        function renderTransactionsBreakdown(data) {
+            const wrapper = document.getElementById('real-transactions-wrapper');
+            if (!wrapper) return;
+
+            // Оповещения о новых/исчезнувших типах
+            const alertsEl = document.getElementById('real-tx-alerts');
+            alertsEl.innerHTML = '';
+            if (data.alerts && data.alerts.length > 0) {
+                data.alerts.forEach(alert => {
+                    const cls = alert.level === 'warning' ? 'background:#fff3cd;border:1px solid #ffc107;' : 'background:#d1ecf1;border:1px solid #0dcaf0;';
+                    let html = '<div style="' + cls + 'padding:12px 16px;border-radius:8px;margin-bottom:12px;font-size:13px;">';
+                    html += '<strong>' + (alert.level === 'warning' ? '\u26A0\uFE0F ' : '\u2139\uFE0F ') + alert.message + '</strong>';
+                    if (alert.details && alert.details.length > 0) {
+                        html += '<ul style="margin:8px 0 0;padding-left:20px;">';
+                        alert.details.forEach(d => {
+                            html += '<li><code>' + escapeHtml(d.key) + '</code> (' + d.category + ') — ' + escapeHtml(d.name || '') + '</li>';
+                        });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                    alertsEl.innerHTML += html;
+                });
+            }
+
+            // Таблица операций
+            const opsTbody = document.getElementById('real-tx-operations-tbody');
+            opsTbody.innerHTML = (data.operations || []).map(op => {
+                const cls = op.sum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                return '<tr>' +
+                    '<td style="text-align:left;">' + escapeHtml(op.name) + '</td>' +
+                    '<td class="real-amount-right">' + op.count + '</td>' +
+                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(op.sum) + '</td>' +
+                '</tr>';
+            }).join('');
+
+            // Таблица услуг
+            const svcTbody = document.getElementById('real-tx-services-tbody');
+            svcTbody.innerHTML = (data.services || []).map(svc => {
+                const cls = svc.sum >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                // Русские названия для известных услуг
+                const svcNames = {
+                    'MarketplaceServiceItemDirectFlowLogistic': 'Магистральная логистика',
+                    'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля',
+                    'MarketplaceServiceItemReturnFlowLogistic': 'Обратная логистика возвратов',
+                    'MarketplaceServiceItemReturnNotDelivToCustomer': 'Возврат — не доставлен',
+                    'MarketplaceServiceItemReturnAfterDelivToCustomer': 'Возврат — после доставки',
+                    'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возвраты ПВЗ',
+                    'MarketplaceRedistributionOfAcquiringOperation': 'Эквайринг',
+                    'PremiumMembershipCommission': 'Premium (процент)',
+                    'MarketplaceServiceBrandCommission': 'Продвижение бренда',
+                    'MarketplaceServiceItemTemporaryStorage': 'Временное хранение',
+                    'MarketplaceServiceItemTemporaryStorageRedistribution': 'Перераспределение хранения',
+                    'MarketplaceServiceProductMovementFromWarehouse': 'Перемещение со склада',
+                    'MarketplaceServiceSellerReturnsCargoAssortment': 'Подготовка возвратов'
+                };
+                const label = svcNames[svc.name] || svc.name;
+                return '<tr>' +
+                    '<td style="text-align:left;">' + escapeHtml(label) + ' <span style="color:#aaa;font-size:11px;">(' + escapeHtml(svc.name) + ')</span></td>' +
+                    '<td class="real-amount-right">' + svc.count + '</td>' +
+                    '<td class="real-amount-right ' + cls + '">' + fmtRealMoney(svc.sum) + '</td>' +
+                '</tr>';
+            }).join('');
+
+            wrapper.style.display = 'block';
         }
 
         // ============================================================================
@@ -29744,6 +29905,232 @@ def api_finance_realization():
         return jsonify({'success': False, 'error': 'Не удалось подключиться к Ozon API'}), 502
     except Exception as e:
         print(f"  ❌ Ошибка реализации: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+# API ФИНАНСЫ — ДЕТАЛИЗАЦИЯ УДЕРЖАНИЙ (из /v3/finance/transaction/list)
+# ============================================================================
+# Собирает ВСЕ удержания из Ozon Transaction API за указанный период.
+# Группирует по типу операции и типу услуги. Сверяет с реестром известных
+# типов в БД и оповещает о новых/исчезнувших типах.
+# ============================================================================
+
+@app.route('/api/finance/transactions-breakdown')
+@require_auth()
+def api_finance_transactions_breakdown():
+    """
+    Получить детализацию всех удержаний из Ozon Transaction API.
+
+    Параметры:
+        month (str): YYYY-MM — один месяц
+        quarter (str): YYYY-Q1..Q4 — квартал (3 месяца)
+
+    Возвращает:
+        JSON: разбивка по типам операций и услуг, оповещения о новых типах.
+    """
+    import calendar
+    import re
+    from datetime import datetime as _dt
+
+    # ── Определяем период ──
+    quarter_str = request.args.get('quarter', '')
+    month_str = request.args.get('month', '')
+
+    quarter_months_map = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
+
+    if quarter_str:
+        m = re.match(r'^(\d{4})-Q([1-4])$', quarter_str)
+        if not m:
+            return jsonify({'success': False, 'error': 'Неверный формат квартала'}), 400
+        q_year = int(m.group(1))
+        q_num = int(m.group(2))
+        months = quarter_months_map[q_num]
+        date_from = f"{q_year}-{months[0]:02d}-01T00:00:00.000Z"
+        last_day = calendar.monthrange(q_year, months[-1])[1]
+        date_to = f"{q_year}-{months[-1]:02d}-{last_day}T23:59:59.999Z"
+        period_label = f"Q{q_num} {q_year}"
+    else:
+        if not month_str:
+            now = _dt.now()
+            month_str = now.strftime('%Y-%m')
+        try:
+            dt = _dt.strptime(month_str, '%Y-%m')
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Неверный формат месяца'}), 400
+        last_day = calendar.monthrange(dt.year, dt.month)[1]
+        date_from = f"{dt.year}-{dt.month:02d}-01T00:00:00.000Z"
+        date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
+        period_label = month_str
+
+    # ── Запросы к Ozon Transaction API ──
+    ozon_headers = get_ozon_headers()
+    op_type_totals = {}   # {operation_type: {name, sum, count}}
+    svc_totals = {}       # {service_name: {sum, count}}
+    total_ops = 0
+
+    try:
+        page = 1
+        while True:
+            payload = {
+                "filter": {
+                    "date": {"from": date_from, "to": date_to},
+                    "posting_number": "",
+                    "transaction_type": "all"
+                },
+                "page": page,
+                "page_size": 1000
+            }
+
+            print(f"  📊 Транзакции {period_label}: страница {page}...")
+            resp = requests.post(
+                f"{OZON_HOST}/v3/finance/transaction/list",
+                json=payload, headers=ozon_headers, timeout=120
+            )
+
+            if resp.status_code != 200:
+                err = resp.text[:300]
+                print(f"  ❌ Transaction API: HTTP {resp.status_code} — {err}")
+                return jsonify({'success': False, 'error': f'Ozon API ошибка: {err[:200]}'}), resp.status_code
+
+            result = resp.json().get('result', {})
+            ops = result.get('operations', [])
+            page_count = result.get('page_count', 0)
+
+            if not ops:
+                break
+
+            for op in ops:
+                total_ops += 1
+                ot = op.get('operation_type', '')
+                otn = op.get('operation_type_name', '')
+                amt = op.get('amount', 0)
+
+                if ot not in op_type_totals:
+                    op_type_totals[ot] = {'name': otn, 'sum': 0.0, 'count': 0}
+                op_type_totals[ot]['sum'] += amt
+                op_type_totals[ot]['count'] += 1
+
+                for svc in op.get('services', []):
+                    sn = svc.get('name', '')
+                    sp = svc.get('price', 0)
+                    if sn:
+                        if sn not in svc_totals:
+                            svc_totals[sn] = {'sum': 0.0, 'count': 0}
+                        svc_totals[sn]['sum'] += sp
+                        svc_totals[sn]['count'] += 1
+
+            if page >= page_count:
+                break
+            page += 1
+
+        print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page} стр.")
+
+        # ── Сверка с реестром типов в БД ──
+        today = _dt.now().strftime('%Y-%m-%d')
+        db = get_db()
+        cursor = db.cursor()
+
+        # Текущие типы из БД
+        cursor.execute('SELECT type_key, type_category, display_name FROM transaction_type_registry')
+        known = {}
+        for row in cursor.fetchall():
+            known[(row['type_key'], row['type_category'])] = row['display_name']
+
+        new_types = []
+        current_keys = set()
+
+        # Проверяем operation_type
+        for ot, info in op_type_totals.items():
+            key = (ot, 'operation')
+            current_keys.add(key)
+            if key not in known:
+                new_types.append({'key': ot, 'category': 'operation', 'name': info['name']})
+                cursor.execute('''
+                    INSERT OR IGNORE INTO transaction_type_registry
+                    (type_key, type_category, display_name, first_seen_date, last_seen_date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (ot, 'operation', info['name'], today, today))
+            else:
+                cursor.execute('''
+                    UPDATE transaction_type_registry SET last_seen_date = ?
+                    WHERE type_key = ? AND type_category = ?
+                ''', (today, ot, 'operation'))
+
+        # Проверяем service names
+        for sn in svc_totals:
+            key = (sn, 'service')
+            current_keys.add(key)
+            if key not in known:
+                new_types.append({'key': sn, 'category': 'service', 'name': sn})
+                cursor.execute('''
+                    INSERT OR IGNORE INTO transaction_type_registry
+                    (type_key, type_category, display_name, first_seen_date, last_seen_date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (sn, 'service', sn, today, today))
+            else:
+                cursor.execute('''
+                    UPDATE transaction_type_registry SET last_seen_date = ?
+                    WHERE type_key = ? AND type_category = ?
+                ''', (today, sn, 'service'))
+
+        # Проверяем исчезнувшие типы (были в реестре, но нет в текущих данных)
+        missing_types = []
+        for (tk, tc), dn in known.items():
+            if (tk, tc) not in current_keys:
+                missing_types.append({'key': tk, 'category': tc, 'name': dn})
+
+        db.commit()
+
+        # ── Формируем ответ ──
+        operations_list = []
+        for ot, info in sorted(op_type_totals.items(), key=lambda x: x[1]['sum']):
+            operations_list.append({
+                'type': ot,
+                'name': info['name'],
+                'sum': round(info['sum'], 2),
+                'count': info['count']
+            })
+
+        services_list = []
+        for sn, info in sorted(svc_totals.items(), key=lambda x: x[1]['sum']):
+            services_list.append({
+                'name': sn,
+                'sum': round(info['sum'], 2),
+                'count': info['count']
+            })
+
+        alerts = []
+        if new_types:
+            alerts.append({
+                'level': 'warning',
+                'message': f"Обнаружены новые типы операций/услуг ({len(new_types)} шт)",
+                'details': new_types
+            })
+        if missing_types:
+            alerts.append({
+                'level': 'info',
+                'message': f"Типы, отсутствующие в текущем периоде ({len(missing_types)} шт)",
+                'details': missing_types
+            })
+
+        return jsonify({
+            'success': True,
+            'period': period_label,
+            'total_operations': total_ops,
+            'operations': operations_list,
+            'services': services_list,
+            'alerts': alerts
+        })
+
+    except requests.exceptions.Timeout:
+        return jsonify({'success': False, 'error': 'Таймаут запроса к Ozon API'}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({'success': False, 'error': 'Не удалось подключиться к Ozon API'}), 502
+    except Exception as e:
+        print(f"  ❌ Ошибка транзакций: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
