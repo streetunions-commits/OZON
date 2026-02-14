@@ -13101,8 +13101,11 @@ HTML_TEMPLATE = '''
             if (btnText) { btnText.textContent = loadingMsg; }
 
             try {
-                const resp = await authFetch(url);
-                const data = await resp.json();
+                // Запускаем оба запроса ПАРАЛЛЕЛЬНО
+                const realizationPromise = authFetch(url).then(r => r.json());
+                const txPromise = loadTransactionsBreakdown();
+
+                const data = await realizationPromise;
 
                 document.getElementById('real-loading').style.display = 'none';
 
@@ -13159,9 +13162,6 @@ HTML_TEMPLATE = '''
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
-
-                // Загружаем детализацию удержаний из Transaction API
-                loadTransactionsBreakdown();
 
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
