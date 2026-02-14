@@ -9383,6 +9383,9 @@ HTML_TEMPLATE = '''
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
                         </button>
+                        <span id="real-cache-indicator" style="display:none; font-size:12px; color:#888; margin-left:8px; cursor:pointer;" title="Нажмите для обновления данных">
+                            из кэша <span id="real-cache-age"></span> — <a href="#" onclick="loadRealizationData(true); return false;" style="color:#3182ce; text-decoration:underline;">обновить</a>
+                        </span>
                     </div>
 
                     <!-- Сводные карточки -->
@@ -13084,7 +13087,7 @@ HTML_TEMPLATE = '''
          * Загрузить акт реализации из Ozon API за выбранный месяц.
          * Читает месяц из select и отправляет на /api/finance/realization?month=YYYY-MM.
          */
-        async function loadRealizationData() {
+        async function loadRealizationData(forceRefresh) {
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13100,6 +13103,11 @@ HTML_TEMPLATE = '''
                 url = '/api/finance/realization?month=' + encodeURIComponent(month);
             }
 
+            // Принудительное обновление кэша
+            if (forceRefresh) {
+                url += (url.includes('?') ? '&' : '?') + 'refresh=1';
+            }
+
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
@@ -13109,16 +13117,19 @@ HTML_TEMPLATE = '''
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
+            const cacheInd = document.getElementById('real-cache-indicator');
+            if (cacheInd) cacheInd.style.display = 'none';
             document.getElementById('real-loading').style.display = 'block';
 
             const btn = document.querySelector('.real-load-btn');
             if (btn) { btn.disabled = true; }
             const btnText = document.getElementById('real-load-btn-text');
-            const loadingMsg = periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...';
+            const loadingMsg = forceRefresh ? 'Обновление из Ozon...' : (periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...');
             if (btnText) { btnText.textContent = loadingMsg; }
 
             // Запускаем транзакции ПАРАЛЛЕЛЬНО (не ждём)
-            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
+            const txUrl = forceRefresh ? '&refresh=1' : '';
+            loadTransactionsBreakdown(forceRefresh).catch(err => console.error('[TX] error:', err));
 
             try {
                 const resp = await authFetch(url);
@@ -13133,6 +13144,20 @@ HTML_TEMPLATE = '''
                 }
 
                 const s = data.summary || {};
+
+                // Индикатор кэша
+                if (data.from_cache && cacheInd) {
+                    const ageH = data.cache_age_hours || 0;
+                    let ageText = '';
+                    if (ageH < 1) {
+                        ageText = '(' + Math.round(ageH * 60) + ' мин. назад)';
+                    } else {
+                        ageText = '(' + Math.round(ageH) + ' ч. назад)';
+                    }
+                    const ageEl = document.getElementById('real-cache-age');
+                    if (ageEl) ageEl.textContent = ageText;
+                    cacheInd.style.display = 'inline';
+                }
 
                 // Сводные карточки
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
@@ -13224,7 +13249,7 @@ HTML_TEMPLATE = '''
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
          * Вызывается автоматически после успешной загрузки реализации.
          */
-        async function loadTransactionsBreakdown() {
+        async function loadTransactionsBreakdown(forceRefresh) {
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13234,6 +13259,10 @@ HTML_TEMPLATE = '''
             } else {
                 const sel = document.getElementById('real-month-select');
                 url = '/api/finance/transactions-breakdown?month=' + encodeURIComponent(sel.value);
+            }
+
+            if (forceRefresh) {
+                url += '&refresh=1';
             }
 
             try {
@@ -30311,6 +30340,16 @@ def api_finance_transactions_breakdown():
                                 item_sku = str(item.get('sku', ''))
                                 if item_sku:
                                     crossdocking_by_sku[item_sku] = crossdocking_by_sku.get(item_sku, 0.0) + per_item
+
+        # Debug: структура первой операции с кросс-докингом
+        cd_ops_count = sum(1 for op in all_ops for svc in op.get('services', []) if svc.get('name') == 'MarketplaceServiceItemCrossdocking')
+        first_cd_op = next((op for op in all_ops if any(s.get('name') == 'MarketplaceServiceItemCrossdocking' for s in op.get('services', []))), None)
+        if first_cd_op:
+            print(f"  🔍 DEBUG Crossdocking: {cd_ops_count} операций, items={first_cd_op.get('items', 'NO_ITEMS')}, posting={first_cd_op.get('posting', 'NO_POSTING')}")
+            print(f"  🔍 DEBUG Crossdocking by SKU: {len(crossdocking_by_sku)} SKU, total={sum(crossdocking_by_sku.values()):.2f}")
+            print(f"  🔍 DEBUG op keys: {list(first_cd_op.keys())}")
+        else:
+            print(f"  🔍 DEBUG: Нет операций с кросс-докингом в периоде {period_label}")
 
         print(f"  ✅ Транзакции {period_label}: {total_ops} операций, {page_count} стр.")
 
