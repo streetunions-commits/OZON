@@ -13100,6 +13100,9 @@ HTML_TEMPLATE = '''
             const loadingMsg = periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...';
             if (btnText) { btnText.textContent = loadingMsg; }
 
+            // Запускаем транзакции ПАРАЛЛЕЛЬНО (не ждём)
+            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
+
             try {
                 const resp = await authFetch(url);
                 const data = await resp.json();
@@ -13160,8 +13163,6 @@ HTML_TEMPLATE = '''
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
 
-                // Загружаем детализацию удержаний (логистика и т.д.)
-                try { loadTransactionsBreakdown(); } catch(txErr) { alert('TX ERROR: ' + txErr.message); }
 
             } catch (e) {
                 document.getElementById('real-loading').style.display = 'none';
@@ -13215,7 +13216,6 @@ HTML_TEMPLATE = '''
          * Вызывается автоматически после успешной загрузки реализации.
          */
         async function loadTransactionsBreakdown() {
-            console.log('[TX-DEBUG] loadTransactionsBreakdown CALLED');
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13228,10 +13228,8 @@ HTML_TEMPLATE = '''
             }
 
             try {
-                console.log('[TX] fetching:', url);
                 const resp = await authFetch(url);
                 const data = await resp.json();
-                console.log('[TX] response:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length);
 
                 if (!data.success) {
                     console.error('Transactions breakdown error:', data.error);
@@ -13343,9 +13341,7 @@ HTML_TEMPLATE = '''
                 }
             });
 
-            console.log('[TX] logistics: total=' + logTotal, 'details:', logDetails);
             const logCard = document.getElementById('real-logistics-card');
-            console.log('[TX] logCard element:', logCard);
             if (logCard && logTotal > 0) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
                 let tooltipHtml = '';
