@@ -29774,10 +29774,10 @@ def _build_realization_from_transactions(year, month):
 
     ozon_headers = get_ozon_headers()
 
-    # Период: 1-е число месяца — последний день (или сегодня, если текущий)
+    # Период: 1-е число месяца — вчерашний день (если текущий месяц)
     now = _dt.now()
     if year == now.year and month == now.month:
-        last_day = now.day
+        last_day = max(now.day - 1, 1)  # Вчера (минимум 1-е число)
     else:
         last_day = calendar.monthrange(year, month)[1]
 
