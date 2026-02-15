@@ -13323,7 +13323,7 @@ HTML_TEMPLATE = '''
 
             console.log('[TX] logTotal:', logTotal, 'details:', logDetails.length);
             const logCard = document.getElementById('real-logistics-card');
-            if (logCard && logTotal > 0) {
+            if (logCard) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
                 // Бейдж с количеством подкатегорий
                 const logBadge = document.getElementById('real-logistics-badge');
@@ -13412,7 +13412,7 @@ HTML_TEMPLATE = '''
                 const total = catTotals[cfg.key];
                 const card = document.getElementById(cfg.cardId);
                 console.log('[TX] card', cfg.key, 'total:', total, 'card:', !!card);
-                if (card && total !== 0) {
+                if (card) {
                     document.getElementById(cfg.totalId).textContent = fmtRealMoney(total);
                     const details = catDetails[cfg.key];
                     // Бейдж с количеством
