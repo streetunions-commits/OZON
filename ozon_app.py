@@ -29875,12 +29875,13 @@ def _build_realization_from_transactions(year, month):
                 p['commission'] += abs(sale_comm)
                 p['seller_receives'] += amount
 
-        # Возврат: accruals_for_sale < 0 или тип операции содержит Return
-        elif accruals < 0 or 'Return' in op_type:
-            ret_amount = abs(accruals) if accruals < 0 else abs(amount)
+        # Возврат товара: только accruals_for_sale < 0 (ClientReturnAgentOperation)
+        # OperationItemReturn (accruals=0) — это возврат комиссии, НЕ товара
+        elif accruals < 0:
+            ret_amount = abs(accruals)
             returns_total += ret_amount
             ret_comm = abs(sale_comm) if sale_comm else 0
-            commission_total -= ret_comm  # Возврат комиссии
+            commission_total -= ret_comm  # Возврат комиссии при возврате товара
             seller_receives += amount
             qty = max(len(items), 1)
             return_count += qty
@@ -29903,7 +29904,7 @@ def _build_realization_from_transactions(year, month):
                 p['returns'] += ret_amount
                 p['seller_receives'] += amount
 
-        # Прочие операции (комиссии, логистика и т.д.) — учитываем в seller_receives
+        # Прочие операции (возврат комиссии, эквайринг, логистика и т.д.) — учитываем в seller_receives
         else:
             seller_receives += amount
 
