@@ -12960,8 +12960,8 @@ HTML_TEMPLATE = '''
                             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
             sel.innerHTML = '';
-            // Генерируем 24 месяца: от предыдущего вниз (текущий месяц ещё не закрыт в Ozon)
-            for (let i = 1; i < 25; i++) {
+            // Генерируем 24 месяца: от текущего вниз
+            for (let i = 0; i < 24; i++) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
                 const label = months[d.getMonth()] + ' ' + d.getFullYear();
@@ -29732,6 +29732,219 @@ def api_finance_categories_update():
 #   - /v3/finance/transaction/list — основной, все транзакции за период
 # ============================================================================
 
+def _build_realization_from_transactions(year, month):
+    """
+    Построить данные реализации из /v3/finance/transaction/list для текущего (незакрытого) месяца.
+
+    Ozon API /v2/finance/realization доступен только для закрытых месяцев.
+    Для текущего месяца используем транзакции — живые данные, обновляются ежедневно.
+
+    Аргументы:
+        year (int): Год
+        month (int): Месяц (1-12)
+
+    Возвращает:
+        dict: Данные в том же формате, что и /v2/finance/realization (summary + products)
+    """
+    import calendar
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import datetime as _dt
+
+    ozon_headers = get_ozon_headers()
+
+    # Период: 1-е число месяца — последний день (или сегодня, если текущий)
+    now = _dt.now()
+    if year == now.year and month == now.month:
+        last_day = now.day
+    else:
+        last_day = calendar.monthrange(year, month)[1]
+
+    date_from = f"{year}-{month:02d}-01T00:00:00.000Z"
+    date_to = f"{year}-{month:02d}-{last_day}T23:59:59.999Z"
+    period_label = f"{year}-{month:02d}"
+
+    print(f"  📊 Реализация (транзакции) за {period_label}: {date_from} — {date_to}")
+
+    # ── Загрузка всех транзакций с пагинацией ──
+    def _fetch_page(pg):
+        payload = {
+            "filter": {
+                "date": {"from": date_from, "to": date_to},
+                "posting_number": "",
+                "transaction_type": "all"
+            },
+            "page": pg,
+            "page_size": 1000
+        }
+        return requests.post(
+            f"{OZON_HOST}/v3/finance/transaction/list",
+            json=payload, headers=ozon_headers, timeout=120
+        )
+
+    resp1 = _fetch_page(1)
+    if resp1.status_code != 200:
+        err = resp1.text[:300]
+        print(f"  ❌ Транзакции {period_label}: HTTP {resp1.status_code} — {err}")
+        return {'success': False, 'error': f'Ошибка Ozon API: HTTP {resp1.status_code}'}
+
+    result1 = resp1.json().get('result', {})
+    all_ops = list(result1.get('operations', []))
+    page_count = result1.get('page_count', 0)
+
+    if page_count > 1:
+        print(f"  📊 Транзакции {period_label}: стр. 2-{page_count} параллельно...")
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(_fetch_page, pg): pg for pg in range(2, page_count + 1)}
+            for future in as_completed(futures):
+                r = future.result()
+                if r.status_code == 200:
+                    page_ops = r.json().get('result', {}).get('operations', [])
+                    all_ops.extend(page_ops)
+
+    print(f"  ✅ Транзакции {period_label}: {len(all_ops)} операций, {page_count} стр.")
+
+    # ── Агрегация транзакций в формат реализации ──
+    gross_sales = 0.0
+    returns_total = 0.0
+    commission_total = 0.0
+    seller_receives = 0.0
+    delivery_count = 0
+    return_count = 0
+    products_map = {}
+
+    for op in all_ops:
+        accruals = op.get('accruals_for_sale', 0) or 0
+        sale_comm = op.get('sale_commission', 0) or 0
+        amount = op.get('amount', 0) or 0
+        items = op.get('items', [])
+        op_type = op.get('operation_type', '')
+
+        # Определяем SKU и имя товара из items
+        item_sku = ''
+        item_name = ''
+        if items:
+            item_sku = str(items[0].get('sku', ''))
+            item_name = items[0].get('name', '')
+
+        # Продажа: accruals_for_sale > 0 (гросс-выручка от продажи)
+        if accruals > 0:
+            gross_sales += accruals
+            commission_total += abs(sale_comm)
+            seller_receives += amount
+            qty = max(len(items), 1)
+            delivery_count += qty
+
+            if item_sku:
+                if item_sku not in products_map:
+                    products_map[item_sku] = {
+                        'name': item_name[:80] if item_name else 'Неизвестный товар',
+                        'sku': item_sku,
+                        'offer_id': '',
+                        'delivery_qty': 0,
+                        'return_qty': 0,
+                        'gross_sales': 0.0,
+                        'returns': 0.0,
+                        'commission': 0.0,
+                        'seller_receives': 0.0,
+                    }
+                p = products_map[item_sku]
+                p['delivery_qty'] += qty
+                p['gross_sales'] += accruals
+                p['commission'] += abs(sale_comm)
+                p['seller_receives'] += amount
+
+        # Возврат: accruals_for_sale < 0 или тип операции содержит Return
+        elif accruals < 0 or 'Return' in op_type:
+            ret_amount = abs(accruals) if accruals < 0 else abs(amount)
+            returns_total += ret_amount
+            ret_comm = abs(sale_comm) if sale_comm else 0
+            commission_total -= ret_comm  # Возврат комиссии
+            seller_receives += amount
+            qty = max(len(items), 1)
+            return_count += qty
+
+            if item_sku:
+                if item_sku not in products_map:
+                    products_map[item_sku] = {
+                        'name': item_name[:80] if item_name else 'Неизвестный товар',
+                        'sku': item_sku,
+                        'offer_id': '',
+                        'delivery_qty': 0,
+                        'return_qty': 0,
+                        'gross_sales': 0.0,
+                        'returns': 0.0,
+                        'commission': 0.0,
+                        'seller_receives': 0.0,
+                    }
+                p = products_map[item_sku]
+                p['return_qty'] += qty
+                p['returns'] += ret_amount
+                p['seller_receives'] += amount
+
+        # Прочие операции (комиссии, логистика и т.д.) — учитываем в seller_receives
+        else:
+            seller_receives += amount
+
+    # ── % комиссии ──
+    avg_commission_pct = (commission_total / gross_sales * 100) if gross_sales > 0 else 0
+
+    # ── Таблица товаров ──
+    products_list = []
+    for key, pdata in sorted(products_map.items(),
+                              key=lambda x: abs(x[1]['gross_sales']), reverse=True):
+        dq = pdata['delivery_qty']
+        avg_price = pdata['gross_sales'] / dq if dq > 0 else 0
+        p_comm_pct = (pdata['commission'] / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
+
+        products_list.append({
+            'sku': pdata['sku'],
+            'offer_id': pdata['offer_id'],
+            'name': pdata['name'],
+            'seller_price': round(avg_price, 2),
+            'commission_ratio': round(p_comm_pct, 2),
+            'delivery_qty': pdata['delivery_qty'],
+            'return_qty': pdata['return_qty'],
+            'gross_sales': round(pdata['gross_sales'], 2),
+            'returns': round(pdata['returns'], 2),
+            'commission': round(pdata['commission'], 2),
+            'seller_receives': round(pdata['seller_receives'], 2),
+            'bonus': 0.0
+        })
+
+    return {
+        'success': True,
+        'period': period_label,
+        'is_quarter': False,
+        'header': {
+            'number': f'Предварительный ({period_label})',
+            'doc_date': '', 'start_date': f'{year}-{month:02d}-01',
+            'stop_date': f'{year}-{month:02d}-{last_day}',
+            'contract_date': '', 'contract_number': '',
+            'payer_name': '', 'payer_inn': '', 'payer_kpp': '',
+            'rcv_name': '', 'rcv_inn': '', 'rcv_kpp': '',
+        },
+        'summary': {
+            'gross_sales': round(gross_sales, 2),
+            'returns': round(returns_total, 2),
+            'commission': round(commission_total, 2),
+            'total_deductions': round(commission_total, 2),
+            'seller_receives': round(seller_receives, 2),
+            'bonuses': 0.0,
+            'standard_fee': round(commission_total, 2),
+            'stars': 0.0,
+            'bank_coinvestment': 0.0,
+            'net_total': round(seller_receives, 2),
+            'avg_commission_pct': round(avg_commission_pct, 2),
+            'delivery_count': delivery_count,
+            'return_count': return_count
+        },
+        'products': products_list,
+        'total_rows': len(all_ops),
+        'total_products': len(products_list),
+        'warnings': 'Данные за текущий месяц — предварительные (из транзакций)'
+    }
+
+
 @app.route('/api/finance/realization')
 @require_auth()
 def api_finance_realization():
@@ -29791,20 +30004,52 @@ def api_finance_realization():
             return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
         period_label = month_str
 
-    # ── Проверяем кэш ──
+    # ── Текущий (незакрытый) месяц → данные из /v3/finance/transaction/list ──
+    now = _dt.now()
+    current_ym = (now.year, now.month)
+
+    if not is_quarter:
+        # Один месяц: если текущий — переключаемся на транзакции
+        yr, mo = months_to_fetch[0]
+        if (yr, mo) == current_ym:
+            print(f"  📊 Месяц {yr}-{mo:02d} ещё не закрыт — используем транзакции")
+            try:
+                result = _build_realization_from_transactions(yr, mo)
+                return jsonify(result)
+            except Exception as e:
+                print(f"  ❌ Ошибка транзакций: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+    # Для квартала: определяем какие месяцы текущие (незакрытые)
+    current_month_in_quarter = None
+    if is_quarter:
+        for yr, mo in months_to_fetch:
+            if (yr, mo) == current_ym:
+                current_month_in_quarter = (yr, mo)
+                break
+        # Убираем текущий месяц из realization-запросов (будет через транзакции)
+        if current_month_in_quarter:
+            months_to_fetch = [(yr, mo) for yr, mo in months_to_fetch if (yr, mo) != current_ym]
+            print(f"  📊 Квартал {period_label}: месяц {current_ym[0]}-{current_ym[1]:02d} через транзакции")
+        # Будущие месяцы тоже убираем (ещё не начались)
+        months_to_fetch = [(yr, mo) for yr, mo in months_to_fetch
+                           if (yr, mo) < current_ym]
+
+    # ── Проверяем кэш (только для закрытых месяцев) ──
     cache_key = quarter_str if quarter_str else month_str
-    try:
-        db_cache = sqlite3.connect(DB_PATH)
-        row = db_cache.execute(
-            'SELECT response_json FROM realization_cache WHERE period_key = ?',
-            (cache_key,)
-        ).fetchone()
-        db_cache.close()
-        if row:
-            print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
-            return Response(row[0], mimetype='application/json')
-    except Exception as e:
-        print(f"  ⚠️ Ошибка чтения кэша реализации: {e}")
+    if not current_month_in_quarter:
+        try:
+            db_cache = sqlite3.connect(DB_PATH)
+            row = db_cache.execute(
+                'SELECT response_json FROM realization_cache WHERE period_key = ?',
+                (cache_key,)
+            ).fetchone()
+            db_cache.close()
+            if row:
+                print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
+                return Response(row[0], mimetype='application/json')
+        except Exception as e:
+            print(f"  ⚠️ Ошибка чтения кэша реализации: {e}")
 
     # ── Запросы к Ozon API /v2/finance/realization ──
     ozon_headers = get_ozon_headers()
@@ -29853,7 +30098,7 @@ def api_finance_realization():
                     if not first_header and header:
                         first_header = header
                     all_rows.extend(rows)
-        else:
+        elif len(months_to_fetch) == 1:
             # Один месяц: один запрос
             yr, mo = months_to_fetch[0]
             yr, mo, resp = _fetch_realization_month(yr, mo)
@@ -29868,7 +30113,7 @@ def api_finance_realization():
                 all_rows = result.get('rows', [])
                 print(f"  ✅ Получено {len(all_rows)} строк за {yr}-{mo:02d}")
 
-        if errors and not all_rows:
+        if errors and not all_rows and not current_month_in_quarter:
             return jsonify({
                 'success': False,
                 'error': 'Ошибки загрузки: ' + '; '.join(errors)
@@ -29878,7 +30123,7 @@ def api_finance_realization():
         header = first_header
 
         # Для квартала подменяем даты периода в header
-        if is_quarter and header:
+        if is_quarter and header and months_to_fetch:
             first_mo = months_to_fetch[0]
             last_mo = months_to_fetch[-1]
             last_day = calendar.monthrange(last_mo[0], last_mo[1])[1]
@@ -30068,20 +30313,63 @@ def api_finance_realization():
             'warnings': errors if errors else None
         }
 
-        # ── Сохраняем в кэш ──
-        try:
-            import json as _json
-            response_json = _json.dumps(response_data, ensure_ascii=False)
-            db_cache = sqlite3.connect(DB_PATH)
-            db_cache.execute(
-                'INSERT OR REPLACE INTO realization_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
-                (cache_key, response_json, _dt.now().isoformat())
-            )
-            db_cache.commit()
-            db_cache.close()
-            print(f"  💾 Реализация {cache_key}: сохранено в кэш")
-        except Exception as e:
-            print(f"  ⚠️ Ошибка записи кэша реализации: {e}")
+        # ── Если квартал содержит текущий месяц — добавляем данные из транзакций ──
+        if current_month_in_quarter:
+            try:
+                tx_yr, tx_mo = current_month_in_quarter
+                tx_data = _build_realization_from_transactions(tx_yr, tx_mo)
+                if tx_data.get('success'):
+                    tx_s = tx_data.get('summary', {})
+                    s = response_data['summary']
+                    # Суммируем показатели
+                    s['gross_sales'] = round(s['gross_sales'] + tx_s.get('gross_sales', 0), 2)
+                    s['returns'] = round(s['returns'] + tx_s.get('returns', 0), 2)
+                    s['commission'] = round(s['commission'] + tx_s.get('commission', 0), 2)
+                    s['total_deductions'] = round(s['total_deductions'] + tx_s.get('total_deductions', 0), 2)
+                    s['seller_receives'] = round(s['seller_receives'] + tx_s.get('seller_receives', 0), 2)
+                    s['net_total'] = round(s['net_total'] + tx_s.get('net_total', 0), 2)
+                    s['delivery_count'] += tx_s.get('delivery_count', 0)
+                    s['return_count'] += tx_s.get('return_count', 0)
+                    # Пересчитываем средний % комиссии
+                    if s['gross_sales'] > 0:
+                        s['avg_commission_pct'] = round(s['commission'] / s['gross_sales'] * 100, 2)
+                    # Добавляем товары из транзакций (merge по sku)
+                    existing_skus = {p['sku']: p for p in response_data['products']}
+                    for tp in tx_data.get('products', []):
+                        sku = tp['sku']
+                        if sku in existing_skus:
+                            ep = existing_skus[sku]
+                            ep['delivery_qty'] += tp['delivery_qty']
+                            ep['return_qty'] += tp['return_qty']
+                            ep['gross_sales'] = round(ep['gross_sales'] + tp['gross_sales'], 2)
+                            ep['returns'] = round(ep['returns'] + tp['returns'], 2)
+                            ep['commission'] = round(ep['commission'] + tp['commission'], 2)
+                            ep['seller_receives'] = round(ep['seller_receives'] + tp['seller_receives'], 2)
+                        else:
+                            response_data['products'].append(tp)
+                    # Пересортировка по гросс-продажам
+                    response_data['products'].sort(key=lambda x: abs(x['gross_sales']), reverse=True)
+                    response_data['total_products'] = len(response_data['products'])
+                    response_data['warnings'] = 'Включает предварительные данные за текущий месяц'
+                    print(f"  ✅ Квартал {period_label}: данные транзакций за {tx_yr}-{tx_mo:02d} добавлены")
+            except Exception as e:
+                print(f"  ⚠️ Ошибка добавления транзакций в квартал: {e}")
+
+        # ── Сохраняем в кэш (только закрытые периоды — текущий месяц не кэшируем) ──
+        if not current_month_in_quarter:
+            try:
+                import json as _json
+                response_json = _json.dumps(response_data, ensure_ascii=False)
+                db_cache = sqlite3.connect(DB_PATH)
+                db_cache.execute(
+                    'INSERT OR REPLACE INTO realization_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
+                    (cache_key, response_json, _dt.now().isoformat())
+                )
+                db_cache.commit()
+                db_cache.close()
+                print(f"  💾 Реализация {cache_key}: сохранено в кэш")
+            except Exception as e:
+                print(f"  ⚠️ Ошибка записи кэша реализации: {e}")
 
         return jsonify(response_data)
 
