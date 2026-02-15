@@ -6294,8 +6294,9 @@ HTML_TEMPLATE = '''
         .real-card-sales .real-card-value { color: #38a169; }
         .real-card-returns { border-left-color: #e53e3e; }
         .real-card-returns .real-card-value { color: #e53e3e; }
-        .real-card-commission { border-left-color: #d69e2e; }
+        .real-card-commission { border-left-color: #d69e2e; cursor: pointer; }
         .real-card-commission .real-card-value { color: #d69e2e; }
+        .real-card-commission .real-detail-value { color: #d69e2e; }
         .real-card-bonus { border-left-color: #667eea; }
         .real-card-bonus .real-card-value { color: #667eea; }
         .real-card-fee { border-left-color: #805ad5; }
@@ -9391,10 +9392,14 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-returns">0 ₽</div>
                             <div class="real-card-hint" id="real-returns-hint"></div>
                         </div>
-                        <div class="real-card real-card-commission">
-                            <div class="real-card-label">Комиссия МП</div>
+                        <div class="real-card real-card-commission" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
+                                <div class="real-card-label">Комиссия МП</div>
+                                <span class="real-card-badge" id="real-commission-badge"></span>
+                            </div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                             <div class="real-card-hint" id="real-commission-hint"></div>
+                            <div class="real-card-details" id="real-commission-details"></div>
                         </div>
                         <div class="real-card real-card-logistics" id="real-logistics-card" style="display:none;" onclick="toggleCardDetails(this)">
                             <div class="real-card-header">
@@ -9437,13 +9442,13 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th style="text-align:left">Артикул</th>
-                                        <th style="text-align:left">Цена</th>
-                                        <th style="text-align:left">Комиссия %</th>
-                                        <th style="text-align:left">Доставки</th>
-                                        <th style="text-align:left">Возвраты</th>
-                                        <th style="text-align:left">Продажи (гросс)</th>
-                                        <th style="text-align:left">Комиссия</th>
-                                        <th style="text-align:left">К получению</th>
+                                        <th style="text-align:right">Цена</th>
+                                        <th style="text-align:right">Комиссия %</th>
+                                        <th style="text-align:right">Доставки</th>
+                                        <th style="text-align:right">Возвраты</th>
+                                        <th style="text-align:right">Продажи (гросс)</th>
+                                        <th style="text-align:right">Комиссия</th>
+                                        <th style="text-align:right">К получению</th>
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
@@ -13066,14 +13071,37 @@ HTML_TEMPLATE = '''
         let _realGrossSales = 0;
         let _realAcquiring = 0;
 
-        /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг */
+        /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
         function updateCommissionCard() {
             const total = _realCommissionBase + _realAcquiring;
             const el = document.getElementById('real-commission');
             const hint = document.getElementById('real-commission-hint');
+            const details = document.getElementById('real-commission-details');
+            const badge = document.getElementById('real-commission-badge');
             if (el) el.textContent = fmtRealMoney(total);
             if (hint && _realGrossSales > 0) {
                 hint.textContent = Math.round(total / _realGrossSales * 100) + '% от реализации';
+            }
+            // Раскрытие: показать комиссию и эквайринг отдельно
+            if (details) {
+                let rows = [];
+                if (_realCommissionBase !== 0) {
+                    rows.push('<div class="real-detail-row"><span class="real-detail-label">Комиссия</span><span class="real-detail-value">' + fmtRealMoney(_realCommissionBase) + '</span></div>');
+                }
+                if (_realAcquiring !== 0) {
+                    rows.push('<div class="real-detail-row"><span class="real-detail-label">Эквайринг</span><span class="real-detail-value">' + fmtRealMoney(_realAcquiring) + '</span></div>');
+                }
+                details.innerHTML = rows.join('');
+                // Бейдж: кол-во составляющих
+                if (badge) {
+                    const cnt = ((_realCommissionBase !== 0) ? 1 : 0) + ((_realAcquiring !== 0) ? 1 : 0);
+                    if (cnt > 0) {
+                        badge.textContent = cnt;
+                        badge.classList.add('visible');
+                    } else {
+                        badge.classList.remove('visible');
+                    }
+                }
             }
         }
 
