@@ -13,7 +13,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from flask import Flask, render_template_string, jsonify, request, send_file
+from flask import Flask, render_template_string, jsonify, request, send_file, Response
 from bs4 import BeautifulSoup
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -1186,6 +1186,15 @@ def init_database():
     # Кеш результатов Transaction API (чтобы не загружать 5 страниц каждый раз)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transaction_breakdown_cache (
+            period_key TEXT PRIMARY KEY,
+            response_json TEXT NOT NULL,
+            cached_at TEXT NOT NULL
+        )
+    ''')
+
+    # Кеш результатов Realization API (акт реализации за месяц/квартал)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS realization_cache (
             period_key TEXT PRIMARY KEY,
             response_json TEXT NOT NULL,
             cached_at TEXT NOT NULL
@@ -13014,9 +13023,11 @@ HTML_TEMPLATE = '''
 
             const qMonths = {1: 'Янв — Мар', 2: 'Апр — Июн', 3: 'Июл — Сен', 4: 'Окт — Дек'};
 
-            // Генерируем 8 кварталов назад от текущего
+            // Начинаем с предыдущего завершённого квартала (текущий ещё не закрыт)
             let y = currentYear;
-            let q = currentQ;
+            let q = currentQ - 1;
+            if (q === 0) { q = 4; y--; }
+
             for (let i = 0; i < 8; i++) {
                 const val = y + '-Q' + q;
                 const label = q + ' квартал ' + y + ' (' + qMonths[q] + ')';
@@ -29780,6 +29791,21 @@ def api_finance_realization():
             return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
         period_label = month_str
 
+    # ── Проверяем кэш ──
+    cache_key = quarter_str if quarter_str else month_str
+    try:
+        db_cache = sqlite3.connect(DB_PATH)
+        row = db_cache.execute(
+            'SELECT response_json FROM realization_cache WHERE period_key = ?',
+            (cache_key,)
+        ).fetchone()
+        db_cache.close()
+        if row:
+            print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
+            return Response(row[0], mimetype='application/json')
+    except Exception as e:
+        print(f"  ⚠️ Ошибка чтения кэша реализации: {e}")
+
     # ── Запросы к Ozon API /v2/finance/realization ──
     ozon_headers = get_ozon_headers()
     all_rows = []
@@ -30042,6 +30068,21 @@ def api_finance_realization():
             'warnings': errors if errors else None
         }
 
+        # ── Сохраняем в кэш ──
+        try:
+            import json as _json
+            response_json = _json.dumps(response_data, ensure_ascii=False)
+            db_cache = sqlite3.connect(DB_PATH)
+            db_cache.execute(
+                'INSERT OR REPLACE INTO realization_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
+                (cache_key, response_json, _dt.now().isoformat())
+            )
+            db_cache.commit()
+            db_cache.close()
+            print(f"  💾 Реализация {cache_key}: сохранено в кэш")
+        except Exception as e:
+            print(f"  ⚠️ Ошибка записи кэша реализации: {e}")
+
         return jsonify(response_data)
 
     except requests.exceptions.Timeout:
@@ -30194,6 +30235,21 @@ def api_finance_transactions_breakdown():
         date_from = f"{dt.year}-{dt.month:02d}-01T00:00:00.000Z"
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
+
+    # ── Проверяем кэш ──
+    cache_key = quarter_str if quarter_str else month_str
+    try:
+        db_cache = sqlite3.connect(DB_PATH)
+        row = db_cache.execute(
+            'SELECT response_json FROM transaction_breakdown_cache WHERE period_key = ?',
+            (cache_key,)
+        ).fetchone()
+        db_cache.close()
+        if row:
+            print(f"  ⚡ Транзакции {cache_key}: отдаём из кэша")
+            return Response(row[0], mimetype='application/json')
+    except Exception as e:
+        print(f"  ⚠️ Ошибка чтения кэша транзакций: {e}")
 
     # ── Запросы к Ozon Transaction API ──
     ozon_headers = get_ozon_headers()
@@ -30397,6 +30453,21 @@ def api_finance_transactions_breakdown():
             'services': services_list,
             'alerts': alerts
         }
+
+        # ── Сохраняем в кэш ──
+        try:
+            import json as _json
+            response_json = _json.dumps(response_data, ensure_ascii=False)
+            db_cache = sqlite3.connect(DB_PATH)
+            db_cache.execute(
+                'INSERT OR REPLACE INTO transaction_breakdown_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
+                (cache_key, response_json, _dt.now().isoformat())
+            )
+            db_cache.commit()
+            db_cache.close()
+            print(f"  💾 Транзакции {cache_key}: сохранено в кэш")
+        except Exception as e:
+            print(f"  ⚠️ Ошибка записи кэша транзакций: {e}")
 
         return jsonify(response_data)
 
