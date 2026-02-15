@@ -6352,6 +6352,9 @@ HTML_TEMPLATE = '''
         .real-types-table tbody td {
             padding: 12px 16px; border-bottom: 1px solid #e9ecef; font-size: 14px;
         }
+        .real-types-table tbody td:first-child {
+            text-align: left;
+        }
         .real-types-table tbody tr:hover { background: #f8f9fa; }
         .real-types-table tbody tr:last-child td { border-bottom: none; }
         .real-amount-positive { color: #38a169; font-weight: 600; }
