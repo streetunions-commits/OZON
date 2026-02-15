@@ -13140,9 +13140,7 @@ HTML_TEMPLATE = '''
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) realHint.textContent = s.delivery_count + ' доставок';
 
-                const grossEl = document.getElementById('real-gross-sales');
-                grossEl.textContent = fmtRealMoney(s.gross_sales);
-                grossEl.dataset.rawValue = s.gross_sales;  // Сохраняем для пересчёта %
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 const grossHint = document.getElementById('real-gross-hint');
                 if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
 
@@ -13228,7 +13226,7 @@ HTML_TEMPLATE = '''
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
          * Вызывается параллельно с основной загрузкой реализации.
          */
-        async function loadTransactionsBreakdown(forceRefresh) {
+        async function loadTransactionsBreakdown() {
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13238,10 +13236,6 @@ HTML_TEMPLATE = '''
             } else {
                 const sel = document.getElementById('real-month-select');
                 url = '/api/finance/transactions-breakdown?month=' + encodeURIComponent(sel.value);
-            }
-
-            if (forceRefresh) {
-                url += '&refresh=1';
             }
 
             try {
@@ -13373,24 +13367,9 @@ HTML_TEMPLATE = '''
                 }
             });
 
-            // Добавляем эквайринг к карточке «Комиссия МП»
-            if (acquiringTotal !== 0) {
-                const commEl = document.getElementById('real-commission');
-                const hintEl = document.getElementById('real-commission-hint');
-                if (commEl) {
-                    const baseCommission = parseFloat(commEl.dataset.rawValue) || 0;
-                    const newVal = baseCommission + Math.abs(acquiringTotal);
-                    commEl.textContent = fmtRealMoney(newVal);
-                    // Пересчитываем процент от гросс-продаж
-                    const grossEl = document.getElementById('real-gross-sales');
-                    if (grossEl && hintEl) {
-                        const grossVal = parseFloat(grossEl.dataset.rawValue) || 0;
-                        if (grossVal > 0) {
-                            hintEl.textContent = Math.round(newVal / grossVal * 100) + '% от реализации';
-                        }
-                    }
-                }
-            }
+            // Сохраняем эквайринг и обновляем карточку комиссии
+            _realAcquiring = Math.abs(acquiringTotal);
+            updateCommissionCard();
 
             // Отображение карточек
             const catConfig = [
@@ -29783,35 +29762,6 @@ def api_finance_realization():
             return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
         period_label = month_str
 
-    # ── Запросы к Ozon API (без кэша — всегда свежие данные) ──
-
-    if not force_refresh:
-        try:
-            cache_db = sqlite3.connect(DB_PATH)
-            cache_db.row_factory = sqlite3.Row
-            cache_row = cache_db.execute(
-                'SELECT response_json, cached_at FROM transaction_breakdown_cache WHERE period_key = ?',
-                (cache_key_real,)
-            ).fetchone()
-            cache_db.close()
-
-            if cache_row:
-                cached_at = _dt.strptime(cache_row['cached_at'], '%Y-%m-%d %H:%M:%S')
-                age_hours = (_dt.now() - cached_at).total_seconds() / 3600
-                # Кэш живёт 24 часа
-                if age_hours < 24:
-                    print(f"  ⚡ Реализация {period_label}: из кэша (возраст {age_hours:.1f}ч)")
-                    cached_data = json.loads(cache_row['response_json'])
-                    cached_data['from_cache'] = True
-                    cached_data['cache_age_hours'] = round(age_hours, 1)
-                    return jsonify(cached_data)
-                else:
-                    print(f"  ♻️ Реализация {period_label}: кэш устарел ({age_hours:.1f}ч), обновляем...")
-        except Exception as cache_err:
-            print(f"  ⚠️ Ошибка чтения кэша реализации: {cache_err}")
-    else:
-        print(f"  🔄 Реализация {period_label}: принудительное обновление кэша")
-
     # ── Запросы к Ozon API /v2/finance/realization ──
     ozon_headers = get_ozon_headers()
     all_rows = []
@@ -30074,21 +30024,6 @@ def api_finance_realization():
             'warnings': errors if errors else None
         }
 
-        # ── Сохраняем в кэш (24 часа) ──
-        try:
-            cache_db = sqlite3.connect(DB_PATH)
-            cache_db.execute('''
-                INSERT OR REPLACE INTO transaction_breakdown_cache
-                (period_key, response_json, cached_at)
-                VALUES (?, ?, ?)
-            ''', (cache_key_real, json.dumps(response_data, ensure_ascii=False),
-                  _dt.now().strftime('%Y-%m-%d %H:%M:%S')))
-            cache_db.commit()
-            cache_db.close()
-            print(f"  💾 Реализация {period_label}: кэш сохранён")
-        except Exception as save_err:
-            print(f"  ⚠️ Ошибка сохранения кэша реализации: {save_err}")
-
         return jsonify(response_data)
 
     except requests.exceptions.Timeout:
@@ -30241,37 +30176,6 @@ def api_finance_transactions_breakdown():
         date_from = f"{dt.year}-{dt.month:02d}-01T00:00:00.000Z"
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
-
-    # ── Проверяем кэш (чтобы не ждать 10-15 секунд каждый раз) ──
-    force_refresh = request.args.get('refresh', '') == '1'
-    cache_key = quarter_str if quarter_str else month_str
-
-    if not force_refresh:
-        try:
-            cache_db = sqlite3.connect(DB_PATH)
-            cache_db.row_factory = sqlite3.Row
-            cache_row = cache_db.execute(
-                'SELECT response_json, cached_at FROM transaction_breakdown_cache WHERE period_key = ?',
-                (cache_key,)
-            ).fetchone()
-            cache_db.close()
-
-            if cache_row:
-                cached_at = _dt.strptime(cache_row['cached_at'], '%Y-%m-%d %H:%M:%S')
-                age_hours = (_dt.now() - cached_at).total_seconds() / 3600
-                # Кэш живёт 24 часа
-                if age_hours < 24:
-                    print(f"  ⚡ Транзакции {period_label}: из кэша (возраст {age_hours:.1f}ч)")
-                    cached_data = json.loads(cache_row['response_json'])
-                    cached_data['from_cache'] = True
-                    cached_data['cache_age_hours'] = round(age_hours, 1)
-                    return jsonify(cached_data)
-                else:
-                    print(f"  ♻️ Транзакции {period_label}: кэш устарел ({age_hours:.1f}ч), обновляем...")
-        except Exception as cache_err:
-            print(f"  ⚠️ Ошибка чтения кэша: {cache_err}")
-    else:
-        print(f"  🔄 Транзакции {period_label}: принудительное обновление кэша")
 
     # ── Запросы к Ozon Transaction API ──
     ozon_headers = get_ozon_headers()
