@@ -30500,6 +30500,268 @@ def _notify_transaction_type_changes(period_label, new_types, missing_types):
         print(f"  ⚠️ Системное сообщение: {e}")
 
 
+# ============================================================================
+# ЕЖЕНЕДЕЛЬНАЯ АВТОМАТИЧЕСКАЯ ПРОВЕРКА ТИПОВ ТРАНЗАКЦИЙ
+# ============================================================================
+# Каждую среду автоматически (через cron) загружает транзакции за последний
+# завершённый месяц из /v3/finance/transaction/list, сверяет все operation_type
+# и service_name с реестром transaction_type_registry в БД.
+# Если появились новые типы или исчезли старые — уведомляет админов в Telegram.
+# ============================================================================
+
+
+def check_transaction_types_weekly():
+    """
+    Еженедельная проверка типов транзакций Ozon.
+
+    Загружает ВСЕ транзакции за последний завершённый месяц,
+    извлекает уникальные operation_type и service_name,
+    сверяет с реестром в БД и уведомляет о изменениях.
+
+    Возвращает:
+        dict: Результат проверки с полями success, period, operations_count,
+              services_count, new_types, missing_types
+    """
+    import calendar
+    from datetime import datetime as _dt
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    print("=" * 60)
+    print("🔍 Еженедельная проверка типов транзакций")
+    print("=" * 60)
+
+    # ── Определяем последний завершённый месяц ──
+    now = _dt.now()
+    if now.month == 1:
+        check_year = now.year - 1
+        check_month = 12
+    else:
+        check_year = now.year
+        check_month = now.month - 1
+
+    period_label = f"{check_year}-{check_month:02d}"
+    last_day = calendar.monthrange(check_year, check_month)[1]
+    d_from = f"{check_year}-{check_month:02d}-01T00:00:00.000Z"
+    d_to = f"{check_year}-{check_month:02d}-{last_day}T23:59:59.999Z"
+
+    print(f"  📅 Период проверки: {period_label} ({d_from} → {d_to})")
+
+    # ── Загружаем ВСЕ транзакции за месяц с пагинацией ──
+    ozon_headers = get_ozon_headers()
+    all_ops = []
+
+    def _fetch_page(pg):
+        """Загрузить одну страницу транзакций."""
+        payload = {
+            "filter": {
+                "date": {"from": d_from, "to": d_to},
+                "posting_number": "",
+                "transaction_type": "all"
+            },
+            "page": pg,
+            "page_size": 1000
+        }
+        return pg, requests.post(
+            f"{OZON_HOST}/v3/finance/transaction/list",
+            json=payload, headers=ozon_headers, timeout=120
+        )
+
+    try:
+        # Первая страница — узнаём общее количество
+        _, resp = _fetch_page(1)
+        if resp.status_code != 200:
+            err = f"Ozon API ошибка: {resp.status_code} — {resp.text[:300]}"
+            print(f"  ❌ {err}")
+            return {'success': False, 'error': err}
+
+        data = resp.json()
+        page_ops = data.get('result', {}).get('operations', [])
+        all_ops.extend(page_ops)
+        page_count = data.get('result', {}).get('page_count', 1)
+        print(f"  📄 Страница 1/{page_count}: {len(page_ops)} операций")
+
+        # Остальные страницы — параллельно
+        if page_count > 1:
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                futures = {pool.submit(_fetch_page, p): p for p in range(2, page_count + 1)}
+                for fut in as_completed(futures):
+                    pg, r = fut.result()
+                    if r.status_code == 200:
+                        ops = r.json().get('result', {}).get('operations', [])
+                        all_ops.extend(ops)
+                        print(f"  📄 Страница {pg}/{page_count}: {len(ops)} операций")
+                    else:
+                        print(f"  ⚠️ Страница {pg}: ошибка {r.status_code}")
+
+    except Exception as e:
+        err = f"Ошибка загрузки транзакций: {e}"
+        print(f"  ❌ {err}")
+        return {'success': False, 'error': err}
+
+    print(f"  ✅ Загружено {len(all_ops)} операций за {period_label}")
+
+    # ── Собираем уникальные operation_type и service_name ──
+    op_type_totals = {}   # {operation_type: {name, count}}
+    svc_totals = {}       # {service_name: count}
+
+    for op in all_ops:
+        ot = op.get('operation_type', '')
+        otn = op.get('operation_type_name', '')
+        if ot:
+            if ot not in op_type_totals:
+                op_type_totals[ot] = {'name': otn, 'count': 0}
+            op_type_totals[ot]['count'] += 1
+
+        for svc in op.get('services', []):
+            sn = svc.get('name', '')
+            if sn:
+                if sn not in svc_totals:
+                    svc_totals[sn] = 0
+                svc_totals[sn] += 1
+
+    print(f"  📊 Типов операций: {len(op_type_totals)} | Типов услуг: {len(svc_totals)}")
+
+    # ── Сверка с реестром типов в БД ──
+    today = _dt.now().strftime('%Y-%m-%d')
+    db = sqlite3.connect(DB_PATH)
+    db.row_factory = sqlite3.Row
+    cursor = db.cursor()
+
+    cursor.execute('SELECT type_key, type_category, display_name FROM transaction_type_registry')
+    known = {}
+    for row in cursor.fetchall():
+        known[(row['type_key'], row['type_category'])] = row['display_name']
+
+    new_types = []
+    current_keys = set()
+
+    # Проверяем operation_type
+    for ot, info in op_type_totals.items():
+        key = (ot, 'operation')
+        current_keys.add(key)
+        if key not in known:
+            new_types.append({'key': ot, 'category': 'operation', 'name': info['name']})
+            cursor.execute('''
+                INSERT OR IGNORE INTO transaction_type_registry
+                (type_key, type_category, display_name, first_seen_date, last_seen_date)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (ot, 'operation', info['name'], today, today))
+        else:
+            cursor.execute('''
+                UPDATE transaction_type_registry SET last_seen_date = ?
+                WHERE type_key = ? AND type_category = ?
+            ''', (today, ot, 'operation'))
+
+    # Проверяем service_name
+    for sn in svc_totals:
+        key = (sn, 'service')
+        current_keys.add(key)
+        if key not in known:
+            new_types.append({'key': sn, 'category': 'service', 'name': sn})
+            cursor.execute('''
+                INSERT OR IGNORE INTO transaction_type_registry
+                (type_key, type_category, display_name, first_seen_date, last_seen_date)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (sn, 'service', sn, today, today))
+        else:
+            cursor.execute('''
+                UPDATE transaction_type_registry SET last_seen_date = ?
+                WHERE type_key = ? AND type_category = ?
+            ''', (today, sn, 'service'))
+
+    # Исчезнувшие типы (были в реестре, но нет в текущих данных)
+    missing_types = []
+    for (tk, tc), dn in known.items():
+        if (tk, tc) not in current_keys:
+            missing_types.append({'key': tk, 'category': tc, 'name': dn})
+
+    db.commit()
+    db.close()
+
+    print(f"  🆕 Новых типов: {len(new_types)}")
+    print(f"  ❌ Исчезнувших типов: {len(missing_types)}")
+
+    # ── Уведомления ──
+    if new_types or missing_types:
+        _notify_transaction_type_changes(period_label, new_types, missing_types)
+        print("  📨 Уведомления отправлены (есть изменения)")
+    else:
+        # Краткий отчёт — изменений нет
+        _send_types_check_summary(period_label, len(op_type_totals), len(svc_totals))
+        print("  ✅ Изменений нет, отправлен краткий отчёт")
+
+    result = {
+        'success': True,
+        'period': period_label,
+        'total_operations_fetched': len(all_ops),
+        'operations_count': len(op_type_totals),
+        'services_count': len(svc_totals),
+        'new_types': new_types,
+        'missing_types': missing_types
+    }
+
+    print("=" * 60)
+    return result
+
+
+def _send_types_check_summary(period_label, ops_count, svcs_count):
+    """
+    Отправить краткий отчёт о проверке типов (когда изменений нет).
+
+    Аргументы:
+        period_label (str): Период проверки (напр. '2025-01')
+        ops_count (int): Количество уникальных типов операций
+        svcs_count (int): Количество уникальных типов услуг
+    """
+    import requests as _req
+
+    tg_text = (
+        f"✅ *Еженедельная проверка типов* ({period_label})\n"
+        f"Операций: {ops_count} | Услуг: {svcs_count} | Изменений нет"
+    )
+
+    try:
+        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+        if bot_token:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT telegram_chat_id FROM users
+                WHERE role = 'admin' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''
+            ''')
+            admins = cur.fetchall()
+            conn.close()
+            for admin in admins:
+                cid = admin['telegram_chat_id']
+                try:
+                    _req.post(
+                        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                        json={"chat_id": cid, "text": tg_text, "parse_mode": "Markdown"},
+                        timeout=10
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ TG ошибка (chat_id={cid}): {e}")
+    except Exception as e:
+        print(f"  ⚠️ TG отправка саммари: {e}")
+
+
+@app.route('/api/finance/check-types')
+@require_auth()
+def api_finance_check_types():
+    """
+    Ручной запуск проверки типов транзакций (для отладки).
+
+    Вызывает check_transaction_types_weekly() и возвращает результат.
+    Доступен только админам.
+
+    Возвращает:
+        JSON: результат проверки с количеством типов и изменениями.
+    """
+    result = check_transaction_types_weekly()
+    return jsonify(result)
+
+
 @app.route('/api/finance/transactions-breakdown')
 @require_auth()
 def api_finance_transactions_breakdown():
