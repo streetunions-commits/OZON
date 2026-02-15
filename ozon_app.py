@@ -6270,12 +6270,6 @@ HTML_TEMPLATE = '''
         }
         .real-period-type:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
         .real-month-select:focus { border-color: #667eea; outline: none; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
-        .real-load-btn {
-            padding: 10px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px;
-            font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; white-space: nowrap;
-        }
-        .real-load-btn:hover { background: #5a6fd6; }
-        .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
 
         /* --- Сводные карточки --- */
         .real-summary {
@@ -6381,7 +6375,6 @@ HTML_TEMPLATE = '''
         @media (max-width: 768px) {
             .real-filters { padding: 12px 14px; gap: 10px; }
             .real-month-select { min-width: 140px; font-size: 13px; }
-            .real-load-btn { padding: 8px 16px; font-size: 13px; width: 100%; }
             .real-summary { grid-template-columns: 1fr 1fr; gap: 8px; }
             .real-card { padding: 12px 14px; }
             .real-card-value { font-size: 17px; }
@@ -9365,14 +9358,11 @@ HTML_TEMPLATE = '''
                             </select>
                         </div>
                         <div class="real-filter-group" id="real-month-group">
-                            <select id="real-month-select" class="real-month-select"></select>
+                            <select id="real-month-select" class="real-month-select" onchange="loadRealizationData()"></select>
                         </div>
                         <div class="real-filter-group" id="real-quarter-group" style="display: none;">
-                            <select id="real-quarter-select" class="real-month-select"></select>
+                            <select id="real-quarter-select" class="real-month-select" onchange="loadRealizationData()"></select>
                         </div>
-                        <button class="real-load-btn" onclick="loadRealizationData()">
-                            <span id="real-load-btn-text">Загрузить из Ozon</span>
-                        </button>
                     </div>
 
                     <!-- Сводные карточки -->
@@ -9460,8 +9450,8 @@ HTML_TEMPLATE = '''
                     <div id="real-transactions-wrapper" style="display: none;"></div>
 
                     <!-- Пустое состояние -->
-                    <div class="real-empty" id="real-empty">
-                        <p>Выберите месяц или квартал и нажмите «Загрузить из Ozon»</p>
+                    <div class="real-empty" id="real-empty" style="display: none;">
+                        <p>Выберите месяц или квартал для просмотра реализации</p>
                         <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Акт реализации — данные как в разделе «Начисления» кабинета Ozon</p>
                     </div>
 
@@ -12984,20 +12974,19 @@ HTML_TEMPLATE = '''
         function restoreRealizationState() {
             try {
                 const savedType = localStorage.getItem('real_period_type');
-                if (!savedType) return;
-
                 const periodSel = document.getElementById('real-period-type');
+
                 if (savedType === 'quarter') {
-                    // Переключаем на квартал
+                    // Переключаем на квартал (без автозагрузки — загрузим после восстановления значения)
                     periodSel.value = 'quarter';
-                    toggleRealPeriodType();
+                    toggleRealPeriodType(false);
                     // Восстанавливаем выбранный квартал
                     const savedQ = localStorage.getItem('real_quarter');
                     if (savedQ) {
                         const qsel = document.getElementById('real-quarter-select');
                         if (qsel) qsel.value = savedQ;
                     }
-                } else {
+                } else if (savedType === 'month') {
                     // Восстанавливаем выбранный месяц
                     const savedMonth = localStorage.getItem('real_month');
                     if (savedMonth) {
@@ -13005,8 +12994,9 @@ HTML_TEMPLATE = '''
                         if (msel) msel.value = savedMonth;
                     }
                 }
+                // Если нет сохранённого состояния — текущий месяц уже выбран первым в списке
 
-                // Автозагрузка данных
+                // Автозагрузка данных (текущий месяц по умолчанию)
                 loadRealizationData();
             } catch(e) {}
         }
@@ -13043,7 +13033,7 @@ HTML_TEMPLATE = '''
         /**
          * Переключение типа периода (Месяц / Квартал) в фильтрах реализации.
          */
-        function toggleRealPeriodType() {
+        function toggleRealPeriodType(autoLoad) {
             const type = document.getElementById('real-period-type').value;
             const monthGroup = document.getElementById('real-month-group');
             const quarterGroup = document.getElementById('real-quarter-group');
@@ -13056,6 +13046,8 @@ HTML_TEMPLATE = '''
                 monthGroup.style.display = '';
                 quarterGroup.style.display = 'none';
             }
+            // Автозагрузка при переключении типа периода (если не вызвано из restoreRealizationState)
+            if (autoLoad !== false) loadRealizationData();
         }
 
         /**
@@ -13070,6 +13062,7 @@ HTML_TEMPLATE = '''
         let _realCommissionBase = 0;
         let _realGrossSales = 0;
         let _realAcquiring = 0;
+        let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
         function updateCommissionCard() {
@@ -13110,6 +13103,9 @@ HTML_TEMPLATE = '''
          * Читает месяц из select и отправляет на /api/finance/realization?month=YYYY-MM.
          */
         async function loadRealizationData() {
+            if (_realLoading) return;  // Не запускаем повторную загрузку
+            _realLoading = true;
+
             // Сброс состояния комиссии при новой загрузке
             _realCommissionBase = 0;
             _realGrossSales = 0;
@@ -13121,12 +13117,12 @@ HTML_TEMPLATE = '''
             if (periodType === 'quarter') {
                 const qsel = document.getElementById('real-quarter-select');
                 const quarter = qsel ? qsel.value : '';
-                if (!quarter) { alert('Выберите квартал'); return; }
+                if (!quarter) { _realLoading = false; return; }
                 url = '/api/finance/realization?quarter=' + encodeURIComponent(quarter);
             } else {
                 const sel = document.getElementById('real-month-select');
                 const month = sel ? sel.value : '';
-                if (!month) { alert('Выберите месяц'); return; }
+                if (!month) { _realLoading = false; return; }
                 url = '/api/finance/realization?month=' + encodeURIComponent(month);
             }
 
@@ -13140,14 +13136,9 @@ HTML_TEMPLATE = '''
             });
             document.getElementById('real-loading').style.display = 'block';
 
-            const btn = document.querySelector('.real-load-btn');
-            if (btn) { btn.disabled = true; }
-            const btnText = document.getElementById('real-load-btn-text');
-            const loadingMsg = periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...';
-            if (btnText) { btnText.textContent = loadingMsg; }
 
-            // Запускаем транзакции ПАРАЛЛЕЛЬНО (не блокирует основную загрузку)
-            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
+            // Транзакции загружаются лениво — по клику на карточку удержаний
+            _transactionsDataLoaded = false;
 
             try {
                 const resp = await authFetch(url);
@@ -13183,6 +13174,20 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-summary').style.display = 'grid';
 
+                // Показываем карточки удержаний с плейсхолдером «—» (данные загрузятся по клику)
+                ['real-logistics-card', 'real-other-deductions-card', 'real-advertising-card', 'real-storage-card'].forEach(id => {
+                    const card = document.getElementById(id);
+                    if (card) {
+                        card.style.display = '';
+                        const valEl = card.querySelector('.real-card-value');
+                        if (valEl) valEl.textContent = '—';
+                        const badgeEl = card.querySelector('.real-card-badge');
+                        if (badgeEl) { badgeEl.textContent = ''; badgeEl.classList.remove('visible'); }
+                        const detEl = card.querySelector('.real-card-details');
+                        if (detEl) { detEl.innerHTML = ''; detEl.classList.remove('open'); }
+                    }
+                });
+
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
 
@@ -13201,8 +13206,7 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-error-text').textContent = 'Ошибка сети: ' + e.message;
                 document.getElementById('real-error').style.display = 'block';
             } finally {
-                if (btn) { btn.disabled = false; }
-                if (btnText) { btnText.textContent = 'Загрузить из Ozon'; }
+                _realLoading = false;
             }
         }
 
@@ -13244,15 +13248,31 @@ HTML_TEMPLATE = '''
 
         /**
          * Клик по карточке удержаний — показать/скрыть детали (как в Ozon).
+         * При первом клике лениво загружает данные из Transaction API.
          */
         function toggleCardDetails(cardEl) {
+            if (!_transactionsDataLoaded) {
+                // Первый клик — загружаем данные транзакций
+                const valEl = cardEl.querySelector('.real-card-value');
+                if (valEl) valEl.innerHTML = '<span style="font-size:13px;color:#999;">Загрузка...</span>';
+                loadTransactionsBreakdown().then(() => {
+                    _transactionsDataLoaded = true;
+                    // После загрузки раскрываем детали кликнутой карточки
+                    const details = cardEl.querySelector('.real-card-details');
+                    if (details) details.classList.add('open');
+                }).catch(err => {
+                    console.error('[TX] error:', err);
+                    if (valEl) valEl.textContent = 'Ошибка загрузки';
+                });
+                return;
+            }
             const details = cardEl.querySelector('.real-card-details');
             if (details) details.classList.toggle('open');
         }
 
         /**
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
-         * Вызывается параллельно с основной загрузкой реализации.
+         * Вызывается лениво — по первому клику на карточку удержаний.
          */
         async function loadTransactionsBreakdown() {
             const periodType = document.getElementById('real-period-type').value;
