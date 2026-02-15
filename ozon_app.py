@@ -9454,9 +9454,9 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена</th>
                                         <th style="text-align:right">Комиссия %</th>
-                                        <th style="text-align:right">Доставки</th>
+                                        <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
-                                        <th style="text-align:right">Продажи (гросс)</th>
+                                        <th style="text-align:right">Продажи до СПП</th>
                                         <th style="text-align:right">Комиссия</th>
                                         <th style="text-align:right">К получению</th>
                                     </tr>
@@ -13178,14 +13178,17 @@ HTML_TEMPLATE = '''
 
                 const s = data.summary || {};
 
-                // Сводные карточки
+                // Сводные карточки — чистые продажи (доставки минус возвраты)
+                const netSalesCount = (s.delivery_count || 0) - (s.return_count || 0);
+                const netGrossSales = (s.gross_sales || 0) - (s.return_gross || 0);
+
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
                 const realHint = document.getElementById('real-realization-hint');
-                if (realHint) realHint.textContent = s.delivery_count + ' доставок';
+                if (realHint) realHint.textContent = netSalesCount + ' продаж';
 
-                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(netGrossSales);
                 const grossHint = document.getElementById('real-gross-hint');
-                if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
+                if (grossHint) grossHint.textContent = netSalesCount + ' продаж';
 
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
                 const retHint = document.getElementById('real-returns-hint');
@@ -13193,7 +13196,7 @@ HTML_TEMPLATE = '''
 
                 // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
                 _realCommissionBase = s.commission;
-                _realGrossSales = s.gross_sales;
+                _realGrossSales = netGrossSales;
                 _realBonuses = Math.abs(s.bonuses || 0);
                 updateCommissionCard();
 
@@ -29830,6 +29833,7 @@ def _build_realization_from_transactions(year, month):
     delivery_count = 0          # Количество доставок
     return_count = 0            # Количество возвратов
     acquiring_total = 0.0       # Эквайринг
+    return_gross_total = 0.0    # Гросс-возвраты (seller_price * return_qty)
 
     products_map = {}
 
@@ -29865,10 +29869,13 @@ def _build_realization_from_transactions(year, month):
 
         # Гросс-продажи = цена продавца * кол-во доставок
         row_gross_sales = seller_price * d_qty
+        # Гросс-возвраты = цена продавца * кол-во возвратов
+        row_return_gross = seller_price * r_qty
         # Возвраты = return_commission.amount (Возврат выручки — доля продавца)
         row_returns = abs(r_amount) if r_amount else 0
 
         gross_sales += row_gross_sales
+        return_gross_total += row_return_gross
         returns_total += row_returns
         commission_total += d_total_comm + r_total_comm
         seller_receives += d_amount + r_amount
@@ -29895,6 +29902,7 @@ def _build_realization_from_transactions(year, month):
                     'delivery_qty': 0,
                     'return_qty': 0,
                     'gross_sales': 0.0,
+                    'return_gross': 0.0,
                     'returns': 0.0,
                     'total_deductions': 0.0,
                     'seller_receives': 0.0,
@@ -29904,6 +29912,7 @@ def _build_realization_from_transactions(year, month):
             p['delivery_qty'] += d_qty
             p['return_qty'] += r_qty
             p['gross_sales'] += row_gross_sales
+            p['return_gross'] += row_return_gross
             p['returns'] += row_returns
             p['total_deductions'] += d_total_comm + r_total_comm
             p['seller_receives'] += d_amount + r_amount
@@ -29917,17 +29926,19 @@ def _build_realization_from_transactions(year, month):
     # ── Итоги ──
     net_total = seller_receives
     marketplace_commission = standard_fee_total + acquiring_total
-    avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
+    net_gross = gross_sales - return_gross_total
+    avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
 
     # ── Таблица товаров (по SKU) ──
     products_list = []
     for key, pdata in sorted(products_map.items(),
-                              key=lambda x: abs(x[1]['gross_sales']), reverse=True):
+                              key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
         dq = pdata['delivery_qty']
         avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
+        p_net_gross = pdata['gross_sales'] - pdata['return_gross']
 
         p_commission = pdata['standard_fee'] + pdata['acquiring']
-        p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
+        p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
 
         products_list.append({
             'sku': pdata['sku'],
@@ -29935,9 +29946,9 @@ def _build_realization_from_transactions(year, month):
             'name': pdata['name'],
             'seller_price': round(avg_price, 2),
             'commission_ratio': round(p_commission_pct, 2),
-            'delivery_qty': pdata['delivery_qty'],
+            'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
             'return_qty': pdata['return_qty'],
-            'gross_sales': round(pdata['gross_sales'], 2),
+            'gross_sales': round(p_net_gross, 2),
             'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2),
             'seller_receives': round(pdata['seller_receives'], 2),
@@ -29969,7 +29980,8 @@ def _build_realization_from_transactions(year, month):
             'net_total': round(net_total, 2),
             'avg_commission_pct': round(avg_commission_pct, 2),
             'delivery_count': delivery_count,
-            'return_count': return_count
+            'return_count': return_count,
+            'return_gross': round(return_gross_total, 2)
         },
         'products': products_list,
         'total_rows': len(all_rows),
@@ -30184,6 +30196,7 @@ def api_finance_realization():
         delivery_count = 0          # Количество доставок
         return_count = 0            # Количество возвратов
         acquiring_total = 0.0       # Эквайринг (delivery_commission.commission)
+        return_gross_total = 0.0    # Гросс-возвраты (seller_price * return_qty)
 
         # Агрегация по товарам (SKU)
         products_map = {}
@@ -30218,6 +30231,8 @@ def api_finance_realization():
 
             # Гросс-продажи = цена продавца * кол-во доставок
             row_gross_sales = seller_price * d_qty
+            # Гросс-возвраты = цена продавца * кол-во возвратов
+            row_return_gross = seller_price * r_qty
             # Возвраты = return_commission.amount (Возвращено на сумму)
             row_returns = abs(r_amount) if r_amount else 0
 
@@ -30226,6 +30241,7 @@ def api_finance_realization():
             r_acquiring = rc.get('commission', 0) if rc else 0
 
             gross_sales += row_gross_sales
+            return_gross_total += row_return_gross
             returns_total += row_returns
             commission_total += d_total_comm + r_total_comm
             seller_receives += d_amount + r_amount
@@ -30252,6 +30268,7 @@ def api_finance_realization():
                         'delivery_qty': 0,
                         'return_qty': 0,
                         'gross_sales': 0.0,
+                        'return_gross': 0.0,
                         'returns': 0.0,
                         'total_deductions': 0.0,       # Все удержания (total)
                         'seller_receives': 0.0,
@@ -30261,6 +30278,7 @@ def api_finance_realization():
                 p['delivery_qty'] += d_qty
                 p['return_qty'] += r_qty
                 p['gross_sales'] += row_gross_sales
+                p['return_gross'] += row_return_gross
                 p['returns'] += row_returns
                 p['total_deductions'] += d_total_comm + r_total_comm
                 p['seller_receives'] += d_amount + r_amount
@@ -30277,19 +30295,21 @@ def api_finance_realization():
         # Комиссия МП = delivery standard_fee + эквайринг (commission)
         marketplace_commission = standard_fee_total + acquiring_total
 
-        # Фактический % комиссии = delivery standard_fee / гросс-продажи
-        avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
+        # Фактический % комиссии = комиссия МП / чистые гросс-продажи
+        net_gross = gross_sales - return_gross_total
+        avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
         for key, pdata in sorted(products_map.items(),
-                                  key=lambda x: abs(x[1]['gross_sales']), reverse=True):
+                                  key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
             dq = pdata['delivery_qty']
             avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
+            p_net_gross = pdata['gross_sales'] - pdata['return_gross']
 
-            # Фактический % комиссии МП по товару = (standard_fee + эквайринг) / gross
+            # Фактический % комиссии МП по товару = (standard_fee + эквайринг) / чистый гросс
             p_commission = pdata['standard_fee'] + pdata['acquiring']
-            p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
+            p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
 
             products_list.append({
                 'sku': pdata['sku'],
@@ -30297,9 +30317,9 @@ def api_finance_realization():
                 'name': pdata['name'],
                 'seller_price': round(avg_price, 2),
                 'commission_ratio': round(p_commission_pct, 2),
-                'delivery_qty': pdata['delivery_qty'],
+                'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
                 'return_qty': pdata['return_qty'],
-                'gross_sales': round(pdata['gross_sales'], 2),
+                'gross_sales': round(p_net_gross, 2),
                 'returns': round(pdata['returns'], 2),
                 'commission': round(p_commission, 2),
                 'seller_receives': round(pdata['seller_receives'], 2),
@@ -30338,7 +30358,8 @@ def api_finance_realization():
                 'net_total': round(net_total, 2),
                 'avg_commission_pct': round(avg_commission_pct, 2),  # % = (standard_fee + эквайринг) / gross
                 'delivery_count': delivery_count,
-                'return_count': return_count
+                'return_count': return_count,
+                'return_gross': round(return_gross_total, 2)
             },
             'products': products_list,
             'total_rows': total_rows_count,
@@ -30363,9 +30384,11 @@ def api_finance_realization():
                     s['net_total'] = round(s['net_total'] + tx_s.get('net_total', 0), 2)
                     s['delivery_count'] += tx_s.get('delivery_count', 0)
                     s['return_count'] += tx_s.get('return_count', 0)
-                    # Пересчитываем средний % комиссии
-                    if s['gross_sales'] > 0:
-                        s['avg_commission_pct'] = round(s['commission'] / s['gross_sales'] * 100, 2)
+                    s['return_gross'] = round(s.get('return_gross', 0) + tx_s.get('return_gross', 0), 2)
+                    # Пересчитываем средний % комиссии от чистого гросса
+                    q_net_gross = s['gross_sales'] - s.get('return_gross', 0)
+                    if q_net_gross > 0:
+                        s['avg_commission_pct'] = round(s['commission'] / q_net_gross * 100, 2)
                     # Добавляем товары из транзакций (merge по sku)
                     existing_skus = {p['sku']: p for p in response_data['products']}
                     for tp in tx_data.get('products', []):
