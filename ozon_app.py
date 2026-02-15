@@ -12951,8 +12951,8 @@ HTML_TEMPLATE = '''
                             'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
             sel.innerHTML = '';
-            // Генерируем 24 месяца: от текущего вниз
-            for (let i = 0; i < 24; i++) {
+            // Генерируем 24 месяца: от предыдущего вниз (текущий месяц ещё не закрыт в Ozon)
+            for (let i = 1; i < 25; i++) {
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 const val = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
                 const label = months[d.getMonth()] + ' ' + d.getFullYear();
@@ -13137,8 +13137,8 @@ HTML_TEMPLATE = '''
             document.getElementById('real-loading').style.display = 'block';
 
 
-            // Транзакции загружаются лениво — по клику на карточку удержаний
-            _transactionsDataLoaded = false;
+            // Запускаем транзакции ПАРАЛЛЕЛЬНО (не блокирует основную загрузку)
+            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
 
             try {
                 const resp = await authFetch(url);
@@ -13173,20 +13173,6 @@ HTML_TEMPLATE = '''
                 updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
-
-                // Показываем карточки удержаний с плейсхолдером «—» (данные загрузятся по клику)
-                ['real-logistics-card', 'real-other-deductions-card', 'real-advertising-card', 'real-storage-card'].forEach(id => {
-                    const card = document.getElementById(id);
-                    if (card) {
-                        card.style.display = '';
-                        const valEl = card.querySelector('.real-card-value');
-                        if (valEl) valEl.textContent = '—';
-                        const badgeEl = card.querySelector('.real-card-badge');
-                        if (badgeEl) { badgeEl.textContent = ''; badgeEl.classList.remove('visible'); }
-                        const detEl = card.querySelector('.real-card-details');
-                        if (detEl) { detEl.innerHTML = ''; detEl.classList.remove('open'); }
-                    }
-                });
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
@@ -13248,31 +13234,15 @@ HTML_TEMPLATE = '''
 
         /**
          * Клик по карточке удержаний — показать/скрыть детали (как в Ozon).
-         * При первом клике лениво загружает данные из Transaction API.
          */
         function toggleCardDetails(cardEl) {
-            if (!_transactionsDataLoaded) {
-                // Первый клик — загружаем данные транзакций
-                const valEl = cardEl.querySelector('.real-card-value');
-                if (valEl) valEl.innerHTML = '<span style="font-size:13px;color:#999;">Загрузка...</span>';
-                loadTransactionsBreakdown().then(() => {
-                    _transactionsDataLoaded = true;
-                    // После загрузки раскрываем детали кликнутой карточки
-                    const details = cardEl.querySelector('.real-card-details');
-                    if (details) details.classList.add('open');
-                }).catch(err => {
-                    console.error('[TX] error:', err);
-                    if (valEl) valEl.textContent = 'Ошибка загрузки';
-                });
-                return;
-            }
             const details = cardEl.querySelector('.real-card-details');
             if (details) details.classList.toggle('open');
         }
 
         /**
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
-         * Вызывается лениво — по первому клику на карточку удержаний.
+         * Вызывается параллельно с основной загрузкой реализации.
          */
         async function loadTransactionsBreakdown() {
             const periodType = document.getElementById('real-period-type').value;
