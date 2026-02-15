@@ -9372,9 +9372,6 @@ HTML_TEMPLATE = '''
                         <button class="real-load-btn" onclick="loadRealizationData()">
                             <span id="real-load-btn-text">Загрузить из Ozon</span>
                         </button>
-                        <span id="real-cache-indicator" style="display:none; font-size:12px; color:#888; margin-left:8px; cursor:pointer;" title="Нажмите для обновления данных">
-                            из кэша <span id="real-cache-age"></span> — <a href="#" onclick="loadRealizationData(true); return false;" style="color:#3182ce; text-decoration:underline;">обновить</a>
-                        </span>
                     </div>
 
                     <!-- Сводные карточки -->
@@ -9439,14 +9436,14 @@ HTML_TEMPLATE = '''
                             <table class="real-types-table">
                                 <thead>
                                     <tr>
-                                        <th>Артикул</th>
-                                        <th>Цена</th>
-                                        <th>Комиссия %</th>
-                                        <th>Доставки</th>
-                                        <th>Возвраты</th>
-                                        <th>Продажи (гросс)</th>
-                                        <th>Комиссия</th>
-                                        <th>К получению</th>
+                                        <th style="text-align:left">Артикул</th>
+                                        <th style="text-align:left">Цена</th>
+                                        <th style="text-align:left">Комиссия %</th>
+                                        <th style="text-align:left">Доставки</th>
+                                        <th style="text-align:left">Возвраты</th>
+                                        <th style="text-align:left">Продажи (гросс)</th>
+                                        <th style="text-align:left">Комиссия</th>
+                                        <th style="text-align:left">К получению</th>
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
@@ -13064,11 +13061,32 @@ HTML_TEMPLATE = '''
             return Math.round(val).toLocaleString('ru-RU') + ' ₽';
         }
 
+        // Общее состояние для комиссии + эквайринга (из разных API)
+        let _realCommissionBase = 0;
+        let _realGrossSales = 0;
+        let _realAcquiring = 0;
+
+        /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг */
+        function updateCommissionCard() {
+            const total = _realCommissionBase + _realAcquiring;
+            const el = document.getElementById('real-commission');
+            const hint = document.getElementById('real-commission-hint');
+            if (el) el.textContent = fmtRealMoney(total);
+            if (hint && _realGrossSales > 0) {
+                hint.textContent = Math.round(total / _realGrossSales * 100) + '% от реализации';
+            }
+        }
+
         /**
          * Загрузить акт реализации из Ozon API за выбранный месяц.
          * Читает месяц из select и отправляет на /api/finance/realization?month=YYYY-MM.
          */
-        async function loadRealizationData(forceRefresh) {
+        async function loadRealizationData() {
+            // Сброс состояния комиссии при новой загрузке
+            _realCommissionBase = 0;
+            _realGrossSales = 0;
+            _realAcquiring = 0;
+
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13084,11 +13102,6 @@ HTML_TEMPLATE = '''
                 url = '/api/finance/realization?month=' + encodeURIComponent(month);
             }
 
-            // Принудительное обновление кэша
-            if (forceRefresh) {
-                url += (url.includes('?') ? '&' : '?') + 'refresh=1';
-            }
-
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
@@ -13097,18 +13110,16 @@ HTML_TEMPLATE = '''
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
-            const cacheInd = document.getElementById('real-cache-indicator');
-            if (cacheInd) cacheInd.style.display = 'none';
             document.getElementById('real-loading').style.display = 'block';
 
             const btn = document.querySelector('.real-load-btn');
             if (btn) { btn.disabled = true; }
             const btnText = document.getElementById('real-load-btn-text');
-            const loadingMsg = forceRefresh ? 'Обновление из Ozon...' : (periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...');
+            const loadingMsg = periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...';
             if (btnText) { btnText.textContent = loadingMsg; }
 
             // Запускаем транзакции ПАРАЛЛЕЛЬНО (не блокирует основную загрузку)
-            loadTransactionsBreakdown(forceRefresh).catch(err => console.error('[TX] error:', err));
+            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
 
             try {
                 const resp = await authFetch(url);
@@ -13123,20 +13134,6 @@ HTML_TEMPLATE = '''
                 }
 
                 const s = data.summary || {};
-
-                // Индикатор кэша
-                if (data.from_cache && cacheInd) {
-                    const ageH = data.cache_age_hours || 0;
-                    let ageText = '';
-                    if (ageH < 1) {
-                        ageText = '(' + Math.round(ageH * 60) + ' мин. назад)';
-                    } else {
-                        ageText = '(' + Math.round(ageH) + ' ч. назад)';
-                    }
-                    const ageEl = document.getElementById('real-cache-age');
-                    if (ageEl) ageEl.textContent = ageText;
-                    cacheInd.style.display = 'inline';
-                }
 
                 // Сводные карточки
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
@@ -13153,11 +13150,10 @@ HTML_TEMPLATE = '''
                 const retHint = document.getElementById('real-returns-hint');
                 if (retHint) retHint.textContent = s.return_count + ' возвратов';
 
-                const comEl = document.getElementById('real-commission');
-                comEl.textContent = fmtRealMoney(s.commission);
-                comEl.dataset.rawValue = s.commission;  // Сохраняем для пересчёта с эквайрингом
-                const comHint = document.getElementById('real-commission-hint');
-                if (comHint) comHint.textContent = Math.round(s.avg_commission_pct || 0) + '% от реализации';
+                // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
+                _realCommissionBase = s.commission;
+                _realGrossSales = s.gross_sales;
+                updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
 
@@ -29787,9 +29783,7 @@ def api_finance_realization():
             return jsonify({'success': False, 'error': 'Неверный формат месяца. Используйте YYYY-MM'}), 400
         period_label = month_str
 
-    # ── Проверяем кэш реализации (аналогично transactions-breakdown) ──
-    force_refresh = request.args.get('refresh', '') == '1'
-    cache_key_real = f"real_{quarter_str}" if quarter_str else f"real_{month_str}"
+    # ── Запросы к Ozon API (без кэша — всегда свежие данные) ──
 
     if not force_refresh:
         try:
