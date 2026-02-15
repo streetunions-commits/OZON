@@ -6277,18 +6277,6 @@ HTML_TEMPLATE = '''
         .real-load-btn:hover { background: #5a6fd6; }
         .real-load-btn:disabled { background: #b0b8d9; cursor: not-allowed; }
 
-        /* --- Кнопка «Детализация удержаний» --- */
-        .real-breakdown-btn {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 20px; border-radius: 10px; border: 2px solid #e2e8f0;
-            background: #fff; color: #4a5568; font-size: 14px; font-weight: 500;
-            cursor: pointer; transition: all 0.2s;
-        }
-        .real-breakdown-btn:hover { border-color: #667eea; color: #667eea; background: #f7f8ff; }
-        .real-breakdown-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .real-breakdown-btn.loaded { border-color: #48bb78; color: #48bb78; }
-        .real-breakdown-btn.loaded:hover { background: #f0fff4; }
-
         /* --- Сводные карточки --- */
         .real-summary {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
@@ -6314,47 +6302,39 @@ HTML_TEMPLATE = '''
         .real-card-fee .real-card-value { color: #805ad5; }
         .real-card-stars { border-left-color: #ed8936; }
         .real-card-stars .real-card-value { color: #ed8936; }
-        .real-card-logistics { border-left-color: #3182ce; position: relative; cursor: pointer; }
+        .real-card-logistics { border-left-color: #3182ce; cursor: pointer; }
         .real-card-logistics .real-card-value { color: #3182ce; }
-        .real-logistics-tooltip {
-            display: none; position: absolute; left: 0; top: 100%; margin-top: 8px;
-            background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            padding: 14px 18px; z-index: 100; min-width: 280px; white-space: nowrap;
-        }
-        .real-card-logistics:hover .real-logistics-tooltip { display: block; }
-        .real-logistics-tooltip .real-tooltip-row {
-            display: flex; justify-content: space-between; gap: 24px;
-            padding: 6px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0;
-        }
-        .real-logistics-tooltip .real-tooltip-row:last-child { border-bottom: none; }
-        .real-logistics-tooltip .real-tooltip-label { color: #555; }
-        .real-logistics-tooltip .real-tooltip-value { font-weight: 600; color: #3182ce; }
-
-        /* --- Карточки категорий удержаний --- */
-        .real-card-other-deductions { border-left-color: #805ad5; position: relative; cursor: pointer; }
+        .real-card-other-deductions { border-left-color: #805ad5; cursor: pointer; }
         .real-card-other-deductions .real-card-value { color: #805ad5; }
-        .real-card-advertising { border-left-color: #d53f8c; position: relative; cursor: pointer; }
+        .real-card-advertising { border-left-color: #d53f8c; cursor: pointer; }
         .real-card-advertising .real-card-value { color: #d53f8c; }
-        .real-card-storage { border-left-color: #c05621; position: relative; cursor: pointer; }
+        .real-card-storage { border-left-color: #c05621; cursor: pointer; }
         .real-card-storage .real-card-value { color: #c05621; }
 
-        .real-category-tooltip {
-            display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 8px;
-            background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            padding: 14px 18px; z-index: 100; min-width: 320px; max-width: 450px;
+        /* --- Заголовок карточки с бейджем (как в Ozon) --- */
+        .real-card-header { display: flex; align-items: center; justify-content: space-between; }
+        .real-card-badge {
+            display: none; padding: 2px 8px; border-radius: 6px;
+            background: #f0f0f0; font-size: 11px; font-weight: 600; color: #666;
         }
-        .real-card-other-deductions:hover .real-category-tooltip,
-        .real-card-advertising:hover .real-category-tooltip,
-        .real-card-storage:hover .real-category-tooltip { display: block; }
-        .real-category-tooltip .real-tooltip-row {
-            display: flex; justify-content: space-between; gap: 16px;
-            padding: 5px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0;
+        .real-card-badge.visible { display: inline-block; }
+
+        /* --- Детали по клику (как в Ozon) --- */
+        .real-card-details {
+            display: none; margin-top: 10px; padding-top: 10px;
+            border-top: 1px solid #eee;
         }
-        .real-category-tooltip .real-tooltip-row:last-child { border-bottom: none; }
-        .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
-        .real-card-other-deductions .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #805ad5; white-space: nowrap; }
-        .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
-        .real-card-storage .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #c05621; white-space: nowrap; }
+        .real-card-details.open { display: block; }
+        .real-detail-row {
+            display: flex; justify-content: space-between; gap: 12px;
+            padding: 4px 0; font-size: 13px;
+        }
+        .real-detail-label { color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .real-detail-value { font-weight: 600; white-space: nowrap; }
+        .real-card-logistics .real-detail-value { color: #3182ce; }
+        .real-card-other-deductions .real-detail-value { color: #805ad5; }
+        .real-card-advertising .real-detail-value { color: #d53f8c; }
+        .real-card-storage .real-detail-value { color: #c05621; }
 
         /* --- Заголовки секций --- */
         .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
@@ -9416,42 +9396,37 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-commission">0 ₽</div>
                             <div class="real-card-hint" id="real-commission-hint"></div>
                         </div>
-                    </div>
-
-                    <!-- Блок детализации удержаний — грузится по кнопке -->
-                    <div id="real-breakdown-section" style="display:none; margin-bottom: 20px;">
-                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-                            <button class="real-breakdown-btn" id="real-breakdown-btn" onclick="onBreakdownBtnClick()">
-                                <span id="real-breakdown-btn-icon">📊</span>
-                                <span id="real-breakdown-btn-text">Детализация удержаний</span>
-                            </button>
-                            <span id="real-breakdown-cache" style="display:none; font-size:12px; color:#888;"></span>
-                        </div>
-                        <div class="real-summary" id="real-breakdown-cards" style="display:none;">
-                            <div class="real-card real-card-logistics" id="real-logistics-card" style="display:none;">
+                        <div class="real-card real-card-logistics" id="real-logistics-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
                                 <div class="real-card-label">Логистика</div>
-                                <div class="real-card-value" id="real-logistics-total">0 ₽</div>
-                                <div class="real-card-hint">наведите для деталей</div>
-                                <div class="real-logistics-tooltip" id="real-logistics-tooltip"></div>
+                                <span class="real-card-badge" id="real-logistics-badge"></span>
                             </div>
-                            <div class="real-card real-card-other-deductions" id="real-other-deductions-card" style="display:none;">
+                            <div class="real-card-value" id="real-logistics-total">0 ₽</div>
+                            <div class="real-card-details" id="real-logistics-details"></div>
+                        </div>
+                        <div class="real-card real-card-other-deductions" id="real-other-deductions-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
                                 <div class="real-card-label">Иные удержания</div>
-                                <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
-                                <div class="real-card-hint">наведите для деталей</div>
-                                <div class="real-category-tooltip" id="real-other-deductions-tooltip"></div>
+                                <span class="real-card-badge" id="real-other-deductions-badge"></span>
                             </div>
-                            <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;">
+                            <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
+                            <div class="real-card-details" id="real-other-deductions-details"></div>
+                        </div>
+                        <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
                                 <div class="real-card-label">Реклама</div>
-                                <div class="real-card-value" id="real-advertising-total">0 ₽</div>
-                                <div class="real-card-hint">наведите для деталей</div>
-                                <div class="real-category-tooltip" id="real-advertising-tooltip"></div>
+                                <span class="real-card-badge" id="real-advertising-badge"></span>
                             </div>
-                            <div class="real-card real-card-storage" id="real-storage-card" style="display:none;">
+                            <div class="real-card-value" id="real-advertising-total">0 ₽</div>
+                            <div class="real-card-details" id="real-advertising-details"></div>
+                        </div>
+                        <div class="real-card real-card-storage" id="real-storage-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
                                 <div class="real-card-label">Хранение</div>
-                                <div class="real-card-value" id="real-storage-total">0 ₽</div>
-                                <div class="real-card-hint">наведите для деталей</div>
-                                <div class="real-category-tooltip" id="real-storage-tooltip"></div>
+                                <span class="real-card-badge" id="real-storage-badge"></span>
                             </div>
+                            <div class="real-card-value" id="real-storage-total">0 ₽</div>
+                            <div class="real-card-details" id="real-storage-details"></div>
                         </div>
                     </div>
 
@@ -13113,7 +13088,9 @@ HTML_TEMPLATE = '''
 
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary',
-             'real-products-wrapper', 'real-breakdown-section'].forEach(id => {
+             'real-products-wrapper',
+             'real-logistics-card', 'real-other-deductions-card',
+             'real-advertising-card', 'real-storage-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13127,9 +13104,8 @@ HTML_TEMPLATE = '''
             const loadingMsg = forceRefresh ? 'Обновление из Ozon...' : (periodType === 'quarter' ? 'Загрузка за квартал...' : 'Загрузка...');
             if (btnText) { btnText.textContent = loadingMsg; }
 
-            // Транзакции НЕ грузим автоматически — только по кнопке «Детализация удержаний»
-            // (запрос тяжёлый, 10-15 сек без кэша)
-            // Показываем кнопку после успешной загрузки реализации (см. ниже)
+            // Запускаем транзакции ПАРАЛЛЕЛЬНО (не блокирует основную загрузку)
+            loadTransactionsBreakdown(forceRefresh).catch(err => console.error('[TX] error:', err));
 
             try {
                 const resp = await authFetch(url);
@@ -13177,28 +13153,6 @@ HTML_TEMPLATE = '''
                 if (comHint) comHint.textContent = Math.round(s.avg_commission_pct || 0) + '% от реализации';
 
                 document.getElementById('real-summary').style.display = 'grid';
-
-                // Показываем секцию детализации удержаний (кнопка)
-                const breakdownSection = document.getElementById('real-breakdown-section');
-                if (breakdownSection) {
-                    breakdownSection.style.display = 'block';
-                    // Сбрасываем состояние кнопки при новой загрузке реализации
-                    const bbtn = document.getElementById('real-breakdown-btn');
-                    if (bbtn) {
-                        bbtn.disabled = false;
-                        bbtn.classList.remove('loaded');
-                        document.getElementById('real-breakdown-btn-icon').textContent = '📊';
-                        document.getElementById('real-breakdown-btn-text').textContent = 'Детализация удержаний';
-                    }
-                    document.getElementById('real-breakdown-cards').style.display = 'none';
-                    document.getElementById('real-breakdown-cache').style.display = 'none';
-                    // Скрываем все карточки удержаний
-                    ['real-logistics-card','real-other-deductions-card',
-                     'real-advertising-card','real-storage-card'].forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.style.display = 'none';
-                    });
-                }
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
@@ -13260,51 +13214,16 @@ HTML_TEMPLATE = '''
         // ============================================================================
 
         /**
-         * Обработчик кнопки «Детализация удержаний».
-         * Загружает данные по клику, показывает состояние загрузки на кнопке.
+         * Клик по карточке удержаний — показать/скрыть детали (как в Ozon).
          */
-        async function onBreakdownBtnClick() {
-            const btn = document.getElementById('real-breakdown-btn');
-            const btnIcon = document.getElementById('real-breakdown-btn-icon');
-            const btnText = document.getElementById('real-breakdown-btn-text');
-            const cardsDiv = document.getElementById('real-breakdown-cards');
-
-            // Если данные уже загружены — просто скрыть/показать карточки (toggle)
-            if (btn.classList.contains('loaded')) {
-                if (cardsDiv.style.display === 'none') {
-                    cardsDiv.style.display = 'grid';
-                    btnText.textContent = 'Скрыть детализацию';
-                } else {
-                    cardsDiv.style.display = 'none';
-                    btnText.textContent = 'Детализация удержаний';
-                }
-                return;
-            }
-
-            // Загрузка — меняем состояние кнопки
-            btn.disabled = true;
-            btnIcon.textContent = '⏳';
-            btnText.textContent = 'Загрузка детализации...';
-
-            try {
-                await loadTransactionsBreakdown(false);
-                // Успех — показываем карточки
-                cardsDiv.style.display = 'grid';
-                btn.classList.add('loaded');
-                btnIcon.textContent = '✅';
-                btnText.textContent = 'Скрыть детализацию';
-            } catch (err) {
-                console.error('[TX] error:', err);
-                btnIcon.textContent = '❌';
-                btnText.textContent = 'Ошибка загрузки — попробуйте ещё';
-            } finally {
-                btn.disabled = false;
-            }
+        function toggleCardDetails(cardEl) {
+            const details = cardEl.querySelector('.real-card-details');
+            if (details) details.classList.toggle('open');
         }
 
         /**
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
-         * Вызывается по кнопке «Детализация удержаний».
+         * Вызывается параллельно с основной загрузкой реализации.
          */
         async function loadTransactionsBreakdown(forceRefresh) {
             const periodType = document.getElementById('real-period-type').value;
@@ -13333,15 +13252,6 @@ HTML_TEMPLATE = '''
 
                 console.log('[TX] Data received:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length, 'cache:', data.from_cache);
                 renderTransactionsBreakdown(data);
-
-                // Показать индикатор кэша рядом с кнопкой
-                const bCache = document.getElementById('real-breakdown-cache');
-                if (bCache && data.from_cache) {
-                    const ageH = data.cache_age_hours || 0;
-                    let ageText = ageH < 1 ? Math.round(ageH * 60) + ' мин. назад' : Math.round(ageH) + ' ч. назад';
-                    bCache.textContent = 'из кэша (' + ageText + ')';
-                    bCache.style.display = 'inline';
-                }
                 console.log('[TX] Render complete');
 
             } catch (e) {
@@ -13389,14 +13299,21 @@ HTML_TEMPLATE = '''
             const logCard = document.getElementById('real-logistics-card');
             if (logCard && logTotal > 0) {
                 document.getElementById('real-logistics-total').textContent = fmtRealMoney(-logTotal);
-                let tooltipHtml = '';
+                // Бейдж с количеством подкатегорий
+                const logBadge = document.getElementById('real-logistics-badge');
+                if (logBadge && logDetails.length > 0) {
+                    logBadge.textContent = logDetails.length;
+                    logBadge.classList.add('visible');
+                }
+                // Детали по клику
+                let detailsHtml = '';
                 logDetails.forEach(d => {
-                    tooltipHtml += '<div class="real-tooltip-row">' +
-                        '<span class="real-tooltip-label">' + d.label + '</span>' +
-                        '<span class="real-tooltip-value">' + fmtRealMoney(-d.value) + '</span>' +
+                    detailsHtml += '<div class="real-detail-row">' +
+                        '<span class="real-detail-label">' + escapeHtml(d.label) + '</span>' +
+                        '<span class="real-detail-value">' + fmtRealMoney(-d.value) + '</span>' +
                         '</div>';
                 });
-                document.getElementById('real-logistics-tooltip').innerHTML = tooltipHtml;
+                document.getElementById('real-logistics-details').innerHTML = detailsHtml;
                 logCard.style.display = '';
             }
 
@@ -13447,9 +13364,9 @@ HTML_TEMPLATE = '''
 
             // Отображение карточек
             const catConfig = [
-                { key: 'other_deductions', cardId: 'real-other-deductions-card', totalId: 'real-other-deductions-total', tooltipId: 'real-other-deductions-tooltip' },
-                { key: 'advertising', cardId: 'real-advertising-card', totalId: 'real-advertising-total', tooltipId: 'real-advertising-tooltip' },
-                { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', tooltipId: 'real-storage-tooltip' }
+                { key: 'other_deductions', cardId: 'real-other-deductions-card', totalId: 'real-other-deductions-total', detailsId: 'real-other-deductions-details', badgeId: 'real-other-deductions-badge' },
+                { key: 'advertising', cardId: 'real-advertising-card', totalId: 'real-advertising-total', detailsId: 'real-advertising-details', badgeId: 'real-advertising-badge' },
+                { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', detailsId: 'real-storage-details', badgeId: 'real-storage-badge' }
             ];
 
             console.log('[TX] catTotals:', JSON.stringify(catTotals));
@@ -13459,18 +13376,23 @@ HTML_TEMPLATE = '''
                 console.log('[TX] card', cfg.key, 'total:', total, 'card:', !!card);
                 if (card && total !== 0) {
                     document.getElementById(cfg.totalId).textContent = fmtRealMoney(total);
-                    // Тултип с деталями
-                    if (cfg.tooltipId && catDetails[cfg.key].length > 0) {
+                    const details = catDetails[cfg.key];
+                    // Бейдж с количеством
+                    const badge = document.getElementById(cfg.badgeId);
+                    if (badge && details.length > 0) {
+                        badge.textContent = details.length;
+                        badge.classList.add('visible');
+                    }
+                    // Детали по клику
+                    if (details.length > 0) {
                         let html = '';
-                        catDetails[cfg.key]
-                            .sort((a, b) => a.value - b.value)
-                            .forEach(d => {
-                                html += '<div class="real-tooltip-row">' +
-                                    '<span class="real-tooltip-label">' + escapeHtml(d.label) + '</span>' +
-                                    '<span class="real-tooltip-value">' + fmtRealMoney(d.value) + '</span>' +
-                                    '</div>';
-                            });
-                        document.getElementById(cfg.tooltipId).innerHTML = html;
+                        details.sort((a, b) => a.value - b.value).forEach(d => {
+                            html += '<div class="real-detail-row">' +
+                                '<span class="real-detail-label">' + escapeHtml(d.label) + '</span>' +
+                                '<span class="real-detail-value">' + fmtRealMoney(d.value) + '</span>' +
+                                '</div>';
+                        });
+                        document.getElementById(cfg.detailsId).innerHTML = html;
                     }
                     card.style.display = '';
                 }
