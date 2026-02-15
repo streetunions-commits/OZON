@@ -6333,12 +6333,8 @@ HTML_TEMPLATE = '''
         /* --- Карточки категорий удержаний --- */
         .real-card-other-deductions { border-left-color: #805ad5; position: relative; cursor: pointer; }
         .real-card-other-deductions .real-card-value { color: #805ad5; }
-        .real-card-crossdocking { border-left-color: #319795; }
-        .real-card-crossdocking .real-card-value { color: #319795; }
         .real-card-advertising { border-left-color: #d53f8c; position: relative; cursor: pointer; }
         .real-card-advertising .real-card-value { color: #d53f8c; }
-        .real-card-acquiring { border-left-color: #2b6cb0; position: relative; cursor: pointer; }
-        .real-card-acquiring .real-card-value { color: #2b6cb0; }
         .real-card-storage { border-left-color: #c05621; position: relative; cursor: pointer; }
         .real-card-storage .real-card-value { color: #c05621; }
 
@@ -6348,7 +6344,6 @@ HTML_TEMPLATE = '''
             padding: 14px 18px; z-index: 100; min-width: 320px; max-width: 450px;
         }
         .real-card-other-deductions:hover .real-category-tooltip,
-        .real-card-acquiring:hover .real-category-tooltip,
         .real-card-advertising:hover .real-category-tooltip,
         .real-card-storage:hover .real-category-tooltip { display: block; }
         .real-category-tooltip .real-tooltip-row {
@@ -6358,7 +6353,6 @@ HTML_TEMPLATE = '''
         .real-category-tooltip .real-tooltip-row:last-child { border-bottom: none; }
         .real-category-tooltip .real-tooltip-label { color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
         .real-card-other-deductions .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #805ad5; white-space: nowrap; }
-        .real-card-acquiring .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #2b6cb0; white-space: nowrap; }
         .real-card-advertising .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #d53f8c; white-space: nowrap; }
         .real-card-storage .real-category-tooltip .real-tooltip-value { font-weight: 600; color: #c05621; white-space: nowrap; }
 
@@ -9445,16 +9439,6 @@ HTML_TEMPLATE = '''
                                 <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
                                 <div class="real-card-hint">наведите для деталей</div>
                                 <div class="real-category-tooltip" id="real-other-deductions-tooltip"></div>
-                            </div>
-                            <div class="real-card real-card-crossdocking" id="real-crossdocking-card" style="display:none;">
-                                <div class="real-card-label">Кросс-докинг</div>
-                                <div class="real-card-value" id="real-crossdocking-total">0 ₽</div>
-                                <div class="real-card-hint"></div>
-                            </div>
-                            <div class="real-card real-card-acquiring" id="real-acquiring-card" style="display:none;">
-                                <div class="real-card-label">Эквайринг</div>
-                                <div class="real-card-value" id="real-acquiring-total">0 ₽</div>
-                                <div class="real-card-hint"></div>
                             </div>
                             <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;">
                                 <div class="real-card-label">Реклама</div>
@@ -13209,8 +13193,8 @@ HTML_TEMPLATE = '''
                     document.getElementById('real-breakdown-cards').style.display = 'none';
                     document.getElementById('real-breakdown-cache').style.display = 'none';
                     // Скрываем все карточки удержаний
-                    ['real-logistics-card','real-other-deductions-card','real-crossdocking-card',
-                     'real-acquiring-card','real-advertising-card','real-storage-card'].forEach(id => {
+                    ['real-logistics-card','real-other-deductions-card',
+                     'real-advertising-card','real-storage-card'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.style.display = 'none';
                     });
@@ -13416,7 +13400,7 @@ HTML_TEMPLATE = '''
                 logCard.style.display = '';
             }
 
-            // ── Карточки категорий: Иные удержания, Кросс-докинг, Реклама, Хранение ──
+            // ── Карточки категорий: Иные удержания, Реклама, Хранение ──
             // ВАЖНО: operations и services — два представления ОДНИХ данных.
             // operation.amount ≈ sum(operation.services.price), поэтому нельзя
             // суммировать из обоих массивов — будет двойной подсчёт.
@@ -30068,8 +30052,8 @@ def api_finance_realization():
         # ── Итоги ──
         net_total = seller_receives
 
-        # Комиссия МП = только delivery standard_fee (подтверждено пользователем: 10,758,875 ₽ за дек 2025)
-        marketplace_commission = standard_fee_total
+        # Комиссия МП = delivery standard_fee + эквайринг (commission)
+        marketplace_commission = standard_fee_total + acquiring_total
 
         # Фактический % комиссии = delivery standard_fee / гросс-продажи
         avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
@@ -30081,8 +30065,8 @@ def api_finance_realization():
             dq = pdata['delivery_qty']
             avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
 
-            # Фактический % комиссии МП по товару = delivery standard_fee / gross
-            p_commission = pdata['standard_fee']
+            # Фактический % комиссии МП по товару = (standard_fee + эквайринг) / gross
+            p_commission = pdata['standard_fee'] + pdata['acquiring']
             p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
 
             products_list.append({
@@ -30122,16 +30106,15 @@ def api_finance_realization():
             'summary': {
                 'gross_sales': round(gross_sales, 2),
                 'returns': round(returns_total, 2),
-                'commission': round(marketplace_commission, 2),     # Комиссия МП (delivery standard_fee)
+                'commission': round(marketplace_commission, 2),     # Комиссия МП (standard_fee + эквайринг)
                 'total_deductions': round(commission_total, 2),     # Все удержания (total)
                 'seller_receives': round(seller_receives, 2),
                 'bonuses': round(bonuses_total, 2),
                 'standard_fee': round(standard_fee_total, 2),
-                'acquiring': round(acquiring_total, 2),
                 'stars': round(stars_total, 2),
                 'bank_coinvestment': round(bank_coinvest_total, 2),
                 'net_total': round(net_total, 2),
-                'avg_commission_pct': round(avg_commission_pct, 2),  # % = delivery standard_fee / gross
+                'avg_commission_pct': round(avg_commission_pct, 2),  # % = (standard_fee + эквайринг) / gross
                 'delivery_count': delivery_count,
                 'return_count': return_count
             },
