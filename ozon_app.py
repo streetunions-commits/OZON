@@ -13143,7 +13143,9 @@ HTML_TEMPLATE = '''
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) realHint.textContent = s.delivery_count + ' доставок';
 
-                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
+                const grossEl = document.getElementById('real-gross-sales');
+                grossEl.textContent = fmtRealMoney(s.gross_sales);
+                grossEl.dataset.rawValue = s.gross_sales;  // Сохраняем для пересчёта %
                 const grossHint = document.getElementById('real-gross-hint');
                 if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
 
@@ -13151,7 +13153,9 @@ HTML_TEMPLATE = '''
                 const retHint = document.getElementById('real-returns-hint');
                 if (retHint) retHint.textContent = s.return_count + ' возвратов';
 
-                document.getElementById('real-commission').textContent = fmtRealMoney(s.commission);
+                const comEl = document.getElementById('real-commission');
+                comEl.textContent = fmtRealMoney(s.commission);
+                comEl.dataset.rawValue = s.commission;  // Сохраняем для пересчёта с эквайрингом
                 const comHint = document.getElementById('real-commission-hint');
                 if (comHint) comHint.textContent = Math.round(s.avg_commission_pct || 0) + '% от реализации';
 
@@ -13356,14 +13360,41 @@ HTML_TEMPLATE = '''
             const catTotals = { other_deductions: 0, advertising: 0, storage: 0 };
             const catDetails = { other_deductions: [], advertising: [], storage: [] };
 
+            // Эквайринг — добавляем к комиссии МП на карточке
+            let acquiringTotal = 0;
+
             // Только из operations — op.name содержит русское название из API
             (data.operations || []).forEach(op => {
+                // Эквайринг учитываем отдельно — потом добавим к комиссии
+                if (op.type === 'MarketplaceRedistributionOfAcquiringOperation') {
+                    acquiringTotal += op.sum;
+                    return;
+                }
                 const cat = operationCatMap[op.type];
                 if (cat) {
                     catTotals[cat] += op.sum;
                     catDetails[cat].push({ label: op.name || op.type, value: op.sum });
                 }
             });
+
+            // Добавляем эквайринг к карточке «Комиссия МП»
+            if (acquiringTotal !== 0) {
+                const commEl = document.getElementById('real-commission');
+                const hintEl = document.getElementById('real-commission-hint');
+                if (commEl) {
+                    const baseCommission = parseFloat(commEl.dataset.rawValue) || 0;
+                    const newVal = baseCommission + Math.abs(acquiringTotal);
+                    commEl.textContent = fmtRealMoney(newVal);
+                    // Пересчитываем процент от гросс-продаж
+                    const grossEl = document.getElementById('real-gross-sales');
+                    if (grossEl && hintEl) {
+                        const grossVal = parseFloat(grossEl.dataset.rawValue) || 0;
+                        if (grossVal > 0) {
+                            hintEl.textContent = Math.round(newVal / grossVal * 100) + '% от реализации';
+                        }
+                    }
+                }
+            }
 
             // Отображение карточек
             const catConfig = [
