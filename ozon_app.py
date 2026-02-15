@@ -29756,10 +29756,12 @@ def api_finance_categories_update():
 
 def _build_realization_from_transactions(year, month):
     """
-    Построить данные реализации из /v3/finance/transaction/list для текущего (незакрытого) месяца.
+    Построить данные реализации из /v1/finance/realization/by-day для текущего (незакрытого) месяца.
 
     Ozon API /v2/finance/realization доступен только для закрытых месяцев.
-    Для текущего месяца используем транзакции — живые данные, обновляются ежедневно.
+    Для текущего месяца используем /v1/finance/realization/by-day — возвращает данные
+    в том же формате (delivery_commission, return_commission с разбивкой amount/bonus/bank),
+    что позволяет получить точные суммы «Возврат выручки», «Баллы за скидки» и т.д.
 
     Аргументы:
         year (int): Год
@@ -29781,157 +29783,165 @@ def _build_realization_from_transactions(year, month):
     else:
         last_day = calendar.monthrange(year, month)[1]
 
-    date_from = f"{year}-{month:02d}-01T00:00:00.000Z"
-    date_to = f"{year}-{month:02d}-{last_day}T23:59:59.999Z"
     period_label = f"{year}-{month:02d}"
+    print(f"  📊 Реализация (by-day) за {period_label}: дни 1-{last_day}")
 
-    print(f"  📊 Реализация (транзакции) за {period_label}: {date_from} — {date_to}")
-
-    # ── Загрузка всех транзакций с пагинацией ──
-    def _fetch_page(pg):
-        payload = {
-            "filter": {
-                "date": {"from": date_from, "to": date_to},
-                "posting_number": "",
-                "transaction_type": "all"
-            },
-            "page": pg,
-            "page_size": 1000
-        }
-        return requests.post(
-            f"{OZON_HOST}/v3/finance/transaction/list",
-            json=payload, headers=ozon_headers, timeout=120
+    # ── Загрузка данных по дням параллельно ──
+    def _fetch_day(day):
+        """Загрузить данные реализации за один день."""
+        payload = {"year": year, "month": month, "day": day}
+        resp = requests.post(
+            f"{OZON_HOST}/v1/finance/realization/by-day",
+            json=payload, headers=ozon_headers, timeout=60
         )
+        return day, resp
 
-    resp1 = _fetch_page(1)
-    if resp1.status_code != 200:
-        err = resp1.text[:300]
-        print(f"  ❌ Транзакции {period_label}: HTTP {resp1.status_code} — {err}")
-        return {'success': False, 'error': f'Ошибка Ozon API: HTTP {resp1.status_code}'}
+    all_rows = []
+    errors = []
 
-    result1 = resp1.json().get('result', {})
-    all_ops = list(result1.get('operations', []))
-    page_count = result1.get('page_count', 0)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_fetch_day, d): d for d in range(1, last_day + 1)}
+        for future in as_completed(futures):
+            day, resp = future.result()
+            if resp.status_code == 200:
+                rows = resp.json().get('rows', [])
+                all_rows.extend(rows)
+            else:
+                err = resp.text[:200]
+                print(f"  ⚠️ by-day {period_label}-{day:02d}: HTTP {resp.status_code} — {err}")
+                errors.append(f"день {day}: HTTP {resp.status_code}")
 
-    if page_count > 1:
-        print(f"  📊 Транзакции {period_label}: стр. 2-{page_count} параллельно...")
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(_fetch_page, pg): pg for pg in range(2, page_count + 1)}
-            for future in as_completed(futures):
-                r = future.result()
-                if r.status_code == 200:
-                    page_ops = r.json().get('result', {}).get('operations', [])
-                    all_ops.extend(page_ops)
+    if not all_rows and errors:
+        return {'success': False, 'error': f'Ошибка загрузки: {"; ".join(errors)}'}
 
-    print(f"  ✅ Транзакции {period_label}: {len(all_ops)} операций, {page_count} стр.")
+    print(f"  ✅ Реализация (by-day) {period_label}: {len(all_rows)} строк за {last_day} дней")
 
-    # ── Агрегация транзакций в формат реализации ──
-    gross_sales = 0.0
-    returns_total = 0.0
-    commission_total = 0.0
-    seller_receives = 0.0
-    delivery_count = 0
-    return_count = 0
+    # ── Агрегация строк — идентично /v2/finance/realization ──
+    # Каждая строка содержит delivery_commission и/или return_commission
+    # с полной разбивкой: amount (выручка продавца), bonus (баллы), bank_coinvestment (партнёры)
+    gross_sales = 0.0           # Гросс-продажи (seller_price * delivery_qty)
+    returns_total = 0.0         # Возврат выручки (return_commission.amount)
+    commission_total = 0.0      # Полная комиссия Ozon (delivery + return .total)
+    seller_receives = 0.0       # К получению продавцом
+    bonuses_total = 0.0         # Бонусы Ozon (баллы за скидки)
+    standard_fee_total = 0.0    # Стандартная комиссия
+    stars_total = 0.0           # Звёзды
+    bank_coinvest_total = 0.0   # Софинансирование банком (программы партнёров)
+    delivery_count = 0          # Количество доставок
+    return_count = 0            # Количество возвратов
+    acquiring_total = 0.0       # Эквайринг
+
     products_map = {}
 
-    for op in all_ops:
-        accruals = op.get('accruals_for_sale', 0) or 0
-        sale_comm = op.get('sale_commission', 0) or 0
-        amount = op.get('amount', 0) or 0
-        items = op.get('items', [])
-        op_type = op.get('operation_type', '')
+    for row in all_rows:
+        seller_price = row.get('seller_price_per_instance', 0)
+        ratio = row.get('commission_ratio', 0)
+        item_info = row.get('item', {})
+        offer_id = item_info.get('offer_id', '')
+        sku = str(item_info.get('sku', ''))
+        name = item_info.get('name', 'Неизвестный товар')
+        barcode = item_info.get('barcode', '')
 
-        # Определяем SKU и имя товара из items
-        item_sku = ''
-        item_name = ''
-        if items:
-            item_sku = str(items[0].get('sku', ''))
-            item_name = items[0].get('name', '')
+        dc = row.get('delivery_commission') or {}
+        rc = row.get('return_commission') or {}
 
-        # Продажа: accruals_for_sale > 0 (гросс-выручка от продажи)
-        if accruals > 0:
-            gross_sales += accruals
-            commission_total += abs(sale_comm)
-            seller_receives += amount
-            qty = max(len(items), 1)
-            delivery_count += qty
+        # Доставки (продажи)
+        d_qty = dc.get('quantity', 0)
+        d_amount = dc.get('amount', 0)          # Выручка продавца (без бонусов)
+        d_total_comm = dc.get('total', 0)        # Полная комиссия Ozon
+        d_bonus = dc.get('bonus', 0)
+        d_std_fee = dc.get('standard_fee', 0)
+        d_stars = dc.get('stars', 0)
+        d_bank = dc.get('bank_coinvestment', 0)
+        d_acquiring = dc.get('commission', 0)
 
-            if item_sku:
-                if item_sku not in products_map:
-                    products_map[item_sku] = {
-                        'name': item_name[:80] if item_name else 'Неизвестный товар',
-                        'sku': item_sku,
-                        'offer_id': '',
-                        'delivery_qty': 0,
-                        'return_qty': 0,
-                        'gross_sales': 0.0,
-                        'returns': 0.0,
-                        'commission': 0.0,
-                        'seller_receives': 0.0,
-                    }
-                p = products_map[item_sku]
-                p['delivery_qty'] += qty
-                p['gross_sales'] += accruals
-                p['commission'] += abs(sale_comm)
-                p['seller_receives'] += amount
+        # Возвраты
+        r_qty = rc.get('quantity', 0)
+        r_amount = rc.get('amount', 0)           # Возврат выручки (доля продавца)
+        r_total_comm = rc.get('total', 0)
+        r_bonus = rc.get('bonus', 0)             # Баллы за скидки (возврат)
+        r_std_fee = rc.get('standard_fee', 0)
+        r_acquiring = rc.get('commission', 0) if rc else 0
 
-        # Возврат товара: только accruals_for_sale < 0 (ClientReturnAgentOperation)
-        # OperationItemReturn (accruals=0) — это возврат комиссии, НЕ товара
-        elif accruals < 0:
-            ret_amount = abs(accruals)
-            returns_total += ret_amount
-            ret_comm = abs(sale_comm) if sale_comm else 0
-            commission_total -= ret_comm  # Возврат комиссии при возврате товара
-            seller_receives += amount
-            qty = max(len(items), 1)
-            return_count += qty
+        # Гросс-продажи = цена продавца * кол-во доставок
+        row_gross_sales = seller_price * d_qty
+        # Возвраты = return_commission.amount (Возврат выручки — доля продавца)
+        row_returns = abs(r_amount) if r_amount else 0
 
-            if item_sku:
-                if item_sku not in products_map:
-                    products_map[item_sku] = {
-                        'name': item_name[:80] if item_name else 'Неизвестный товар',
-                        'sku': item_sku,
-                        'offer_id': '',
-                        'delivery_qty': 0,
-                        'return_qty': 0,
-                        'gross_sales': 0.0,
-                        'returns': 0.0,
-                        'commission': 0.0,
-                        'seller_receives': 0.0,
-                    }
-                p = products_map[item_sku]
-                p['return_qty'] += qty
-                p['returns'] += ret_amount
-                p['seller_receives'] += amount
+        gross_sales += row_gross_sales
+        returns_total += row_returns
+        commission_total += d_total_comm + r_total_comm
+        seller_receives += d_amount + r_amount
+        bonuses_total += d_bonus + r_bonus
+        standard_fee_total += d_std_fee
+        stars_total += d_stars
+        bank_coinvest_total += d_bank
+        acquiring_total += d_acquiring + r_acquiring
+        delivery_count += d_qty
+        return_count += r_qty
 
-        # Прочие операции (возврат комиссии, эквайринг, логистика и т.д.) — учитываем в seller_receives
-        else:
-            seller_receives += amount
+        # Агрегация по товарам (SKU)
+        product_key = sku or offer_id or barcode
+        if product_key:
+            if product_key not in products_map:
+                products_map[product_key] = {
+                    'name': name[:80],
+                    'sku': sku,
+                    'offer_id': offer_id,
+                    'seller_price_sum': 0.0,
+                    'standard_fee': 0.0,
+                    'acquiring': 0.0,
+                    'bank_coinvestment': 0.0,
+                    'delivery_qty': 0,
+                    'return_qty': 0,
+                    'gross_sales': 0.0,
+                    'returns': 0.0,
+                    'total_deductions': 0.0,
+                    'seller_receives': 0.0,
+                    'bonus': 0.0
+                }
+            p = products_map[product_key]
+            p['delivery_qty'] += d_qty
+            p['return_qty'] += r_qty
+            p['gross_sales'] += row_gross_sales
+            p['returns'] += row_returns
+            p['total_deductions'] += d_total_comm + r_total_comm
+            p['seller_receives'] += d_amount + r_amount
+            p['bonus'] += d_bonus + r_bonus
+            p['standard_fee'] += d_std_fee
+            p['acquiring'] += d_acquiring + r_acquiring
+            p['bank_coinvestment'] += d_bank
+            if d_qty > 0:
+                p['seller_price_sum'] += seller_price * d_qty
 
-    # ── % комиссии ──
-    avg_commission_pct = (commission_total / gross_sales * 100) if gross_sales > 0 else 0
+    # ── Итоги ──
+    net_total = seller_receives
+    marketplace_commission = standard_fee_total + acquiring_total
+    avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
-    # ── Таблица товаров ──
+    # ── Таблица товаров (по SKU) ──
     products_list = []
     for key, pdata in sorted(products_map.items(),
                               key=lambda x: abs(x[1]['gross_sales']), reverse=True):
         dq = pdata['delivery_qty']
-        avg_price = pdata['gross_sales'] / dq if dq > 0 else 0
-        p_comm_pct = (pdata['commission'] / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
+        avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
+
+        p_commission = pdata['standard_fee'] + pdata['acquiring']
+        p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
 
         products_list.append({
             'sku': pdata['sku'],
             'offer_id': pdata['offer_id'],
             'name': pdata['name'],
             'seller_price': round(avg_price, 2),
-            'commission_ratio': round(p_comm_pct, 2),
+            'commission_ratio': round(p_commission_pct, 2),
             'delivery_qty': pdata['delivery_qty'],
             'return_qty': pdata['return_qty'],
             'gross_sales': round(pdata['gross_sales'], 2),
             'returns': round(pdata['returns'], 2),
-            'commission': round(pdata['commission'], 2),
+            'commission': round(p_commission, 2),
             'seller_receives': round(pdata['seller_receives'], 2),
-            'bonus': 0.0
+            'bonus': round(pdata['bonus'], 2)
         })
 
     return {
@@ -29949,22 +29959,22 @@ def _build_realization_from_transactions(year, month):
         'summary': {
             'gross_sales': round(gross_sales, 2),
             'returns': round(returns_total, 2),
-            'commission': round(commission_total, 2),
+            'commission': round(marketplace_commission, 2),
             'total_deductions': round(commission_total, 2),
             'seller_receives': round(seller_receives, 2),
-            'bonuses': 0.0,
-            'standard_fee': round(commission_total, 2),
-            'stars': 0.0,
-            'bank_coinvestment': 0.0,
-            'net_total': round(seller_receives, 2),
+            'bonuses': round(bonuses_total, 2),
+            'standard_fee': round(standard_fee_total, 2),
+            'stars': round(stars_total, 2),
+            'bank_coinvestment': round(bank_coinvest_total, 2),
+            'net_total': round(net_total, 2),
             'avg_commission_pct': round(avg_commission_pct, 2),
             'delivery_count': delivery_count,
             'return_count': return_count
         },
         'products': products_list,
-        'total_rows': len(all_ops),
+        'total_rows': len(all_rows),
         'total_products': len(products_list),
-        'warnings': 'Данные за текущий месяц — предварительные (из транзакций)'
+        'warnings': 'Данные за текущий месяц — предварительные (ежедневная реализация)'
     }
 
 
