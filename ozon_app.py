@@ -13247,7 +13247,7 @@ HTML_TEMPLATE = '''
                     return;
                 }
 
-                console.log('[TX] Data received:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length, 'cache:', data.from_cache);
+                console.log('[TX] Data received:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length);
                 renderTransactionsBreakdown(data);
                 console.log('[TX] Render complete');
 
@@ -30379,21 +30379,6 @@ def api_finance_transactions_breakdown():
             'services': services_list,
             'alerts': alerts
         }
-
-        # ── Сохраняем в кэш ──
-        try:
-            cache_db = sqlite3.connect(DB_PATH)
-            cache_db.execute('''
-                INSERT OR REPLACE INTO transaction_breakdown_cache
-                (period_key, response_json, cached_at)
-                VALUES (?, ?, ?)
-            ''', (cache_key, json.dumps(response_data, ensure_ascii=False),
-                  _dt.now().strftime('%Y-%m-%d %H:%M:%S')))
-            cache_db.commit()
-            cache_db.close()
-            print(f"  💾 Транзакции {period_label}: кэш сохранён")
-        except Exception as save_err:
-            print(f"  ⚠️ Ошибка сохранения кэша: {save_err}")
 
         return jsonify(response_data)
 
