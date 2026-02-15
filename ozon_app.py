@@ -6312,6 +6312,8 @@ HTML_TEMPLATE = '''
         .real-card-other-deductions .real-card-value { color: #805ad5; }
         .real-card-advertising { border-left-color: #d53f8c; cursor: pointer; }
         .real-card-advertising .real-card-value { color: #d53f8c; }
+        .real-card-compensations { border-left-color: #38a169; cursor: pointer; }
+        .real-card-compensations .real-card-value { color: #38a169; }
         .real-card-storage { border-left-color: #c05621; cursor: pointer; }
         .real-card-storage .real-card-value { color: #c05621; }
 
@@ -6337,6 +6339,7 @@ HTML_TEMPLATE = '''
         .real-detail-value { font-weight: 600; white-space: nowrap; }
         .real-card-logistics .real-detail-value { color: #3182ce; }
         .real-card-other-deductions .real-detail-value { color: #805ad5; }
+        .real-card-compensations .real-detail-value { color: #38a169; }
         .real-card-advertising .real-detail-value { color: #d53f8c; }
         .real-card-storage .real-detail-value { color: #c05621; }
 
@@ -9415,6 +9418,14 @@ HTML_TEMPLATE = '''
                             </div>
                             <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
                             <div class="real-card-details" id="real-other-deductions-details"></div>
+                        </div>
+                        <div class="real-card real-card-compensations" id="real-compensations-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
+                                <div class="real-card-label">Компенсации</div>
+                                <span class="real-card-badge" id="real-compensations-badge"></span>
+                            </div>
+                            <div class="real-card-value" id="real-compensations-total">0 ₽</div>
+                            <div class="real-card-details" id="real-compensations-details"></div>
                         </div>
                         <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;" onclick="toggleCardDetails(this)">
                             <div class="real-card-header">
@@ -13073,6 +13084,7 @@ HTML_TEMPLATE = '''
         let _realCommissionBase = 0;
         let _realGrossSales = 0;
         let _realAcquiring = 0;
+        let _realBonuses = 0;  // Баллы за скидки (из realization API)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
@@ -13121,6 +13133,7 @@ HTML_TEMPLATE = '''
             _realCommissionBase = 0;
             _realGrossSales = 0;
             _realAcquiring = 0;
+            _realBonuses = 0;
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13140,7 +13153,7 @@ HTML_TEMPLATE = '''
             // Скрыть всё, показать загрузку
             ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
-             'real-logistics-card', 'real-other-deductions-card',
+             'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
              'real-advertising-card', 'real-storage-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
@@ -13181,6 +13194,7 @@ HTML_TEMPLATE = '''
                 // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
                 _realCommissionBase = s.commission;
                 _realGrossSales = s.gross_sales;
+                _realBonuses = Math.abs(s.bonuses || 0);
                 updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
@@ -13363,8 +13377,9 @@ HTML_TEMPLATE = '''
                 'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
                 'OperationMarketplaceServiceSupplyInboundCargoShortage': 'other_deductions',
                 'OperationSellerReturnsCargoAssortmentInvalid': 'other_deductions',
-                'AccrualConsigWriteOff': 'other_deductions',
-                'AccrualInternalClaim': 'other_deductions',
+                // Компенсации (Потеря по вине Ozon)
+                'AccrualConsigWriteOff': 'compensations',
+                'AccrualInternalClaim': 'compensations',
                 'SellerReturnsDeliveryToPickupPoint': 'other_deductions',
                 'MarketplaceSellerCorrectionOperation': 'other_deductions',
                 'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
@@ -13376,8 +13391,8 @@ HTML_TEMPLATE = '''
                 'TemporaryStorage': 'storage'
             };
 
-            const catTotals = { other_deductions: 0, advertising: 0, storage: 0 };
-            const catDetails = { other_deductions: [], advertising: [], storage: [] };
+            const catTotals = { other_deductions: 0, compensations: 0, advertising: 0, storage: 0 };
+            const catDetails = { other_deductions: [], compensations: [], advertising: [], storage: [] };
 
             // Эквайринг — добавляем к комиссии МП на карточке
             let acquiringTotal = 0;
@@ -13400,8 +13415,15 @@ HTML_TEMPLATE = '''
             _realAcquiring = Math.abs(acquiringTotal);
             updateCommissionCard();
 
+            // «Баллы за скидки» — из realization API (bonuses_total), добавляем к компенсациям
+            if (_realBonuses > 0) {
+                catTotals.compensations += _realBonuses;
+                catDetails.compensations.unshift({ label: 'Баллы за скидки', value: _realBonuses });
+            }
+
             // Отображение карточек
             const catConfig = [
+                { key: 'compensations', cardId: 'real-compensations-card', totalId: 'real-compensations-total', detailsId: 'real-compensations-details', badgeId: 'real-compensations-badge' },
                 { key: 'other_deductions', cardId: 'real-other-deductions-card', totalId: 'real-other-deductions-total', detailsId: 'real-other-deductions-details', badgeId: 'real-other-deductions-badge' },
                 { key: 'advertising', cardId: 'real-advertising-card', totalId: 'real-advertising-total', detailsId: 'real-advertising-details', badgeId: 'real-advertising-badge' },
                 { key: 'storage', cardId: 'real-storage-card', totalId: 'real-storage-total', detailsId: 'real-storage-details', badgeId: 'real-storage-badge' }
