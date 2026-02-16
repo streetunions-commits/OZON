@@ -13350,26 +13350,33 @@ HTML_TEMPLATE = '''
         function renderTransactionsBreakdown(data) {
             console.log('[TX] renderTransactionsBreakdown called');
             // ── Карточка «Логистика» ──
-            // Все логистические сервисы из services (НЕ operations — чтобы избежать двойного подсчёта):
-            //   MarketplaceServiceItemDirectFlowLogistic          → Логистика доставки
-            //   MarketplaceServiceItemRedistributionLastMileCourier → Последняя миля
-            //   MarketplaceServiceItemReturnFlowLogistic           → Логистика возвратов
-            //   MarketplaceServiceItemRedistributionReturnsPVZ     → Возврат через ПВЗ
+            // Источники:
+            //   service  MarketplaceServiceItemDirectFlowLogistic          → Логистика (-2.9M)
+            //   operation OperationItemReturn                              → Доставка и обработка возврата (-309k)
+            //   service  MarketplaceServiceItemRedistributionLastMileCourier → Последняя миля (-26k)
             let logTotal = 0;
             const logDetails = [];
 
-            const logisticsServices = {
-                'MarketplaceServiceItemDirectFlowLogistic': 'Логистика доставки',
-                'MarketplaceServiceItemRedistributionLastMileCourier': 'Последняя миля',
-                'MarketplaceServiceItemReturnFlowLogistic': 'Логистика возвратов',
-                'MarketplaceServiceItemRedistributionReturnsPVZ': 'Возврат через ПВЗ'
-            };
-
+            // 1) Логистика — из services
             (data.services || []).forEach(svc => {
-                if (logisticsServices[svc.name]) {
+                if (svc.name === 'MarketplaceServiceItemDirectFlowLogistic') {
                     const val = Math.abs(svc.sum);
                     logTotal += val;
-                    logDetails.push({label: logisticsServices[svc.name], value: val});
+                    logDetails.push({label: 'Логистика', value: val});
+                }
+                if (svc.name === 'MarketplaceServiceItemRedistributionLastMileCourier') {
+                    const val = Math.abs(svc.sum);
+                    logTotal += val;
+                    logDetails.push({label: 'Последняя миля', value: val});
+                }
+            });
+
+            // 2) Доставка и обработка возврата — из operations (OperationItemReturn)
+            (data.operations || []).forEach(op => {
+                if (op.type === 'OperationItemReturn') {
+                    const val = Math.abs(op.sum);
+                    logTotal += val;
+                    logDetails.push({label: 'Доставка и обработка возврата', value: val});
                 }
             });
 
