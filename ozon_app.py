@@ -134,6 +134,10 @@ if not OZON_CLIENT_ID or not OZON_API_KEY:
 OZON_HOST = "https://api-seller.ozon.ru"
 DB_PATH = "ozon_data.db"
 
+# Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
+# чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
+REALIZATION_CACHE_VERSION = 2  # v2: _delivery_logistics + seller_receives = d_amount only
+
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'rar'}
@@ -291,6 +295,11 @@ def init_database():
     """Инициализация базы данных"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
+    # WAL-режим: разрешает параллельное чтение и запись (нужен для gunicorn с несколькими workers)
+    # В режиме DELETE одновременный reader блокируется writer-ом → кэш не читается
+    cursor.execute('PRAGMA journal_mode=WAL')
+    cursor.execute('PRAGMA busy_timeout=5000')
     
     # ✅ Текущие остатки (самый свежий снимок)
     cursor.execute('''
@@ -1200,6 +1209,24 @@ def init_database():
             cached_at TEXT NOT NULL
         )
     ''')
+
+    # Версионирование кэша: при изменении логики агрегации старый кэш автоматически сбрасывается
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cache_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    ''')
+    row = cursor.execute("SELECT value FROM cache_meta WHERE key = 'realization_cache_version'").fetchone()
+    stored_version = int(row[0]) if row else 0
+    if stored_version < REALIZATION_CACHE_VERSION:
+        cursor.execute('DELETE FROM realization_cache')
+        cursor.execute('DELETE FROM transaction_breakdown_cache')
+        cursor.execute(
+            "INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('realization_cache_version', ?)",
+            (str(REALIZATION_CACHE_VERSION),)
+        )
+        print(f"🗑️ Кэш реализации сброшен: v{stored_version} → v{REALIZATION_CACHE_VERSION}")
 
     # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
@@ -13193,6 +13220,9 @@ HTML_TEMPLATE = '''
             });
             document.getElementById('real-loading').style.display = 'block';
 
+            // Запускаем ОБА запроса параллельно (сеть грузится одновременно)
+            // Рендер транзакций произойдёт после обработки реализации (нужен _realBonuses)
+            const txPromise = _fetchTransactionsBreakdown();
 
             try {
                 const resp = await authFetch(url);
@@ -13233,9 +13263,11 @@ HTML_TEMPLATE = '''
 
                 document.getElementById('real-summary').style.display = 'grid';
 
-                // Загружаем транзакции ПОСЛЕ установки _realBonuses,
-                // чтобы «Баллы за скидки» корректно добавлялись в карточку компенсаций
-                loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
+                // Ждём результат транзакций (fetch уже идёт параллельно) и рендерим
+                // _realBonuses уже установлен, поэтому карточка компенсаций отрисуется корректно
+                txPromise.then(txData => {
+                    if (txData) renderTransactionsBreakdown(txData);
+                }).catch(err => console.error('[TX] error:', err));
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
@@ -13310,7 +13342,11 @@ HTML_TEMPLATE = '''
          * Загрузить детализацию удержаний из Transaction API и отрисовать.
          * Вызывается параллельно с основной загрузкой реализации.
          */
-        async function loadTransactionsBreakdown() {
+        /**
+         * Только fetch транзакций (без рендера) — для параллельной загрузки.
+         * Возвращает данные или null при ошибке.
+         */
+        async function _fetchTransactionsBreakdown() {
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
@@ -13332,15 +13368,25 @@ HTML_TEMPLATE = '''
 
                 if (!data.success) {
                     console.error('Transactions breakdown error:', data.error);
-                    return;
+                    return null;
                 }
 
                 console.log('[TX] Data received:', data.success, 'ops:', (data.operations||[]).length, 'svcs:', (data.services||[]).length);
-                renderTransactionsBreakdown(data);
-                console.log('[TX] Render complete');
-
+                return data;
             } catch (e) {
                 console.error('[TX] Transactions breakdown fetch error:', e);
+                return null;
+            }
+        }
+
+        /**
+         * Загрузить и отрисовать транзакции (для вызова когда _realBonuses уже установлен).
+         */
+        async function loadTransactionsBreakdown() {
+            const data = await _fetchTransactionsBreakdown();
+            if (data) {
+                renderTransactionsBreakdown(data);
+                console.log('[TX] Render complete');
             }
         }
 
@@ -30353,7 +30399,7 @@ def api_finance_realization():
     cache_key = quarter_str if quarter_str else month_str
     if not current_month_in_quarter:
         try:
-            db_cache = sqlite3.connect(DB_PATH)
+            db_cache = sqlite3.connect(DB_PATH, timeout=10)
             row = db_cache.execute(
                 'SELECT response_json FROM realization_cache WHERE period_key = ?',
                 (cache_key,)
@@ -30362,6 +30408,8 @@ def api_finance_realization():
             if row:
                 print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
                 return Response(row[0], mimetype='application/json')
+            else:
+                print(f"  📭 Реализация {cache_key}: кэш пуст, загружаем из API")
         except Exception as e:
             print(f"  ⚠️ Ошибка чтения кэша реализации: {e}")
 
@@ -30684,7 +30732,7 @@ def api_finance_realization():
             try:
                 import json as _json
                 response_json = _json.dumps(response_data, ensure_ascii=False)
-                db_cache = sqlite3.connect(DB_PATH)
+                db_cache = sqlite3.connect(DB_PATH, timeout=10)
                 db_cache.execute(
                     'INSERT OR REPLACE INTO realization_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
                     (cache_key, response_json, _dt.now().isoformat())
@@ -31116,10 +31164,10 @@ def api_finance_transactions_breakdown():
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
 
-    # ── Проверяем кэш (не для дневного диапазона) ──
+    # ── Проверяем кэш ──
     cache_key = (date_from_param + '_' + date_to_param) if date_from_param else (quarter_str if quarter_str else month_str)
     try:
-        db_cache = sqlite3.connect(DB_PATH)
+        db_cache = sqlite3.connect(DB_PATH, timeout=10)
         row = db_cache.execute(
             'SELECT response_json FROM transaction_breakdown_cache WHERE period_key = ?',
             (cache_key,)
@@ -31128,8 +31176,12 @@ def api_finance_transactions_breakdown():
         if row:
             print(f"  ⚡ Транзакции {cache_key}: отдаём из кэша")
             return Response(row[0], mimetype='application/json')
+        else:
+            print(f"  📭 Транзакции {cache_key}: кэш пуст, загружаем из API")
     except Exception as e:
         print(f"  ⚠️ Ошибка чтения кэша транзакций: {e}")
+        import traceback
+        traceback.print_exc()
 
     # ── Запросы к Ozon Transaction API ──
     ozon_headers = get_ozon_headers()
@@ -31354,7 +31406,7 @@ def api_finance_transactions_breakdown():
         try:
             import json as _json
             response_json = _json.dumps(response_data, ensure_ascii=False)
-            db_cache = sqlite3.connect(DB_PATH)
+            db_cache = sqlite3.connect(DB_PATH, timeout=10)
             db_cache.execute(
                 'INSERT OR REPLACE INTO transaction_breakdown_cache (period_key, response_json, cached_at) VALUES (?, ?, ?)',
                 (cache_key, response_json, _dt.now().isoformat())
