@@ -29970,7 +29970,7 @@ def _build_realization_from_transactions(year, month):
         return_gross_total += row_return_gross
         returns_total += row_returns
         commission_total += d_total_comm + r_total_comm
-        seller_receives += d_amount                    # Только доставки (возвраты отдельно)
+        seller_receives += d_amount - r_amount          # Доставки минус возвраты (r_amount положительный в API)
         bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
         standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
         stars_total += d_stars - r_stars                # Чистые звёзды
@@ -30007,7 +30007,7 @@ def _build_realization_from_transactions(year, month):
             p['return_gross'] += row_return_gross
             p['returns'] += row_returns
             p['total_deductions'] += d_total_comm + r_total_comm
-            p['seller_receives'] += d_amount
+            p['seller_receives'] += d_amount - r_amount
             p['bonus'] += d_bonus + r_bonus
             p['standard_fee'] += d_std_fee
             p['acquiring'] += d_acquiring + r_acquiring
@@ -30204,7 +30204,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         return_gross_total += row_return_gross
         returns_total += row_returns
         commission_total += d_total_comm + r_total_comm
-        seller_receives += d_amount                    # Только доставки (возвраты отдельно)
+        seller_receives += d_amount - r_amount          # Доставки минус возвраты (r_amount положительный в API)
         bonuses_total += d_bonus + r_bonus
         standard_fee_total += d_std_fee + r_std_fee
         stars_total += d_stars + r_stars
@@ -30230,7 +30230,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             p['return_gross'] += row_return_gross
             p['returns'] += row_returns
             p['total_deductions'] += d_total_comm + r_total_comm
-            p['seller_receives'] += d_amount
+            p['seller_receives'] += d_amount - r_amount
             p['bonus'] += d_bonus + r_bonus
             p['standard_fee'] += d_std_fee
             p['acquiring'] += d_acquiring + r_acquiring
@@ -30563,7 +30563,7 @@ def api_finance_realization():
             return_gross_total += row_return_gross
             returns_total += row_returns
             commission_total += d_total_comm + r_total_comm
-            seller_receives += d_amount                    # Только доставки (возвраты отдельно)
+            seller_receives += d_amount - r_amount          # Доставки минус возвраты (r_amount положительный в API)
             bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
             standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
             stars_total += d_stars - r_stars                # Чистые звёзды
@@ -30600,7 +30600,7 @@ def api_finance_realization():
                 p['return_gross'] += row_return_gross
                 p['returns'] += row_returns
                 p['total_deductions'] += d_total_comm + r_total_comm
-                p['seller_receives'] += d_amount
+                p['seller_receives'] += d_amount - r_amount
                 p['bonus'] += d_bonus + r_bonus
                 p['standard_fee'] += d_std_fee  # Только доставки
                 p['acquiring'] += d_acquiring + r_acquiring
