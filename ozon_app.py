@@ -9360,16 +9360,23 @@ HTML_TEMPLATE = '''
                 <!-- Подвкладка: Реализация — акт реализации из Ozon /v2/finance/realization -->
                 <div id="finance-realization" class="finance-subtab-content">
 
-                    <!-- Фильтр: выбор периода (месяц / квартал) + кнопка загрузки -->
+                    <!-- Фильтр: выбор периода (дни / месяц / квартал) -->
                     <div class="real-filters">
                         <div class="real-filter-group">
                             <label class="real-filter-label">Период:</label>
                             <select id="real-period-type" class="real-period-type" onchange="toggleRealPeriodType()">
+                                <option value="days">Дни</option>
                                 <option value="month">Месяц</option>
                                 <option value="quarter">Квартал</option>
                             </select>
                         </div>
-                        <div class="real-filter-group" id="real-month-group">
+                        <div class="real-filter-group" id="real-days-group">
+                            <label class="real-filter-label">с:</label>
+                            <input type="date" id="real-date-from" class="date-filter-input" onclick="this.showPicker()" onchange="loadRealizationData()">
+                            <label class="real-filter-label">по:</label>
+                            <input type="date" id="real-date-to" class="date-filter-input" onclick="this.showPicker()" onchange="loadRealizationData()">
+                        </div>
+                        <div class="real-filter-group" id="real-month-group" style="display: none;">
                             <select id="real-month-select" class="real-month-select" onchange="loadRealizationData()"></select>
                         </div>
                         <div class="real-filter-group" id="real-quarter-group" style="display: none;">
@@ -9471,7 +9478,7 @@ HTML_TEMPLATE = '''
 
                     <!-- Пустое состояние -->
                     <div class="real-empty" id="real-empty" style="display: none;">
-                        <p>Выберите месяц или квартал для просмотра реализации</p>
+                        <p>Выберите период для просмотра реализации</p>
                         <p style="font-size: 13px; color: #bbb; margin-top: 8px;">Акт реализации — данные как в разделе «Начисления» кабинета Ozon</p>
                     </div>
 
@@ -12997,26 +13004,35 @@ HTML_TEMPLATE = '''
                 const periodSel = document.getElementById('real-period-type');
 
                 if (savedType === 'quarter') {
-                    // Переключаем на квартал (без автозагрузки — загрузим после восстановления значения)
                     periodSel.value = 'quarter';
                     toggleRealPeriodType(false);
-                    // Восстанавливаем выбранный квартал
                     const savedQ = localStorage.getItem('real_quarter');
                     if (savedQ) {
                         const qsel = document.getElementById('real-quarter-select');
                         if (qsel) qsel.value = savedQ;
                     }
                 } else if (savedType === 'month') {
-                    // Восстанавливаем выбранный месяц
+                    periodSel.value = 'month';
+                    toggleRealPeriodType(false);
                     const savedMonth = localStorage.getItem('real_month');
                     if (savedMonth) {
                         const msel = document.getElementById('real-month-select');
                         if (msel) msel.value = savedMonth;
                     }
+                } else if (savedType === 'days') {
+                    periodSel.value = 'days';
+                    toggleRealPeriodType(false);
+                    const savedFrom = localStorage.getItem('real_date_from');
+                    const savedTo = localStorage.getItem('real_date_to');
+                    if (savedFrom) document.getElementById('real-date-from').value = savedFrom;
+                    if (savedTo) document.getElementById('real-date-to').value = savedTo;
+                } else {
+                    // По умолчанию — дни (сегодня)
+                    periodSel.value = 'days';
+                    toggleRealPeriodType(false);
                 }
-                // Если нет сохранённого состояния — текущий месяц уже выбран первым в списке
 
-                // Автозагрузка данных (текущий месяц по умолчанию)
+                // Автозагрузка данных
                 loadRealizationData();
             } catch(e) {}
         }
@@ -13053,20 +13069,32 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Переключение типа периода (Месяц / Квартал) в фильтрах реализации.
+         * Переключение типа периода (Дни / Месяц / Квартал) в фильтрах реализации.
          */
         function toggleRealPeriodType(autoLoad) {
             const type = document.getElementById('real-period-type').value;
+            const daysGroup = document.getElementById('real-days-group');
             const monthGroup = document.getElementById('real-month-group');
             const quarterGroup = document.getElementById('real-quarter-group');
 
-            if (type === 'quarter') {
-                monthGroup.style.display = 'none';
+            daysGroup.style.display = 'none';
+            monthGroup.style.display = 'none';
+            quarterGroup.style.display = 'none';
+
+            if (type === 'days') {
+                daysGroup.style.display = '';
+                // Устанавливаем даты по умолчанию: сегодня
+                const dateFrom = document.getElementById('real-date-from');
+                const dateTo = document.getElementById('real-date-to');
+                if (!dateFrom.value) {
+                    dateFrom.value = getTodayDate();
+                    dateTo.value = getTodayDate();
+                }
+            } else if (type === 'quarter') {
                 quarterGroup.style.display = '';
                 initRealizationQuarterSelect();
             } else {
                 monthGroup.style.display = '';
-                quarterGroup.style.display = 'none';
             }
             // Автозагрузка при переключении типа периода (если не вызвано из restoreRealizationState)
             if (autoLoad !== false) loadRealizationData();
@@ -13085,7 +13113,6 @@ HTML_TEMPLATE = '''
         let _realGrossSales = 0;
         let _realAcquiring = 0;
         let _realBonuses = 0;  // Баллы за скидки (из realization API)
-        let _realStars = 0;   // Баллы за отзывы (из realization API, поле stars)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
@@ -13135,12 +13162,16 @@ HTML_TEMPLATE = '''
             _realGrossSales = 0;
             _realAcquiring = 0;
             _realBonuses = 0;
-            _realStars = 0;
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
-            if (periodType === 'quarter') {
+            if (periodType === 'days') {
+                const dateFrom = document.getElementById('real-date-from').value;
+                const dateTo = document.getElementById('real-date-to').value;
+                if (!dateFrom || !dateTo) { _realLoading = false; return; }
+                url = '/api/finance/realization?date_from=' + encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo);
+            } else if (periodType === 'quarter') {
                 const qsel = document.getElementById('real-quarter-select');
                 const quarter = qsel ? qsel.value : '';
                 if (!quarter) { _realLoading = false; return; }
@@ -13162,9 +13193,6 @@ HTML_TEMPLATE = '''
             });
             document.getElementById('real-loading').style.display = 'block';
 
-
-            // Запускаем транзакции ПАРАЛЛЕЛЬНО (не блокирует основную загрузку)
-            loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
 
             try {
                 const resp = await authFetch(url);
@@ -13200,10 +13228,13 @@ HTML_TEMPLATE = '''
                 _realCommissionBase = s.commission;
                 _realGrossSales = netGrossSales;
                 _realBonuses = Math.abs(s.bonuses || 0);
-                _realStars = Math.abs(s.stars || 0);
                 updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
+
+                // Загружаем транзакции ПОСЛЕ установки _realBonuses,
+                // чтобы «Баллы за скидки» корректно добавлялись в карточку компенсаций
+                loadTransactionsBreakdown().catch(err => console.error('[TX] error:', err));
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
@@ -13211,7 +13242,10 @@ HTML_TEMPLATE = '''
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
                     localStorage.setItem('real_period_type', periodType);
-                    if (periodType === 'quarter') {
+                    if (periodType === 'days') {
+                        localStorage.setItem('real_date_from', document.getElementById('real-date-from').value);
+                        localStorage.setItem('real_date_to', document.getElementById('real-date-to').value);
+                    } else if (periodType === 'quarter') {
                         localStorage.setItem('real_quarter', document.getElementById('real-quarter-select').value);
                     } else {
                         localStorage.setItem('real_month', document.getElementById('real-month-select').value);
@@ -13279,7 +13313,11 @@ HTML_TEMPLATE = '''
             const periodType = document.getElementById('real-period-type').value;
             let url;
 
-            if (periodType === 'quarter') {
+            if (periodType === 'days') {
+                const dateFrom = document.getElementById('real-date-from').value;
+                const dateTo = document.getElementById('real-date-to').value;
+                url = '/api/finance/transactions-breakdown?date_from=' + encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo);
+            } else if (periodType === 'quarter') {
                 const qsel = document.getElementById('real-quarter-select');
                 url = '/api/finance/transactions-breakdown?quarter=' + encodeURIComponent(qsel.value);
             } else {
@@ -13425,12 +13463,6 @@ HTML_TEMPLATE = '''
             if (_realBonuses > 0) {
                 catTotals.compensations += _realBonuses;
                 catDetails.compensations.unshift({ label: 'Баллы за скидки', value: _realBonuses });
-            }
-
-            // «Баллы за отзывы» — из realization API (stars), добавляем к компенсациям
-            if (_realStars > 0) {
-                catTotals.compensations += _realStars;
-                catDetails.compensations.unshift({ label: 'Баллы за отзывы', value: _realStars });
             }
 
             // Отображение карточек
@@ -30001,15 +30033,229 @@ def _build_realization_from_transactions(year, month):
     }
 
 
+def _build_realization_from_date_range(date_from_str, date_to_str):
+    """
+    Построить данные реализации за произвольный диапазон дат.
+
+    Использует /v1/finance/realization/by-day для каждого дня в диапазоне.
+    Агрегирует результаты аналогично _build_realization_from_transactions.
+
+    Аргументы:
+        date_from_str (str): Начало периода в формате YYYY-MM-DD
+        date_to_str (str): Конец периода в формате YYYY-MM-DD
+
+    Возвращает:
+        dict: Данные в формате summary + products
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import datetime as _dt, timedelta
+
+    ozon_headers = get_ozon_headers()
+
+    start_date = _dt.strptime(date_from_str, '%Y-%m-%d').date()
+    end_date = _dt.strptime(date_to_str, '%Y-%m-%d').date()
+    now = _dt.now().date()
+
+    # Не запрашиваем данные за сегодня и за будущее
+    if end_date >= now:
+        end_date = now - timedelta(days=1)
+    if start_date > end_date:
+        return {'success': True, 'summary': {
+            'gross_sales': 0, 'returns': 0, 'commission': 0, 'total_deductions': 0,
+            'seller_receives': 0, 'bonuses': 0, 'standard_fee': 0, 'stars': 0,
+            'bank_coinvestment': 0, 'net_total': 0, 'avg_commission_pct': 0,
+            'delivery_count': 0, 'return_count': 0, 'return_gross': 0
+        }, 'products': [], 'total_rows': 0, 'total_products': 0}
+
+    # Собираем список (year, month, day) для запросов
+    days_to_fetch = []
+    current = start_date
+    while current <= end_date:
+        days_to_fetch.append((current.year, current.month, current.day))
+        current += timedelta(days=1)
+
+    period_label = f"{date_from_str} — {date_to_str}"
+    print(f"  📊 Реализация (by-day) за {period_label}: {len(days_to_fetch)} дней")
+
+    def _fetch_day(year, month, day):
+        payload = {"year": year, "month": month, "day": day}
+        resp = requests.post(
+            f"{OZON_HOST}/v1/finance/realization/by-day",
+            json=payload, headers=ozon_headers, timeout=60
+        )
+        return (year, month, day), resp
+
+    all_rows = []
+    errors = []
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_fetch_day, y, m, d): (y, m, d) for y, m, d in days_to_fetch}
+        for future in as_completed(futures):
+            (y, m, d), resp = future.result()
+            if resp.status_code == 200:
+                rows = resp.json().get('rows', [])
+                all_rows.extend(rows)
+            else:
+                err = resp.text[:200]
+                print(f"  ⚠️ by-day {y}-{m:02d}-{d:02d}: HTTP {resp.status_code} — {err}")
+                errors.append(f"{y}-{m:02d}-{d:02d}: HTTP {resp.status_code}")
+
+    if not all_rows and errors:
+        return {'success': False, 'error': f'Ошибка загрузки: {"; ".join(errors)}'}
+
+    print(f"  ✅ Реализация (by-day) {period_label}: {len(all_rows)} строк за {len(days_to_fetch)} дней")
+
+    # ── Агрегация строк ──
+    gross_sales = 0.0
+    returns_total = 0.0
+    commission_total = 0.0
+    seller_receives = 0.0
+    bonuses_total = 0.0
+    standard_fee_total = 0.0
+    stars_total = 0.0
+    bank_coinvest_total = 0.0
+    delivery_count = 0
+    return_count = 0
+    acquiring_total = 0.0
+    return_gross_total = 0.0
+    products_map = {}
+
+    for row in all_rows:
+        seller_price = row.get('seller_price_per_instance', 0)
+        item_info = row.get('item', {})
+        offer_id = item_info.get('offer_id', '')
+        sku = str(item_info.get('sku', ''))
+        name = item_info.get('name', 'Неизвестный товар')
+        barcode = item_info.get('barcode', '')
+
+        dc = row.get('delivery_commission') or {}
+        rc = row.get('return_commission') or {}
+
+        d_qty = dc.get('quantity', 0)
+        d_amount = dc.get('amount', 0)
+        d_total_comm = dc.get('total', 0)
+        d_bonus = dc.get('bonus', 0)
+        d_std_fee = dc.get('standard_fee', 0)
+        d_stars = dc.get('stars', 0)
+        d_bank = dc.get('bank_coinvestment', 0)
+        d_acquiring = dc.get('commission', 0)
+
+        r_qty = rc.get('quantity', 0)
+        r_amount = rc.get('amount', 0)
+        r_total_comm = rc.get('total', 0)
+        r_bonus = rc.get('bonus', 0)
+        r_std_fee = rc.get('standard_fee', 0)
+        r_stars = rc.get('stars', 0)
+        r_bank = rc.get('bank_coinvestment', 0)
+        r_acquiring = rc.get('commission', 0) if rc else 0
+
+        row_gross_sales = seller_price * d_qty
+        row_return_gross = seller_price * r_qty
+        row_returns = abs(r_amount) if r_amount else 0
+
+        gross_sales += row_gross_sales
+        return_gross_total += row_return_gross
+        returns_total += row_returns
+        commission_total += d_total_comm + r_total_comm
+        seller_receives += d_amount + r_amount
+        bonuses_total += d_bonus + r_bonus
+        standard_fee_total += d_std_fee + r_std_fee
+        stars_total += d_stars + r_stars
+        bank_coinvest_total += d_bank + r_bank
+        acquiring_total += d_acquiring + r_acquiring
+        delivery_count += d_qty
+        return_count += r_qty
+
+        product_key = sku or offer_id or barcode
+        if product_key:
+            if product_key not in products_map:
+                products_map[product_key] = {
+                    'name': name[:80], 'sku': sku, 'offer_id': offer_id,
+                    'seller_price_sum': 0.0, 'standard_fee': 0.0, 'acquiring': 0.0,
+                    'bank_coinvestment': 0.0, 'delivery_qty': 0, 'return_qty': 0,
+                    'gross_sales': 0.0, 'return_gross': 0.0, 'returns': 0.0,
+                    'total_deductions': 0.0, 'seller_receives': 0.0, 'bonus': 0.0
+                }
+            p = products_map[product_key]
+            p['delivery_qty'] += d_qty
+            p['return_qty'] += r_qty
+            p['gross_sales'] += row_gross_sales
+            p['return_gross'] += row_return_gross
+            p['returns'] += row_returns
+            p['total_deductions'] += d_total_comm + r_total_comm
+            p['seller_receives'] += d_amount + r_amount
+            p['bonus'] += d_bonus + r_bonus
+            p['standard_fee'] += d_std_fee
+            p['acquiring'] += d_acquiring + r_acquiring
+            p['bank_coinvestment'] += d_bank
+            if d_qty > 0:
+                p['seller_price_sum'] += seller_price * d_qty
+
+    net_total = seller_receives
+    marketplace_commission = standard_fee_total + acquiring_total
+    net_gross = gross_sales - return_gross_total
+    avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
+
+    products_list = []
+    for key, pdata in sorted(products_map.items(),
+                              key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
+        dq = pdata['delivery_qty']
+        avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
+        p_net_gross = pdata['gross_sales'] - pdata['return_gross']
+        p_commission = pdata['standard_fee'] + pdata['acquiring']
+        p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
+
+        products_list.append({
+            'sku': pdata['sku'], 'offer_id': pdata['offer_id'], 'name': pdata['name'],
+            'seller_price': round(avg_price, 2), 'commission_ratio': round(p_commission_pct, 2),
+            'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
+            'return_qty': pdata['return_qty'],
+            'gross_sales': round(p_net_gross, 2), 'returns': round(pdata['returns'], 2),
+            'commission': round(p_commission, 2), 'seller_receives': round(pdata['seller_receives'], 2),
+            'bonus': round(pdata['bonus'], 2)
+        })
+
+    return {
+        'success': True,
+        'period': period_label,
+        'is_quarter': False,
+        'header': {
+            'number': f'Предварительный ({period_label})',
+            'doc_date': '', 'start_date': date_from_str, 'stop_date': date_to_str,
+        },
+        'summary': {
+            'gross_sales': round(gross_sales, 2),
+            'returns': round(returns_total, 2),
+            'commission': round(marketplace_commission, 2),
+            'total_deductions': round(commission_total, 2),
+            'seller_receives': round(seller_receives, 2),
+            'bonuses': round(bonuses_total, 2),
+            'standard_fee': round(standard_fee_total, 2),
+            'stars': round(stars_total, 2),
+            'bank_coinvestment': round(bank_coinvest_total, 2),
+            'net_total': round(net_total, 2),
+            'avg_commission_pct': round(avg_commission_pct, 2),
+            'delivery_count': delivery_count,
+            'return_count': return_count,
+            'return_gross': round(return_gross_total, 2)
+        },
+        'products': products_list,
+        'total_rows': len(all_rows),
+        'total_products': len(products_list),
+        'warnings': 'Данные по дням — предварительные (ежедневная реализация)'
+    }
+
+
 @app.route('/api/finance/realization')
 @require_auth()
 def api_finance_realization():
     """
     Получить акт реализации из Ozon API (/v2/finance/realization).
 
-    Поддерживает два режима:
-    1. По месяцу: ?month=YYYY-MM — один запрос к Ozon API
-    2. По кварталу: ?quarter=YYYY-Q1..Q4 — три запроса (по месяцу на каждый), агрегация
+    Поддерживает три режима:
+    1. По дням: ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD — данные за диапазон дат
+    2. По месяцу: ?month=YYYY-MM — один запрос к Ozon API
+    3. По кварталу: ?quarter=YYYY-Q1..Q4 — три запроса (по месяцу на каждый), агрегация
 
     Ozon API принимает только {year, month} — данные за целый месяц.
     Для квартала делаем 3 последовательных запроса и объединяем результаты.
@@ -30019,6 +30265,17 @@ def api_finance_realization():
     """
     import calendar
     from datetime import datetime as _dt
+
+    # ── Режим по дням (date_from + date_to) ──
+    date_from_str = request.args.get('date_from', '')
+    date_to_str = request.args.get('date_to', '')
+    if date_from_str and date_to_str:
+        try:
+            result = _build_realization_from_date_range(date_from_str, date_to_str)
+            return jsonify(result)
+        except Exception as e:
+            print(f"  ❌ Ошибка реализации по дням: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     # ── Определяем режим: месяц или квартал ──
     quarter_str = request.args.get('quarter', '')
