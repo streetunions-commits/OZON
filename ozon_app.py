@@ -13208,18 +13208,18 @@ HTML_TEMPLATE = '''
 
                 const s = data.summary || {};
 
-                // Сводные карточки
-                // Количество — чистые продажи (доставки минус возвраты)
+                // Сводные карточки — все суммы за вычетом возвратов
                 const netSalesCount = (s.delivery_count || 0) - (s.return_count || 0);
+                const netGrossSales = (s.gross_sales || 0) - (s.return_gross || 0);
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) realHint.textContent = netSalesCount + ' продаж';
 
-                // Реализация — валовая сумма (seller_price * delivery_qty, без вычета возвратов)
-                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
+                // Реализация = гросс минус гросс-возвраты (seller_price * net_qty)
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(netGrossSales);
                 const grossHint = document.getElementById('real-gross-hint');
-                if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
+                if (grossHint) grossHint.textContent = netSalesCount + ' продаж';
 
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
                 const retHint = document.getElementById('real-returns-hint');
@@ -13227,7 +13227,7 @@ HTML_TEMPLATE = '''
 
                 // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
                 _realCommissionBase = s.commission;
-                _realGrossSales = s.gross_sales;
+                _realGrossSales = netGrossSales;
                 _realBonuses = Math.abs(s.bonuses || 0);
                 updateCommissionCard();
 
@@ -30514,7 +30514,7 @@ def api_finance_realization():
             returns_total += row_returns
             commission_total += d_total_comm + r_total_comm
             seller_receives += d_amount + r_amount
-            bonuses_total += d_bonus + r_bonus
+            bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
             standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
             stars_total += d_stars - r_stars                # Чистые звёзды
             bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
