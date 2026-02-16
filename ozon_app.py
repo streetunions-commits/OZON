@@ -13359,7 +13359,8 @@ HTML_TEMPLATE = '''
 
             // 1) Логистика — из services
             (data.services || []).forEach(svc => {
-                if (svc.name === 'MarketplaceServiceItemDirectFlowLogistic') {
+                if (svc.name === '_delivery_logistics') {
+                    // Логистика доставки — только из доставок (без возвратных операций)
                     const val = Math.abs(svc.sum);
                     logTotal += val;
                     logDetails.push({label: 'Логистика', value: val});
@@ -31228,12 +31229,17 @@ def api_finance_transactions_breakdown():
                     svc_totals[sn]['sum'] += sp
                     svc_totals[sn]['count'] += 1
 
-            # Последняя миля: считаем только из доставок (без возвратных операций)
+            # Логистика доставки: считаем только из доставок (без возвратных операций)
             if ot == 'OperationAgentDeliveredToCustomer':
                 for svc in op.get('services', []):
                     sn = svc.get('name', '')
                     sp = svc.get('price', 0)
-                    if sn == 'MarketplaceServiceItemRedistributionLastMileCourier':
+                    if sn == 'MarketplaceServiceItemDirectFlowLogistic':
+                        if '_delivery_logistics' not in svc_totals:
+                            svc_totals['_delivery_logistics'] = {'sum': 0.0, 'count': 0}
+                        svc_totals['_delivery_logistics']['sum'] += sp
+                        svc_totals['_delivery_logistics']['count'] += 1
+                    elif sn == 'MarketplaceServiceItemRedistributionLastMileCourier':
                         if '_delivery_last_mile' not in svc_totals:
                             svc_totals['_delivery_last_mile'] = {'sum': 0.0, 'count': 0}
                         svc_totals['_delivery_last_mile']['sum'] += sp
