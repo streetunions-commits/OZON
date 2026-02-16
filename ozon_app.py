@@ -9392,7 +9392,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-hint" id="real-realization-hint"></div>
                         </div>
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Продажи до СПП</div>
+                            <div class="real-card-label">Реализация</div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                             <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
@@ -9461,9 +9461,9 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена</th>
                                         <th style="text-align:right">Комиссия %</th>
-                                        <th style="text-align:right">Продажи</th>
+                                        <th style="text-align:right">Доставки</th>
                                         <th style="text-align:right">Возвраты</th>
-                                        <th style="text-align:right">Продажи до СПП</th>
+                                        <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия</th>
                                         <th style="text-align:right">К получению</th>
                                     </tr>
@@ -13208,17 +13208,18 @@ HTML_TEMPLATE = '''
 
                 const s = data.summary || {};
 
-                // Сводные карточки — чистые продажи (доставки минус возвраты)
+                // Сводные карточки
+                // Количество — чистые продажи (доставки минус возвраты)
                 const netSalesCount = (s.delivery_count || 0) - (s.return_count || 0);
-                const netGrossSales = (s.gross_sales || 0) - (s.return_gross || 0);
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) realHint.textContent = netSalesCount + ' продаж';
 
-                document.getElementById('real-gross-sales').textContent = fmtRealMoney(netGrossSales);
+                // Реализация — валовая сумма (seller_price * delivery_qty, без вычета возвратов)
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(s.gross_sales);
                 const grossHint = document.getElementById('real-gross-hint');
-                if (grossHint) grossHint.textContent = netSalesCount + ' продаж';
+                if (grossHint) grossHint.textContent = s.delivery_count + ' доставок';
 
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
                 const retHint = document.getElementById('real-returns-hint');
@@ -13226,7 +13227,7 @@ HTML_TEMPLATE = '''
 
                 // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
                 _realCommissionBase = s.commission;
-                _realGrossSales = netGrossSales;
+                _realGrossSales = s.gross_sales;
                 _realBonuses = Math.abs(s.bonuses || 0);
                 updateCommissionCard();
 
@@ -29923,9 +29924,9 @@ def _build_realization_from_transactions(year, month):
         commission_total += d_total_comm + r_total_comm
         seller_receives += d_amount + r_amount
         bonuses_total += d_bonus + r_bonus
-        standard_fee_total += d_std_fee + r_std_fee    # Чистая комиссия (доставки + возврат)
-        stars_total += d_stars + r_stars                # Чистые звёзды
-        bank_coinvest_total += d_bank + r_bank          # Чистое соинвестирование
+        standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
+        stars_total += d_stars - r_stars                # Чистые звёзды
+        bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
         acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
@@ -29969,19 +29970,17 @@ def _build_realization_from_transactions(year, month):
     # ── Итоги ──
     net_total = seller_receives
     marketplace_commission = standard_fee_total + acquiring_total
-    net_gross = gross_sales - return_gross_total
-    avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
+    avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
     # ── Таблица товаров (по SKU) ──
     products_list = []
     for key, pdata in sorted(products_map.items(),
-                              key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
+                              key=lambda x: abs(x[1]['gross_sales']), reverse=True):
         dq = pdata['delivery_qty']
         avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
-        p_net_gross = pdata['gross_sales'] - pdata['return_gross']
 
         p_commission = pdata['standard_fee'] + pdata['acquiring']
-        p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
+        p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
 
         products_list.append({
             'sku': pdata['sku'],
@@ -29989,9 +29988,9 @@ def _build_realization_from_transactions(year, month):
             'name': pdata['name'],
             'seller_price': round(avg_price, 2),
             'commission_ratio': round(p_commission_pct, 2),
-            'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
+            'delivery_qty': pdata['delivery_qty'],
             'return_qty': pdata['return_qty'],
-            'gross_sales': round(p_net_gross, 2),
+            'gross_sales': round(pdata['gross_sales'], 2),
             'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2),
             'seller_receives': round(pdata['seller_receives'], 2),
@@ -30516,9 +30515,9 @@ def api_finance_realization():
             commission_total += d_total_comm + r_total_comm
             seller_receives += d_amount + r_amount
             bonuses_total += d_bonus + r_bonus
-            standard_fee_total += d_std_fee + r_std_fee    # Чистая комиссия (доставки + возврат)
-            stars_total += d_stars + r_stars                # Чистые звёзды
-            bank_coinvest_total += d_bank + r_bank          # Чистое соинвестирование
+            standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
+            stars_total += d_stars - r_stars                # Чистые звёзды
+            bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
             acquiring_total += d_acquiring + r_acquiring
             delivery_count += d_qty
             return_count += r_qty
@@ -30565,21 +30564,19 @@ def api_finance_realization():
         # Комиссия МП = delivery standard_fee + эквайринг (commission)
         marketplace_commission = standard_fee_total + acquiring_total
 
-        # Фактический % комиссии = комиссия МП / чистые гросс-продажи
-        net_gross = gross_sales - return_gross_total
-        avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
+        # Фактический % комиссии = комиссия МП / валовые гросс-продажи
+        avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
         for key, pdata in sorted(products_map.items(),
-                                  key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
+                                  key=lambda x: abs(x[1]['gross_sales']), reverse=True):
             dq = pdata['delivery_qty']
             avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
-            p_net_gross = pdata['gross_sales'] - pdata['return_gross']
 
-            # Фактический % комиссии МП по товару = (standard_fee + эквайринг) / чистый гросс
+            # Фактический % комиссии МП по товару = (standard_fee + эквайринг) / гросс
             p_commission = pdata['standard_fee'] + pdata['acquiring']
-            p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
+            p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
 
             products_list.append({
                 'sku': pdata['sku'],
@@ -30587,9 +30584,9 @@ def api_finance_realization():
                 'name': pdata['name'],
                 'seller_price': round(avg_price, 2),
                 'commission_ratio': round(p_commission_pct, 2),
-                'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
+                'delivery_qty': pdata['delivery_qty'],
                 'return_qty': pdata['return_qty'],
-                'gross_sales': round(p_net_gross, 2),
+                'gross_sales': round(pdata['gross_sales'], 2),
                 'returns': round(pdata['returns'], 2),
                 'commission': round(p_commission, 2),
                 'seller_receives': round(pdata['seller_receives'], 2),
@@ -30655,10 +30652,9 @@ def api_finance_realization():
                     s['delivery_count'] += tx_s.get('delivery_count', 0)
                     s['return_count'] += tx_s.get('return_count', 0)
                     s['return_gross'] = round(s.get('return_gross', 0) + tx_s.get('return_gross', 0), 2)
-                    # Пересчитываем средний % комиссии от чистого гросса
-                    q_net_gross = s['gross_sales'] - s.get('return_gross', 0)
-                    if q_net_gross > 0:
-                        s['avg_commission_pct'] = round(s['commission'] / q_net_gross * 100, 2)
+                    # Пересчитываем средний % комиссии от валового гросса
+                    if s['gross_sales'] > 0:
+                        s['avg_commission_pct'] = round(s['commission'] / s['gross_sales'] * 100, 2)
                     # Добавляем товары из транзакций (merge по sku)
                     existing_skus = {p['sku']: p for p in response_data['products']}
                     for tp in tx_data.get('products', []):
