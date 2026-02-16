@@ -13085,6 +13085,7 @@ HTML_TEMPLATE = '''
         let _realGrossSales = 0;
         let _realAcquiring = 0;
         let _realBonuses = 0;  // Баллы за скидки (из realization API)
+        let _realStars = 0;   // Баллы за отзывы (из realization API, поле stars)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
@@ -13134,6 +13135,7 @@ HTML_TEMPLATE = '''
             _realGrossSales = 0;
             _realAcquiring = 0;
             _realBonuses = 0;
+            _realStars = 0;
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13198,6 +13200,7 @@ HTML_TEMPLATE = '''
                 _realCommissionBase = s.commission;
                 _realGrossSales = netGrossSales;
                 _realBonuses = Math.abs(s.bonuses || 0);
+                _realStars = Math.abs(s.stars || 0);
                 updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
@@ -13422,6 +13425,12 @@ HTML_TEMPLATE = '''
             if (_realBonuses > 0) {
                 catTotals.compensations += _realBonuses;
                 catDetails.compensations.unshift({ label: 'Баллы за скидки', value: _realBonuses });
+            }
+
+            // «Баллы за отзывы» — из realization API (stars), добавляем к компенсациям
+            if (_realStars > 0) {
+                catTotals.compensations += _realStars;
+                catDetails.compensations.unshift({ label: 'Баллы за отзывы', value: _realStars });
             }
 
             // Отображение карточек
