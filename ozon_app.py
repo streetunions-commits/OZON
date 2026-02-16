@@ -13364,7 +13364,8 @@ HTML_TEMPLATE = '''
                     logTotal += val;
                     logDetails.push({label: 'Логистика', value: val});
                 }
-                if (svc.name === 'MarketplaceServiceItemRedistributionLastMileCourier') {
+                if (svc.name === '_delivery_last_mile') {
+                    // Последняя миля — только из доставок (без возвратных операций)
                     const val = Math.abs(svc.sum);
                     logTotal += val;
                     logDetails.push({label: 'Последняя миля', value: val});
@@ -31226,6 +31227,17 @@ def api_finance_transactions_breakdown():
                         svc_totals[sn] = {'sum': 0.0, 'count': 0}
                     svc_totals[sn]['sum'] += sp
                     svc_totals[sn]['count'] += 1
+
+            # Последняя миля: считаем только из доставок (без возвратных операций)
+            if ot == 'OperationAgentDeliveredToCustomer':
+                for svc in op.get('services', []):
+                    sn = svc.get('name', '')
+                    sp = svc.get('price', 0)
+                    if sn == 'MarketplaceServiceItemRedistributionLastMileCourier':
+                        if '_delivery_last_mile' not in svc_totals:
+                            svc_totals['_delivery_last_mile'] = {'sum': 0.0, 'count': 0}
+                        svc_totals['_delivery_last_mile']['sum'] += sp
+                        svc_totals['_delivery_last_mile']['count'] += 1
 
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
