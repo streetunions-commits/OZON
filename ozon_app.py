@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 2  # v2: _delivery_logistics + seller_receives = d_amount only
+REALIZATION_CACHE_VERSION = 3  # v3: комиссия по товарам учитывает возвраты (d_std_fee - r_std_fee)
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
@@ -30009,7 +30009,7 @@ def _build_realization_from_transactions(year, month):
             p['total_deductions'] += d_total_comm + r_total_comm
             p['seller_receives'] += d_amount - r_amount
             p['bonus'] += d_bonus + r_bonus
-            p['standard_fee'] += d_std_fee
+            p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
             p['acquiring'] += d_acquiring + r_acquiring
             p['bank_coinvestment'] += d_bank
             if d_qty > 0:
@@ -30205,10 +30205,10 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         returns_total += row_returns
         commission_total += d_total_comm + r_total_comm
         seller_receives += d_amount - r_amount          # Доставки минус возвраты (r_amount положительный в API)
-        bonuses_total += d_bonus + r_bonus
-        standard_fee_total += d_std_fee + r_std_fee
-        stars_total += d_stars + r_stars
-        bank_coinvest_total += d_bank + r_bank
+        bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
+        standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
+        stars_total += d_stars - r_stars                # Чистые звёзды
+        bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
         acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
@@ -30231,8 +30231,8 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             p['returns'] += row_returns
             p['total_deductions'] += d_total_comm + r_total_comm
             p['seller_receives'] += d_amount - r_amount
-            p['bonus'] += d_bonus + r_bonus
-            p['standard_fee'] += d_std_fee
+            p['bonus'] += d_bonus - r_bonus
+            p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
             p['acquiring'] += d_acquiring + r_acquiring
             p['bank_coinvestment'] += d_bank
             if d_qty > 0:
@@ -30602,7 +30602,7 @@ def api_finance_realization():
                 p['total_deductions'] += d_total_comm + r_total_comm
                 p['seller_receives'] += d_amount - r_amount
                 p['bonus'] += d_bonus + r_bonus
-                p['standard_fee'] += d_std_fee  # Только доставки
+                p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
                 p['acquiring'] += d_acquiring + r_acquiring
                 p['bank_coinvestment'] += d_bank
                 if d_qty > 0:
