@@ -29901,7 +29901,7 @@ def _build_realization_from_transactions(year, month):
         d_bank = dc.get('bank_coinvestment', 0)
         d_acquiring = dc.get('commission', 0)
 
-        # Возвраты (ВСЕ поля ПОЛОЖИТЕЛЬНЫЕ в API Ozon — вычитаем для net-значений)
+        # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
         r_qty = rc.get('quantity', 0)
         r_amount = rc.get('amount', 0)           # Возврат выручки (доля продавца)
         r_total_comm = rc.get('total', 0)
@@ -29921,14 +29921,13 @@ def _build_realization_from_transactions(year, month):
         gross_sales += row_gross_sales
         return_gross_total += row_return_gross
         returns_total += row_returns
-        # ВСЕ поля return_commission ПОЛОЖИТЕЛЬНЫЕ — ВЫЧИТАЕМ для net-значений
-        commission_total += d_total_comm - r_total_comm  # Чистые удержания
-        seller_receives += d_amount - r_amount           # Чистое к получению
-        bonuses_total += d_bonus - r_bonus               # Чистые баллы за скидки
-        standard_fee_total += d_std_fee - r_std_fee      # Чистая комиссия (доставки минус возврат)
-        stars_total += d_stars - r_stars                  # Чистые звёзды
-        bank_coinvest_total += d_bank - r_bank            # Чистое соинвестирование
-        acquiring_total += d_acquiring - r_acquiring      # Чистый эквайринг
+        commission_total += d_total_comm + r_total_comm
+        seller_receives += d_amount + r_amount
+        bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
+        standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
+        stars_total += d_stars - r_stars                # Чистые звёзды
+        bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
+        acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
 
@@ -29959,20 +29958,19 @@ def _build_realization_from_transactions(year, month):
             p['gross_sales'] += row_gross_sales
             p['return_gross'] += row_return_gross
             p['returns'] += row_returns
-            p['total_deductions'] += d_total_comm - r_total_comm   # Чистые удержания
-            p['seller_receives'] += d_amount - r_amount             # Чистое к получению
-            p['bonus'] += d_bonus - r_bonus                         # Чистые бонусы
-            p['standard_fee'] += d_std_fee - r_std_fee              # Чистая комиссия МП
-            p['acquiring'] += d_acquiring - r_acquiring             # Чистый эквайринг
-            p['bank_coinvestment'] += d_bank - r_bank               # Чистое соинвестирование
+            p['total_deductions'] += d_total_comm + r_total_comm
+            p['seller_receives'] += d_amount + r_amount
+            p['bonus'] += d_bonus + r_bonus
+            p['standard_fee'] += d_std_fee
+            p['acquiring'] += d_acquiring + r_acquiring
+            p['bank_coinvestment'] += d_bank
             if d_qty > 0:
                 p['seller_price_sum'] += seller_price * d_qty
 
     # ── Итоги ──
     net_total = seller_receives
     marketplace_commission = standard_fee_total + acquiring_total
-    net_gross = gross_sales - return_gross_total
-    avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
+    avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
     # ── Таблица товаров (по SKU) ──
     products_list = []
@@ -30157,14 +30155,13 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         gross_sales += row_gross_sales
         return_gross_total += row_return_gross
         returns_total += row_returns
-        # ВСЕ поля return_commission ПОЛОЖИТЕЛЬНЫЕ — ВЫЧИТАЕМ для net-значений
-        commission_total += d_total_comm - r_total_comm  # Чистые удержания
-        seller_receives += d_amount - r_amount           # Чистое к получению
-        bonuses_total += d_bonus - r_bonus               # Чистые баллы за скидки
-        standard_fee_total += d_std_fee - r_std_fee      # Чистая комиссия
-        stars_total += d_stars - r_stars                  # Чистые звёзды
-        bank_coinvest_total += d_bank - r_bank            # Чистое соинвестирование
-        acquiring_total += d_acquiring - r_acquiring      # Чистый эквайринг
+        commission_total += d_total_comm + r_total_comm
+        seller_receives += d_amount + r_amount
+        bonuses_total += d_bonus + r_bonus
+        standard_fee_total += d_std_fee + r_std_fee
+        stars_total += d_stars + r_stars
+        bank_coinvest_total += d_bank + r_bank
+        acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
 
@@ -30184,12 +30181,12 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             p['gross_sales'] += row_gross_sales
             p['return_gross'] += row_return_gross
             p['returns'] += row_returns
-            p['total_deductions'] += d_total_comm - r_total_comm   # Чистые удержания
-            p['seller_receives'] += d_amount - r_amount             # Чистое к получению
-            p['bonus'] += d_bonus - r_bonus                         # Чистые бонусы
-            p['standard_fee'] += d_std_fee - r_std_fee              # Чистая комиссия МП
-            p['acquiring'] += d_acquiring - r_acquiring             # Чистый эквайринг
-            p['bank_coinvestment'] += d_bank - r_bank               # Чистое соинвестирование
+            p['total_deductions'] += d_total_comm + r_total_comm
+            p['seller_receives'] += d_amount + r_amount
+            p['bonus'] += d_bonus + r_bonus
+            p['standard_fee'] += d_std_fee
+            p['acquiring'] += d_acquiring + r_acquiring
+            p['bank_coinvestment'] += d_bank
             if d_qty > 0:
                 p['seller_price_sum'] += seller_price * d_qty
 
@@ -30492,7 +30489,7 @@ def api_finance_realization():
             d_stars = dc.get('stars', 0)
             d_bank = dc.get('bank_coinvestment', 0)
 
-            # Возвраты (ВСЕ поля ПОЛОЖИТЕЛЬНЫЕ в API Ozon — вычитаем для net-значений)
+            # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
             r_qty = rc.get('quantity', 0)
             r_amount = rc.get('amount', 0)
             r_total_comm = rc.get('total', 0)
@@ -30515,15 +30512,13 @@ def api_finance_realization():
             gross_sales += row_gross_sales
             return_gross_total += row_return_gross
             returns_total += row_returns
-            # ВСЕ поля return_commission ПОЛОЖИТЕЛЬНЫЕ в API Ozon,
-            # поэтому ВЫЧИТАЕМ их для получения чистых (net) значений
-            commission_total += d_total_comm - r_total_comm  # Чистые удержания
-            seller_receives += d_amount - r_amount           # Чистое к получению (доставки минус возвраты)
-            bonuses_total += d_bonus - r_bonus               # Чистые баллы за скидки
-            standard_fee_total += d_std_fee - r_std_fee      # Чистая комиссия (доставки минус возврат)
-            stars_total += d_stars - r_stars                  # Чистые звёзды
-            bank_coinvest_total += d_bank - r_bank            # Чистое соинвестирование
-            acquiring_total += d_acquiring - r_acquiring      # Чистый эквайринг
+            commission_total += d_total_comm + r_total_comm
+            seller_receives += d_amount + r_amount
+            bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
+            standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
+            stars_total += d_stars - r_stars                # Чистые звёзды
+            bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
+            acquiring_total += d_acquiring + r_acquiring
             delivery_count += d_qty
             return_count += r_qty
 
@@ -30554,11 +30549,11 @@ def api_finance_realization():
                 p['gross_sales'] += row_gross_sales
                 p['return_gross'] += row_return_gross
                 p['returns'] += row_returns
-                p['total_deductions'] += d_total_comm - r_total_comm   # Чистые удержания
-                p['seller_receives'] += d_amount - r_amount             # Чистое к получению
-                p['bonus'] += d_bonus - r_bonus                         # Чистые бонусы
-                p['standard_fee'] += d_std_fee - r_std_fee              # Чистая комиссия МП
-                p['acquiring'] += d_acquiring - r_acquiring             # Чистый эквайринг
+                p['total_deductions'] += d_total_comm + r_total_comm
+                p['seller_receives'] += d_amount + r_amount
+                p['bonus'] += d_bonus + r_bonus
+                p['standard_fee'] += d_std_fee  # Только доставки
+                p['acquiring'] += d_acquiring + r_acquiring
                 p['bank_coinvestment'] += d_bank
                 if d_qty > 0:
                     p['seller_price_sum'] += seller_price * d_qty
@@ -30569,9 +30564,8 @@ def api_finance_realization():
         # Комиссия МП = delivery standard_fee + эквайринг (commission)
         marketplace_commission = standard_fee_total + acquiring_total
 
-        # Фактический % комиссии = комиссия МП / чистые гросс-продажи (за вычетом возвратов)
-        net_gross = gross_sales - return_gross_total
-        avg_commission_pct = (marketplace_commission / net_gross * 100) if net_gross > 0 else 0
+        # Фактический % комиссии = комиссия МП / валовые гросс-продажи
+        avg_commission_pct = (marketplace_commission / gross_sales * 100) if gross_sales > 0 else 0
 
         # ── Таблица товаров (по SKU) ──
         products_list = []
