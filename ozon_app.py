@@ -31083,12 +31083,18 @@ def api_finance_transactions_breakdown():
     from datetime import datetime as _dt
 
     # ── Определяем период ──
+    date_from_param = request.args.get('date_from', '')
+    date_to_param = request.args.get('date_to', '')
     quarter_str = request.args.get('quarter', '')
     month_str = request.args.get('month', '')
 
     quarter_months_map = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
 
-    if quarter_str:
+    if date_from_param and date_to_param:
+        date_from = f"{date_from_param}T00:00:00.000Z"
+        date_to = f"{date_to_param}T23:59:59.999Z"
+        period_label = f"{date_from_param} — {date_to_param}"
+    elif quarter_str:
         m = re.match(r'^(\d{4})-Q([1-4])$', quarter_str)
         if not m:
             return jsonify({'success': False, 'error': 'Неверный формат квартала'}), 400
@@ -31112,8 +31118,8 @@ def api_finance_transactions_breakdown():
         date_to = f"{dt.year}-{dt.month:02d}-{last_day}T23:59:59.999Z"
         period_label = month_str
 
-    # ── Проверяем кэш ──
-    cache_key = quarter_str if quarter_str else month_str
+    # ── Проверяем кэш (не для дневного диапазона) ──
+    cache_key = (date_from_param + '_' + date_to_param) if date_from_param else (quarter_str if quarter_str else month_str)
     try:
         db_cache = sqlite3.connect(DB_PATH)
         row = db_cache.execute(
