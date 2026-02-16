@@ -1135,6 +1135,20 @@ def init_database():
                      "ALTER TABLE finance_categories ADD COLUMN is_plan_linked INTEGER DEFAULT 0"):
         print("✅ Добавлена колонка is_plan_linked в finance_categories")
 
+    # Миграция: добавляем колонку requires_official в finance_categories.
+    # Флаг означает, что при создании расхода в этой категории пользователь должен
+    # указать — официальный это расход или нет (Да/Нет).
+    # Если «Нет» — отправляется уведомление админу в Telegram.
+    if ensure_column(cursor, 'finance_categories', 'requires_official',
+                     "ALTER TABLE finance_categories ADD COLUMN requires_official INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка requires_official в finance_categories")
+
+    # Миграция: добавляем колонку is_official в finance_records.
+    # Пометка: NULL = вопрос не задавался (категория без флага), 0 = нет, 1 = да.
+    if ensure_column(cursor, 'finance_records', 'is_official',
+                     "ALTER TABLE finance_records ADD COLUMN is_official INTEGER DEFAULT NULL"):
+        print("✅ Добавлена колонка is_official в finance_records")
+
     # Таблица для хранения файлов, прикрепленных к финансовым записям.
     # Файлы привязываются к конкретной записи и отображаются в таблице/детализации.
     cursor.execute('''
@@ -9168,6 +9182,10 @@ HTML_TEMPLATE = '''
                             <input type="checkbox" id="finance-new-category-plan-linked">
                             Привязка к плану
                         </label>
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-category-requires-official">
+                            Официальный расход
+                        </label>
                         <input type="text" id="finance-new-category-description-hint" class="wh-input"
                                placeholder="Текст подсказки для описания" style="padding: 6px 8px; font-size: 12px; width: 200px;">
                         <button class="wh-save-receipt-btn" onclick="addFinanceCategoryFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
@@ -9220,6 +9238,17 @@ HTML_TEMPLATE = '''
                             <label id="finance-description-label">Комментарий</label>
                             <input type="text" id="finance-description" class="wh-input"
                                    placeholder="Например: Закупка упаковки">
+                        </div>
+                        <div class="finance-form-field" id="finance-official-field" style="flex: 0 0 220px; display: none;">
+                            <label>Официальный расход?</label>
+                            <div style="display: flex; gap: 16px; padding-top: 6px;">
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 14px;">
+                                    <input type="radio" name="finance-is-official" value="1" style="cursor: pointer;"> Да
+                                </label>
+                                <label style="cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 14px;">
+                                    <input type="radio" name="finance-is-official" value="0" style="cursor: pointer;"> Нет
+                                </label>
+                            </div>
                         </div>
                         <div class="finance-form-field" style="flex: 0 0 200px;">
                             <label>Файлы</label>
@@ -11573,6 +11602,7 @@ HTML_TEMPLATE = '''
             // Скрываем поле юаней при смене типа
             checkFinanceYuanField();
             checkFinanceDescriptionField();
+            checkFinanceOfficialField();
         }
 
         /**
@@ -11988,11 +12018,12 @@ HTML_TEMPLATE = '''
             selectedFinanceCategoryId = null;
             currentFinanceEditId = null;
 
-            // Сбрасываем секции контейнеров, плана и поле юаней
+            // Сбрасываем секции контейнеров, плана, поле юаней и «Официальный расход»
             resetFinanceContainerSection();
             resetFinancePlanSection();
             checkFinanceYuanField();
             checkFinanceDescriptionField();
+            checkFinanceOfficialField();
 
             if (editId) {
                 // Находим запись для редактирования
@@ -12018,7 +12049,13 @@ HTML_TEMPLATE = '''
                     checkFinancePlanSection();
                     // Проверяем, нужно ли показать поле юаней
                     checkFinanceYuanField();
-            checkFinanceDescriptionField();
+                    checkFinanceDescriptionField();
+                    checkFinanceOfficialField();
+                    // Восстанавливаем значение «Официальный расход» при редактировании
+                    if (rec.is_official !== null && rec.is_official !== undefined) {
+                        const radio = document.querySelector('input[name="finance-is-official"][value="' + rec.is_official + '"]');
+                        if (radio) radio.checked = true;
+                    }
 
                     // Если есть распределения по контейнерам — загружаем их
                     if (rec.has_distributions) {
@@ -12054,6 +12091,10 @@ HTML_TEMPLATE = '''
             if (descInput) { descInput.style.borderColor = ''; descInput.placeholder = 'Необязательный комментарий'; }
             const descLabel = document.getElementById('finance-description-label');
             if (descLabel) descLabel.textContent = 'Комментарий';
+            // Сбрасываем поле «Официальный расход»
+            const officialField = document.getElementById('finance-official-field');
+            if (officialField) officialField.style.display = 'none';
+            document.querySelectorAll('input[name="finance-is-official"]').forEach(r => r.checked = false);
             currentFinanceEditId = null;
             selectedFinanceAccountId = null;
             selectedFinanceCategoryId = null;
@@ -12142,6 +12183,17 @@ HTML_TEMPLATE = '''
                 return;
             }
 
+            // Валидация «Официальный расход» — если категория требует ответ
+            let isOfficialValue = null;
+            if (selectedCat?.requires_official && recordType === 'expense') {
+                const officialRadio = document.querySelector('input[name="finance-is-official"]:checked');
+                if (!officialRadio) {
+                    alert('Укажите, является ли расход официальным (Да / Нет)');
+                    return;
+                }
+                isOfficialValue = parseInt(officialRadio.value);
+            }
+
             const payload = {
                 record_type: recordType,
                 amount: amount,
@@ -12150,6 +12202,11 @@ HTML_TEMPLATE = '''
                 description: description,
                 record_date: recordDate
             };
+
+            // Добавляем пометку «Официальный расход» если применимо
+            if (isOfficialValue !== null) {
+                payload.is_official = isOfficialValue;
+            }
 
             // Добавляем сумму в юанях если заполнена
             if (yuanAmount > 0) {
@@ -12609,6 +12666,7 @@ HTML_TEMPLATE = '''
             // Проверяем, нужно ли показать поле суммы в юанях
             checkFinanceYuanField();
             checkFinanceDescriptionField();
+            checkFinanceOfficialField();
         }
 
         /**
@@ -12774,6 +12832,30 @@ HTML_TEMPLATE = '''
                     planLabel.appendChild(document.createTextNode(' План'));
                     name.appendChild(planLabel);
 
+                    // Чекбокс «Официальный» — при создании расхода спрашивать Да/Нет
+                    const officialLabel = document.createElement('label');
+                    officialLabel.className = 'finance-category-container-link';
+                    const officialCb = document.createElement('input');
+                    officialCb.type = 'checkbox';
+                    officialCb.checked = !!cat.requires_official;
+                    officialCb.onchange = async () => {
+                        try {
+                            const resp = await authFetch('/api/finance/categories/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ id: cat.id, requires_official: officialCb.checked })
+                            });
+                            const result = await resp.json();
+                            if (result.success) {
+                                cat.requires_official = officialCb.checked ? 1 : 0;
+                                await loadFinanceCategories();
+                            }
+                        } catch(e) { console.error(e); }
+                    };
+                    officialLabel.appendChild(officialCb);
+                    officialLabel.appendChild(document.createTextNode(' Официальный'));
+                    name.appendChild(officialLabel);
+
                     // Поле «Подсказка» — текст-пример для описания (виден всегда для расходных)
                     const hintWrap = document.createElement('div');
                     hintWrap.style.cssText = 'width: 100%; margin-top: 4px;';
@@ -12905,7 +12987,8 @@ HTML_TEMPLATE = '''
                         requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false,
                         requires_description: document.getElementById('finance-new-category-requires-description')?.checked ? true : false,
                         description_hint: document.getElementById('finance-new-category-description-hint')?.value || '',
-                        is_plan_linked: document.getElementById('finance-new-category-plan-linked')?.checked ? true : false
+                        is_plan_linked: document.getElementById('finance-new-category-plan-linked')?.checked ? true : false,
+                        requires_official: document.getElementById('finance-new-category-requires-official')?.checked ? true : false
                     })
                 });
                 const data = await resp.json();
@@ -12922,6 +13005,8 @@ HTML_TEMPLATE = '''
                     if (hintInput) hintInput.value = '';
                     const planCb = document.getElementById('finance-new-category-plan-linked');
                     if (planCb) planCb.checked = false;
+                    const officialCb2 = document.getElementById('finance-new-category-requires-official');
+                    if (officialCb2) officialCb2.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -13635,6 +13720,24 @@ HTML_TEMPLATE = '''
                 descInput.placeholder = 'Необязательный комментарий';
                 descInput.style.borderColor = '';
                 if (descLabel) descLabel.textContent = 'Комментарий';
+            }
+        }
+
+        /**
+         * Показать/скрыть поле «Официальный расход?» в зависимости от категории.
+         */
+        function checkFinanceOfficialField() {
+            const officialField = document.getElementById('finance-official-field');
+            if (!officialField) return;
+
+            const recordType = document.getElementById('finance-type')?.value;
+            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
+            if (recordType === 'expense' && cat && cat.requires_official) {
+                officialField.style.display = '';
+            } else {
+                officialField.style.display = 'none';
+                // Сбрасываем выбор при скрытии
+                document.querySelectorAll('input[name="finance-is-official"]').forEach(r => r.checked = false);
             }
         }
 
@@ -28683,9 +28786,9 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
@@ -28695,6 +28798,7 @@ def api_finance_categories():
             'requires_description': r['requires_description'] or 0,
             'description_hint': r['description_hint'] or '',
             'is_plan_linked': r['is_plan_linked'] or 0,
+            'requires_official': r['requires_official'] or 0,
             'created_at': r['created_at']
         } for r in rows]
         conn.close()
@@ -28741,9 +28845,11 @@ def api_finance_categories_add():
         description_hint = (data.get('description_hint') or '').strip()
         # Флаг привязки к плану закупок (распределение юаней по строкам плана)
         is_plan_linked = 1 if (data.get('is_plan_linked') and record_type == 'expense') else 0
+        # Флаг «Официальный расход» — при создании расхода спрашивает Да/Нет
+        requires_official = 1 if (data.get('requires_official') and record_type == 'expense') else 0
 
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked, requires_official) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked, requires_official))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -29040,7 +29146,7 @@ def api_finance_records_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -29052,6 +29158,7 @@ def api_finance_records_add():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
+        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -29077,13 +29184,39 @@ def api_finance_records_add():
             conn.close()
             return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
 
+        # Обработка пометки «Официальный расход»
+        is_official = None
+        if requires_official and record_type == 'expense':
+            is_official_raw = data.get('is_official')
+            if is_official_raw is not None:
+                is_official = 1 if str(is_official_raw) == '1' or is_official_raw is True else 0
+            else:
+                is_official = 0  # Не указано — считаем «нет»
+
         cursor.execute('''
             INSERT INTO finance_records
-            (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date, yuan_amount)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)
-        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date, yuan_amount))
+            (record_type, amount, account_id, account_name, category_id, category_name, description, created_by, source, record_date, yuan_amount, is_official)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?, ?)
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, user_info.get('username', ''), record_date, yuan_amount, is_official))
 
         new_id = cursor.lastrowid
+
+        # Уведомление админу, если расход НЕ официальный (is_official == 0)
+        if record_type == 'expense' and requires_official and is_official == 0:
+            amount_fmt = f"{amount:,.0f}".replace(',', ' ')
+            notif_text = (
+                f"⚠️ <b>Расход без пометки «Официальный»</b>\n\n"
+                f"💰 Сумма: {amount_fmt} ₽\n"
+                f"📂 Категория: {category_name}\n"
+            )
+            if description:
+                notif_text += f"📝 Описание: {description}\n"
+            notif_text += (
+                f"👤 Создал: {user_info.get('username', '')}\n"
+                f"📅 Дата: {record_date}\n\n"
+                f"Расход добавлен <b>БЕЗ</b> пометки «Официальный расход»."
+            )
+            send_admin_notification(notif_text)
 
         # Обработка распределений по контейнерам (если переданы)
         distributions = data.get('distributions', [])
@@ -29196,7 +29329,7 @@ def api_finance_records_update():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -29208,6 +29341,7 @@ def api_finance_records_update():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
+        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -29233,13 +29367,22 @@ def api_finance_records_update():
             conn.close()
             return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
 
+        # Обработка пометки «Официальный расход»
+        is_official = None
+        if requires_official and record_type == 'expense':
+            is_official_raw = data.get('is_official')
+            if is_official_raw is not None:
+                is_official = 1 if str(is_official_raw) == '1' or is_official_raw is True else 0
+            else:
+                is_official = 0
+
         cursor.execute('''
             UPDATE finance_records
             SET record_type = ?, amount = ?, account_id = ?, account_name = ?,
                 category_id = ?, category_name = ?,
-                description = ?, record_date = ?, yuan_amount = ?, updated_at = CURRENT_TIMESTAMP
+                description = ?, record_date = ?, yuan_amount = ?, is_official = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, record_date, yuan_amount, record_id))
+        ''', (record_type, amount, account_id, account_name, category_id, category_name, description, record_date, yuan_amount, is_official, record_id))
 
         if cursor.rowcount == 0:
             conn.close()
@@ -29808,6 +29951,12 @@ def api_finance_categories_update():
             is_plan_linked = 1 if (data.get('is_plan_linked') and row['record_type'] == 'expense') else 0
             updates.append('is_plan_linked = ?')
             params_upd.append(is_plan_linked)
+
+        # requires_official — требует пометки «Официальный расход» (только для расходных)
+        if 'requires_official' in data:
+            requires_official = 1 if (data.get('requires_official') and row['record_type'] == 'expense') else 0
+            updates.append('requires_official = ?')
+            params_upd.append(requires_official)
 
         if not updates:
             conn.close()
@@ -31623,12 +31772,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(requires_official, 0) as requires_official FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0, 'description_hint': r['description_hint'] or ''} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0, 'description_hint': r['description_hint'] or '', 'requires_official': r['requires_official'] or 0} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
@@ -31695,7 +31844,7 @@ def api_telegram_finance_add():
 
         account_name = acc_row[0]
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -31707,6 +31856,7 @@ def api_telegram_finance_add():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
+        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -31732,6 +31882,15 @@ def api_telegram_finance_add():
             conn.close()
             return jsonify({'success': False, 'error': 'Для данной категории необходимо указать сумму в юанях'}), 400
 
+        # Обработка пометки «Официальный расход»
+        is_official = None
+        if requires_official and record_type == 'expense':
+            is_official_raw = data.get('is_official')
+            if is_official_raw is not None:
+                is_official = 1 if str(is_official_raw) == '1' or is_official_raw is True else 0
+            else:
+                is_official = 0
+
         record_date = get_snapshot_date()
 
         # Определяем created_by: ищем логин пользователя по telegram_chat_id
@@ -31745,12 +31904,29 @@ def api_telegram_finance_add():
         cursor.execute('''
             INSERT INTO finance_records
             (record_type, amount, account_id, account_name, category_id, category_name,
-             description, created_by, source, telegram_chat_id, telegram_username, record_date, yuan_amount)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?, ?)
+             description, created_by, source, telegram_chat_id, telegram_username, record_date, yuan_amount, is_official)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'telegram', ?, ?, ?, ?, ?)
         ''', (record_type, amount, account_id, account_name, category_id, category_name,
-              description, created_by, telegram_chat_id, telegram_username, record_date, yuan_amount))
+              description, created_by, telegram_chat_id, telegram_username, record_date, yuan_amount, is_official))
 
         new_id = cursor.lastrowid
+
+        # Уведомление админу, если расход НЕ официальный (is_official == 0)
+        if record_type == 'expense' and requires_official and is_official == 0:
+            amount_fmt = f"{amount:,.0f}".replace(',', ' ')
+            notif_text = (
+                f"⚠️ <b>Расход без пометки «Официальный»</b>\n\n"
+                f"💰 Сумма: {amount_fmt} ₽\n"
+                f"📂 Категория: {category_name}\n"
+            )
+            if description:
+                notif_text += f"📝 Описание: {description}\n"
+            notif_text += (
+                f"👤 Создал: {created_by}\n"
+                f"📅 Дата: {record_date}\n\n"
+                f"Расход добавлен <b>БЕЗ</b> пометки «Официальный расход»."
+            )
+            send_admin_notification(notif_text)
 
         # Telegram не поддерживает распределения — всегда уведомляем
         # для расходных категорий, привязанных к контейнерам

@@ -105,6 +105,7 @@ STATE_FIN_CATEGORY = 303           # Выбор категории
 STATE_FIN_DESCRIPTION = 304        # Ввод описания (на что)
 STATE_FIN_CONFIRM = 305            # Подтверждение перед сохранением
 STATE_FIN_YUAN_AMOUNT = 306        # Ввод суммы в юанях (для категорий с requires_yuan)
+STATE_FIN_OFFICIAL = 307           # Выбор: официальный расход или нет (Да/Нет)
 
 # Состояния для создания отправки (400-402)
 STATE_SHIPMENT_COMMENT = 400       # Ввод комментария к отправке (обязательно)
@@ -2185,9 +2186,10 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
         desc_req = cat.get('requires_description', 0) or 0
+        official = cat.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}:{official}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2220,19 +2222,21 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan:requires_description
-    parts = query.data.split(':', 5)
+    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan:requires_description:requires_official
+    parts = query.data.split(':', 6)
     category_id = int(parts[1])
     category_name = parts[2] if len(parts) > 2 else ''
     is_container_linked = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
     requires_yuan = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
     requires_description = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
+    requires_official = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
 
     context.user_data['finance']['category_id'] = category_id
     context.user_data['finance']['category_name'] = category_name
     context.user_data['finance']['is_container_linked'] = is_container_linked
     context.user_data['finance']['requires_yuan'] = requires_yuan
     context.user_data['finance']['requires_description'] = requires_description
+    context.user_data['finance']['requires_official'] = requires_official
 
     # Получаем description_hint из кеша категорий
     categories_cache = context.user_data['finance'].get('categories_cache', [])
@@ -2398,6 +2402,10 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['finance']['description'] = ''
     fin = context.user_data['finance']
 
+    # Если категория требует пометку «Официальный расход» — переходим к вопросу
+    if fin.get('requires_official') and fin.get('record_type') == 'expense':
+        return await finance_ask_official(query, context, is_message=False)
+
     type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
     formatted = format_amount(fin['amount'])
 
@@ -2409,26 +2417,10 @@ async def finance_skip_comment(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_description")]
     ]
 
-    category_line = ""
-    if fin.get('category_name'):
-        category_line = f"Категория: *{escape_md(fin['category_name'])}*\n"
-
-    yuan_line = ""
-    if fin.get('yuan_amount'):
-        yuan_line = f"Юани: *{escape_md(format_amount(fin['yuan_amount']))} ¥*\n"
-
-    files_count = len(fin.get('files', []))
-    files_line = f"📎 Файлов: {files_count}\n" if files_count else ''
+    text = _build_confirmation_message(fin)
 
     await query.edit_message_text(
-        f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
-        f"Тип: {escape_md(type_label)}\n"
-        f"Сумма: *{escape_md(formatted)} ₽*\n"
-        f"{yuan_line}"
-        f"Счёт: *{escape_md(fin['account_name'])}*\n"
-        f"{category_line}"
-        f"{files_line}"
-        "Всё верно?",
+        text,
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -2459,8 +2451,9 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
     context.user_data['finance']['description'] = description
     fin = context.user_data['finance']
 
-    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
-    formatted = format_amount(fin['amount'])
+    # Если категория требует пометку «Официальный расход» — переходим к вопросу
+    if fin.get('requires_official') and fin.get('record_type') == 'expense':
+        return await finance_ask_official(update.message, context, is_message=True)
 
     keyboard = [
         [
@@ -2469,6 +2462,29 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         ],
         [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_description")]
     ]
+
+    text = _build_confirmation_message(fin)
+
+    await update.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_FIN_CONFIRM
+
+
+# ============================================================================
+# ОБРАБОТЧИК ШАГА «ОФИЦИАЛЬНЫЙ РАСХОД» (STATE_FIN_OFFICIAL)
+# ============================================================================
+
+
+def _build_confirmation_message(fin):
+    """
+    Сформировать текст подтверждения финансовой записи.
+    Используется из нескольких мест (skip_comment, description_entered, official_selected).
+    """
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
 
     category_line = ""
     if fin.get('category_name'):
@@ -2479,13 +2495,17 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         yuan_line = f"Юани: *{escape_md(format_amount(fin['yuan_amount']))} ¥*\n"
 
     comment_line = ""
-    if description:
-        comment_line = f"Комментарий: {escape_md(description)}\n"
+    if fin.get('description'):
+        comment_line = f"Комментарий: {escape_md(fin['description'])}\n"
 
     files_count = len(fin.get('files', []))
     files_line = f"📎 Файлов: {files_count}\n" if files_count else ''
 
-    await update.message.reply_text(
+    official_line = ""
+    if fin.get('requires_official') and fin.get('is_official') is not None:
+        official_line = f"Официальный: {'✅ Да' if fin['is_official'] else '❌ Нет'}\n"
+
+    text = (
         f"📋 *ПОДТВЕРЖДЕНИЕ*\n\n"
         f"Тип: {escape_md(type_label)}\n"
         f"Сумма: *{escape_md(formatted)} ₽*\n"
@@ -2493,12 +2513,92 @@ async def finance_description_entered(update: Update, context: ContextTypes.DEFA
         f"Счёт: *{escape_md(fin['account_name'])}*\n"
         f"{category_line}"
         f"{comment_line}"
+        f"{official_line}"
         f"{files_line}\n"
-        "Всё верно?",
+        "Всё верно?"
+    )
+    return text
+
+
+async def finance_ask_official(update_or_message, context: ContextTypes.DEFAULT_TYPE, is_message: bool = False):
+    """
+    Показать вопрос «Это официальный расход?» с кнопками Да/Нет.
+    """
+    fin = context.user_data['finance']
+    type_label = "📉 Расход" if fin['record_type'] == 'expense' else "📈 Доход"
+    formatted = format_amount(fin['amount'])
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да", callback_data="fin_official:yes"),
+            InlineKeyboardButton("❌ Нет", callback_data="fin_official:no")
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_description")]
+    ]
+
+    text = (
+        f"💰 *{escape_md(type_label)}*\n"
+        f"💵 Сумма: *{escape_md(formatted)} ₽*\n"
+        f"🏦 Счёт: *{escape_md(fin['account_name'])}*\n"
+        f"🏷 Категория: *{escape_md(fin.get('category_name', ''))}*\n\n"
+        f"📋 *Это официальный расход?*"
+    )
+
+    if is_message:
+        await update_or_message.reply_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await update_or_message.edit_message_text(
+            text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    return STATE_FIN_OFFICIAL
+
+
+async def finance_official_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора «Официальный расход: Да / Нет».
+    Сохраняет is_official и переходит к подтверждению.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data.split(':')[1]
+    is_official = 1 if action == 'yes' else 0
+    context.user_data['finance']['is_official'] = is_official
+
+    fin = context.user_data['finance']
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes"),
+            InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")
+        ],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="fin_back_official")]
+    ]
+
+    text = _build_confirmation_message(fin)
+
+    await query.edit_message_text(
+        text,
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STATE_FIN_CONFIRM
+
+
+async def finance_back_to_official(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к шагу «Официальный расход?».
+    Вызывается из CONFIRM при нажатии «⬅️ Назад» (если категория requires_official).
+    """
+    query = update.callback_query
+    await query.answer()
+    return await finance_ask_official(query, context, is_message=False)
 
 
 # ============================================================================
@@ -2622,9 +2722,10 @@ async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
         desc_req = cat.get('requires_description', 0) or 0
+        official = cat.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}:{official}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2729,6 +2830,8 @@ async def finance_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         record_data['category_id'] = fin['category_id']
     if fin.get('yuan_amount'):
         record_data['yuan_amount'] = fin['yuan_amount']
+    if fin.get('is_official') is not None:
+        record_data['is_official'] = fin['is_official']
 
     # Если есть файлы — отправляем через multipart, иначе обычный JSON
     files = fin.get('files', [])
@@ -2810,40 +2913,17 @@ async def finance_file_entered(update: Update, context: ContextTypes.DEFAULT_TYP
             await message.reply_text("✅ Файл принят! Но описание обязательно.\nВведите описание текстом:")
             return STATE_FIN_DESCRIPTION
 
+        # Если категория требует пометку «Официальный расход» — переходим к вопросу
+        if fin.get('requires_official') and fin.get('record_type') == 'expense':
+            return await finance_ask_official(message, context, is_message=True)
+
         # Формируем сообщение подтверждения (аналогично finance_description_entered)
-        description = fin.get('description', '')
-        record_type = fin.get('record_type', '')
-        amount = fin.get('amount', 0)
-        account_name = fin.get('account_name', '')
-        category_name = fin.get('category_name', '')
-
-        type_emoji = '📈' if record_type == 'income' else '📉'
-        type_label = 'Доход' if record_type == 'income' else 'Расход'
-
-        yuan_line = ''
-        yuan_amount = fin.get('yuan_amount')
-        if yuan_amount:
-            yuan_line = f"\n💴 Юани: {format_amount(yuan_amount)} ¥"
-
-        files_count = len(fin.get('files', []))
-        files_line = f"\n📎 Файлов: {files_count}" if files_count else ''
-
-        formatted = format_amount(amount)
-        confirm_text = (
-            f"📋 *Проверьте данные:*\n\n"
-            f"{type_emoji} Тип: {escape_md(type_label)}\n"
-            f"💰 Сумма: {escape_md(formatted)} ₽\n"
-            f"🏦 Счёт: {escape_md(account_name)}\n"
-            f"📂 Категория: {escape_md(category_name)}\n"
-            f"📝 Описание: {escape_md(description) if description else '—'}"
-            f"{yuan_line}{files_line}\n\n"
-            f"Всё верно?"
-        )
-
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="fin_confirm:yes")],
             [InlineKeyboardButton("❌ Отменить", callback_data="fin_confirm:no")]
         ]
+
+        confirm_text = _build_confirmation_message(fin)
 
         await message.reply_text(confirm_text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return STATE_FIN_CONFIRM
@@ -3294,8 +3374,13 @@ def main():
                 MessageHandler(filters.PHOTO | filters.Document.ALL, finance_file_entered),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, finance_description_entered)
             ],
+            STATE_FIN_OFFICIAL: [
+                CallbackQueryHandler(finance_back_to_description, pattern=r'^fin_back_description$'),
+                CallbackQueryHandler(finance_official_selected, pattern=r'^fin_official:')
+            ],
             STATE_FIN_CONFIRM: [
                 CallbackQueryHandler(finance_back_to_description, pattern=r'^fin_back_description$'),
+                CallbackQueryHandler(finance_back_to_official, pattern=r'^fin_back_official$'),
                 CallbackQueryHandler(finance_confirm, pattern=r'^fin_confirm:')
             ]
         },
