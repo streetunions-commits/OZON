@@ -29868,12 +29868,14 @@ def _build_realization_from_transactions(year, month):
         d_bank = dc.get('bank_coinvestment', 0)
         d_acquiring = dc.get('commission', 0)
 
-        # Возвраты
+        # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
         r_qty = rc.get('quantity', 0)
         r_amount = rc.get('amount', 0)           # Возврат выручки (доля продавца)
         r_total_comm = rc.get('total', 0)
         r_bonus = rc.get('bonus', 0)             # Баллы за скидки (возврат)
-        r_std_fee = rc.get('standard_fee', 0)
+        r_std_fee = rc.get('standard_fee', 0)    # Возврат стандартной комиссии
+        r_stars = rc.get('stars', 0)             # Возврат звёзд
+        r_bank = rc.get('bank_coinvestment', 0)  # Возврат соинвестирования
         r_acquiring = rc.get('commission', 0) if rc else 0
 
         # Гросс-продажи = цена продавца * кол-во доставок
@@ -29889,9 +29891,9 @@ def _build_realization_from_transactions(year, month):
         commission_total += d_total_comm + r_total_comm
         seller_receives += d_amount + r_amount
         bonuses_total += d_bonus + r_bonus
-        standard_fee_total += d_std_fee
-        stars_total += d_stars
-        bank_coinvest_total += d_bank
+        standard_fee_total += d_std_fee + r_std_fee    # Чистая комиссия (доставки + возврат)
+        stars_total += d_stars + r_stars                # Чистые звёзды
+        bank_coinvest_total += d_bank + r_bank          # Чистое соинвестирование
         acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
@@ -30231,12 +30233,14 @@ def api_finance_realization():
             d_stars = dc.get('stars', 0)
             d_bank = dc.get('bank_coinvestment', 0)
 
-            # Возвраты
+            # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
             r_qty = rc.get('quantity', 0)
             r_amount = rc.get('amount', 0)
             r_total_comm = rc.get('total', 0)
             r_bonus = rc.get('bonus', 0)
-            r_std_fee = rc.get('standard_fee', 0)
+            r_std_fee = rc.get('standard_fee', 0)    # Возврат стандартной комиссии
+            r_stars = rc.get('stars', 0)             # Возврат звёзд
+            r_bank = rc.get('bank_coinvestment', 0)  # Возврат соинвестирования
 
             # Гросс-продажи = цена продавца * кол-во доставок
             row_gross_sales = seller_price * d_qty
@@ -30255,9 +30259,9 @@ def api_finance_realization():
             commission_total += d_total_comm + r_total_comm
             seller_receives += d_amount + r_amount
             bonuses_total += d_bonus + r_bonus
-            standard_fee_total += d_std_fee  # Только доставки (подтверждено пользователем)
-            stars_total += d_stars
-            bank_coinvest_total += d_bank
+            standard_fee_total += d_std_fee + r_std_fee    # Чистая комиссия (доставки + возврат)
+            stars_total += d_stars + r_stars                # Чистые звёзды
+            bank_coinvest_total += d_bank + r_bank          # Чистое соинвестирование
             acquiring_total += d_acquiring + r_acquiring
             delivery_count += d_qty
             return_count += r_qty
