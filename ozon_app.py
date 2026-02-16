@@ -29923,7 +29923,7 @@ def _build_realization_from_transactions(year, month):
         returns_total += row_returns
         commission_total += d_total_comm + r_total_comm
         seller_receives += d_amount + r_amount
-        bonuses_total += d_bonus + r_bonus
+        bonuses_total += d_bonus - r_bonus              # Чистые баллы за скидки
         standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
         stars_total += d_stars - r_stars                # Чистые звёзды
         bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
