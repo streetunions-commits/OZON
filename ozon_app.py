@@ -9533,7 +9533,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-details" id="real-storage-details"></div>
                         </div>
                         <div class="real-card real-card-cogs" id="real-cogs-card" style="display:none;">
-                            <div class="real-card-label">Себестоимость</div>
+                            <div class="real-card-label">Себестоимость <span onclick="alert('Себестоимость рассчитывается по методу FIFO (первый пришёл — первый ушёл) на основе данных о приходах на склад. Приоритет цены: рассчитанная себестоимость из поставок (+6%) → ручная цена прихода. Продажи прошлых месяцев пропускаются, текущий период списывается по самым старым приходам.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-cogs-total">0 ₽</div>
                             <div class="real-card-hint" id="real-cogs-hint"></div>
                         </div>
@@ -13591,10 +13591,29 @@ HTML_TEMPLATE = '''
                 // Обновляем карточки сводки
                 const cogsCard = document.getElementById('real-cogs-card');
 
+                // Считаем товары без себестоимости (uncovered)
+                let uncoveredCount = 0;
+                let totalProductsWithSales = cogsProducts.length;
+                for (const sku in cogsMap) {
+                    if (cogsMap[sku].uncovered_qty > 0) uncoveredCount++;
+                }
+                // Товары без записи в cogsMap — тоже без себестоимости
+                cogsProducts.forEach(p => {
+                    if (!cogsMap[p.sku]) uncoveredCount++;
+                });
+
                 // Карточка «Себестоимость» — показываем всегда
                 document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
                 const cogsHint = document.getElementById('real-cogs-hint');
-                if (cogsHint) cogsHint.textContent = totalCogs > 0 ? 'FIFO по приходам' : 'Нет данных о приходах';
+                if (cogsHint) {
+                    if (uncoveredCount > 0) {
+                        cogsHint.innerHTML = '<span style="color:#e74c3c;font-weight:600;">' + uncoveredCount + ' из ' + totalProductsWithSales + ' товаров без себестоимости</span>';
+                    } else if (totalCogs > 0) {
+                        cogsHint.innerHTML = '<span style="color:#27ae60;">Все товары покрыты</span>';
+                    } else {
+                        cogsHint.textContent = 'Нет данных о приходах';
+                    }
+                }
                 if (cogsCard) cogsCard.style.display = '';
 
             } catch (e) {
