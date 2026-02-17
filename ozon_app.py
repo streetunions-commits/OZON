@@ -13390,7 +13390,7 @@ HTML_TEMPLATE = '''
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) {
                     if (buyout.count > 0) {
-                        realHint.innerHTML = totalSalesCount + ' продаж <span style="color:#e67e22;font-size:11px;">(в т.ч. СНГ: ' + fmtRealMoney(buyout.seller_price_total || 0) + ')</span>';
+                        realHint.innerHTML = totalSalesCount + ' продаж <span style="color:#e67e22;font-size:11px;">(в т.ч. СНГ: ' + buyout.count + ' шт. / ' + fmtRealMoney(buyout.seller_price_total || 0) + ')</span>';
                     } else {
                         realHint.textContent = totalSalesCount + ' продаж';
                     }
@@ -13400,7 +13400,7 @@ HTML_TEMPLATE = '''
                 const totalGrossSales = netGrossSales + (buyout.seller_price_total || 0);
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(totalGrossSales);
                 const grossHint = document.getElementById('real-gross-hint');
-                if (grossHint) grossHint.textContent = totalSalesCount + ' продаж';
+                if (grossHint) grossHint.textContent = '';
 
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
                 const retHint = document.getElementById('real-returns-hint');
