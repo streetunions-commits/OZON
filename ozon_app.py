@@ -8394,6 +8394,7 @@ HTML_TEMPLATE = '''
                     <button class="sub-tab-button active" onclick="switchSubTab(event, 'summary')">Сводная</button>
                     <button class="sub-tab-button" onclick="switchSubTab(event, 'product-analysis')">Анализ товара</button>
                     <button class="sub-tab-button" onclick="switchSubTab(event, 'fbo')">Аналитика FBO</button>
+                    <button class="sub-tab-button" onclick="switchSubTab(event, 'unit-economics')">Юнит-экономика</button>
                 </div>
 
                 <!-- Под-вкладка: Анализ товара -->
@@ -8452,6 +8453,17 @@ HTML_TEMPLATE = '''
                 <div id="fbo" class="sub-tab-content">
                     <div id="fbo-content">
                         <div class="fbo-loading">Загрузка данных...</div>
+                    </div>
+                </div>
+
+                <!-- Под-вкладка: Юнит-экономика -->
+                <div id="unit-economics" class="sub-tab-content">
+                    <div style="display: flex; align-items: center; justify-content: center; min-height: 300px; color: #6c757d;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                            <h3 style="margin: 0 0 8px 0; color: #495057;">Юнит-экономика</h3>
+                            <p style="margin: 0; font-size: 14px;">Раздел в разработке</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -10140,7 +10152,7 @@ HTML_TEMPLATE = '''
         // ✅ Восстановление активной под-вкладки при загрузке страницы
         function restoreActiveSubTab() {
             const savedSubTab = localStorage.getItem('ozon_active_subtab');
-            const validOzonSubtabs = ['summary', 'product-analysis', 'fbo'];
+            const validOzonSubtabs = ['summary', 'product-analysis', 'fbo', 'unit-economics'];
             if (savedSubTab && validOzonSubtabs.includes(savedSubTab)) {
                 // Скрываем все под-вкладки
                 document.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
