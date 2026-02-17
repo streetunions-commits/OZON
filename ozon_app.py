@@ -13591,15 +13591,11 @@ HTML_TEMPLATE = '''
                 // Обновляем карточки сводки
                 const cogsCard = document.getElementById('real-cogs-card');
 
-                if (totalCogs > 0) {
-                    // Карточка «Себестоимость»
-                    document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
-                    const cogsHint = document.getElementById('real-cogs-hint');
-                    if (cogsHint) cogsHint.textContent = 'FIFO по приходам';
-                    if (cogsCard) cogsCard.style.display = '';
-                } else {
-                    if (cogsCard) cogsCard.style.display = 'none';
-                }
+                // Карточка «Себестоимость» — показываем всегда
+                document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
+                const cogsHint = document.getElementById('real-cogs-hint');
+                if (cogsHint) cogsHint.textContent = totalCogs > 0 ? 'FIFO по приходам' : 'Нет данных о приходах';
+                if (cogsCard) cogsCard.style.display = '';
 
             } catch (e) {
                 console.error('[COGS] fetch error:', e);
