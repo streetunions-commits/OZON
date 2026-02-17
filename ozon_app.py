@@ -6357,6 +6357,10 @@ HTML_TEMPLATE = '''
         .real-card-compensations .real-card-value { color: #38a169; }
         .real-card-storage { border-left-color: #c05621; cursor: pointer; }
         .real-card-storage .real-card-value { color: #c05621; }
+        .real-card-cogs { border-left-color: #e07020; }
+        .real-card-cogs .real-card-value { color: #e07020; }
+        .real-card-profit { border-left-color: #38a169; }
+        .real-card-profit .real-card-value { color: #38a169; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -13428,7 +13432,7 @@ HTML_TEMPLATE = '''
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                return '<tr>' +
+                return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(p.commission_ratio) + '%</td>' +
@@ -13437,10 +13441,160 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
+                    '<td class="real-amount-right cogs-col" data-field="cogs" style="color:#999;">—</td>' +
+                    '<td class="real-amount-right cogs-col" data-field="profit" style="color:#999;">—</td>' +
                 '</tr>';
             }).join('');
 
             document.getElementById('real-products-wrapper').style.display = 'block';
+        }
+
+        // ============================================================================
+        // СЕБЕСТОИМОСТЬ (FIFO) — загрузка и отображение
+        // ============================================================================
+
+        /**
+         * Определить дату начала периода для расчёта кумулятивных продаж.
+         * Нужна для FIFO — чтобы знать, сколько единиц уже «потреблено» прошлыми периодами.
+         */
+        function _getRealPeriodStart(periodType) {
+            if (periodType === 'days') {
+                return document.getElementById('real-date-from').value; // "YYYY-MM-DD"
+            } else if (periodType === 'quarter') {
+                const qval = document.getElementById('real-quarter-select').value; // "YYYY-Q1"
+                const m = qval.match(/^(\d{4})-Q([1-4])$/);
+                if (m) {
+                    const qMonths = {1: '01', 2: '04', 3: '07', 4: '10'};
+                    return m[1] + '-' + qMonths[parseInt(m[2])] + '-01';
+                }
+                return '';
+            } else {
+                const mval = document.getElementById('real-month-select').value; // "YYYY-MM"
+                return mval ? mval + '-01' : '';
+            }
+        }
+
+        /**
+         * Загрузить себестоимость (FIFO) для товаров реализации.
+         * Вызывается после рендера таблицы товаров — обновляет колонки и карточки.
+         *
+         * Аргументы:
+         *   products (array): Массив товаров из реализации [{sku, delivery_qty, return_qty, seller_receives}, ...]
+         *   periodType (string): Тип периода ('days', 'month', 'quarter')
+         */
+        async function _loadRealizationCogs(products, periodType) {
+            if (!products || products.length === 0) return;
+
+            const periodStart = _getRealPeriodStart(periodType);
+
+            // Формируем массив {sku, net_qty} для backend
+            const cogsProducts = products
+                .filter(p => p.sku)
+                .map(p => ({
+                    sku: String(p.sku),
+                    net_qty: (p.delivery_qty || 0) - (p.return_qty || 0)
+                }))
+                .filter(p => p.net_qty > 0);
+
+            if (cogsProducts.length === 0) return;
+
+            try {
+                const resp = await authFetch('/api/finance/realization/cogs', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({products: cogsProducts, period_start: periodStart})
+                });
+                const data = await resp.json();
+
+                if (!data.success) {
+                    console.error('[COGS] error:', data.error);
+                    return;
+                }
+
+                const cogsMap = data.products || {};
+                let totalCogs = data.total_cogs || 0;
+
+                // Обновляем колонки в таблице товаров
+                const tbody = document.getElementById('real-products-tbody');
+                if (tbody) {
+                    const rows = tbody.querySelectorAll('tr[data-sku]');
+                    rows.forEach(row => {
+                        const sku = row.getAttribute('data-sku');
+                        const cogsData = cogsMap[sku];
+                        const cogsTd = row.querySelector('td[data-field="cogs"]');
+                        const profitTd = row.querySelector('td[data-field="profit"]');
+
+                        if (cogsData && cogsData.cogs > 0) {
+                            // Себестоимость
+                            if (cogsTd) {
+                                cogsTd.textContent = fmtRealMoney(cogsData.cogs);
+                                cogsTd.style.color = '#e07020';
+                                // Подсказка с деталями FIFO при наведении
+                                if (cogsData.details && cogsData.details.length > 0) {
+                                    let tip = 'FIFO-расчёт:\\n';
+                                    cogsData.details.forEach(d => {
+                                        tip += d.qty + ' шт × ' + d.cost.toFixed(2) + ' ₽';
+                                        if (d.date) tip += ' (приход ' + d.date + ')';
+                                        tip += ' = ' + d.subtotal.toFixed(2) + ' ₽\\n';
+                                    });
+                                    if (cogsData.uncovered_qty > 0) {
+                                        tip += '⚠ ' + cogsData.uncovered_qty + ' шт без данных о себестоимости';
+                                    }
+                                    cogsTd.title = tip;
+                                }
+                            }
+
+                            // Прибыль = К получению - Себестоимость
+                            if (profitTd) {
+                                // Находим seller_receives из products
+                                const prd = products.find(pp => String(pp.sku) === sku);
+                                const receives = prd ? (prd.seller_receives || 0) : 0;
+                                const profit = receives - cogsData.cogs;
+                                profitTd.textContent = fmtRealMoney(profit);
+                                profitTd.style.color = profit >= 0 ? '#38a169' : '#e53e3e';
+                                profitTd.style.fontWeight = '700';
+                            }
+                        } else {
+                            if (cogsTd) { cogsTd.textContent = '—'; cogsTd.style.color = '#999'; }
+                            if (profitTd) { profitTd.textContent = '—'; profitTd.style.color = '#999'; }
+                        }
+                    });
+                }
+
+                // Обновляем карточки сводки
+                const cogsCard = document.getElementById('real-cogs-card');
+                const profitCard = document.getElementById('real-profit-card');
+
+                if (totalCogs > 0) {
+                    // Карточка «Себестоимость»
+                    document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
+                    const cogsHint = document.getElementById('real-cogs-hint');
+                    if (cogsHint) cogsHint.textContent = 'FIFO по приходам';
+                    if (cogsCard) cogsCard.style.display = '';
+
+                    // Карточка «Прибыль» = Продажи после СПП - Себестоимость
+                    // Считаем seller_receives из массива products (надёжнее парсинга текста)
+                    const totalSellerReceives = products.reduce((sum, p) => sum + (p.seller_receives || 0), 0);
+                    const totalProfit = totalSellerReceives - totalCogs;
+
+                    document.getElementById('real-profit-total').textContent = fmtRealMoney(totalProfit);
+                    const profitHint = document.getElementById('real-profit-hint');
+                    if (profitHint) {
+                        const margin = totalSellerReceives > 0 ? Math.round(totalProfit / totalSellerReceives * 100) : 0;
+                        profitHint.textContent = 'Маржа ' + margin + '%';
+                    }
+                    if (profitCard) {
+                        profitCard.style.display = '';
+                        document.getElementById('real-profit-total').style.color = totalProfit >= 0 ? '#38a169' : '#e53e3e';
+                    }
+                } else {
+                    if (cogsCard) cogsCard.style.display = 'none';
+                    if (profitCard) profitCard.style.display = 'none';
+                }
+
+            } catch (e) {
+                console.error('[COGS] fetch error:', e);
+            }
         }
 
         // ============================================================================
