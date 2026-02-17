@@ -18195,14 +18195,14 @@ HTML_TEMPLATE = '''
                 <td>${vedContainerItemCounter}</td>
                 <td>
                     <select class="wh-select ved-container-product" style="width: 100%;"
-                        onchange="this.closest('tr').querySelector('.ved-container-price').dataset.manualPrice='false'; updateVedContainerTotals(); debouncedFetchFifoPlanCost(this.closest('tr'))">
+                        onchange="updateVedContainerTotals(); debouncedFetchFifoPlanCost(this.closest('tr'))">
                         ${productOptions}
                     </select>
                 </td>
                 <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0"
                     oninput="updateVedContainerTotals(); debouncedFetchFifoPlanCost(this.closest('tr'))"></td>
-                <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" data-manual-price="false"
-                    oninput="this.dataset.manualPrice='true'; updateVedContainerTotals()"></td>
+                <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="—" readonly
+                    style="background: #f5f5f5; cursor: default;" title="Рассчитывается автоматически из плана (FIFO)"></td>
                 <td class="ved-container-supplier-sum" style="font-weight: 500;">0 ¥</td>
                 <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
                 <td><span class="ved-container-cost-readonly ved-container-logrf" data-value="0">0</span></td>
@@ -18332,7 +18332,7 @@ HTML_TEMPLATE = '''
         /**
          * Запросить себестоимость за штуку из плана по FIFO.
          * Вызывается при выборе товара или изменении кол-ва.
-         * Не перезаписывает вручную введённую цену (data-manual-price).
+         * Поле цены read-only — всегда берётся из плана.
          */
         async function fetchFifoPlanCost(row) {
             const select = row.querySelector('.ved-container-product');
@@ -18343,9 +18343,6 @@ HTML_TEMPLATE = '''
             const qty = parseInt(qtyInput?.value) || 0;
 
             if (!sku || qty <= 0) return;
-
-            // Если пользователь вручную менял цену — не перезаписываем
-            if (priceInput.dataset.manualPrice === 'true') return;
 
             // Считаем кол-во того же SKU в других строках текущей формы
             let otherRowsQty = 0;
@@ -18453,7 +18450,7 @@ HTML_TEMPLATE = '''
                     return;
                 }
                 if (priceCny <= 0) {
-                    alert('Строка ' + rowNum + ': укажите цену за штуку');
+                    alert('Строка ' + rowNum + ': нет себестоимости. Добавьте товар в план с ценой инвойса.');
                     hasValidationErrors = true;
                     return;
                 }
@@ -18855,10 +18852,7 @@ HTML_TEMPLATE = '''
                     if (qtyInput) qtyInput.value = item.quantity;
 
                     const priceInput = row.querySelector('.ved-container-price');
-                    if (priceInput) {
-                        priceInput.value = item.price_cny;
-                        priceInput.dataset.manualPrice = 'true';  // Не перезаписывать сохранённую цену авто-расчётом
-                    }
+                    if (priceInput) priceInput.value = item.price_cny;
 
                     // Логистические поля — span (read-only), заполняем data-value и текст
                     const logRfEl = row.querySelector('.ved-container-logrf');
@@ -30515,6 +30509,44 @@ def api_finance_categories_update():
 #   - /v3/finance/transaction/list — основной, все транзакции за период
 # ============================================================================
 
+def _fetch_buyout_data(date_from_str, date_to_str):
+    """
+    Получить данные по выкупам СНГ из Ozon API /v1/finance/products/buyout.
+
+    Аргументы:
+        date_from_str (str): Начало периода в формате YYYY-MM-DD
+        date_to_str (str): Конец периода в формате YYYY-MM-DD
+
+    Возвращает:
+        dict: {count, amount, products} — количество, сумма и список товаров СНГ
+    """
+    ozon_headers = get_ozon_headers()
+    payload = {"date_from": date_from_str, "date_to": date_to_str}
+    print(f"  🌍 Запрос выкупов СНГ: {date_from_str} — {date_to_str}")
+    try:
+        resp = requests.post(
+            f"{OZON_HOST}/v1/finance/products/buyout",
+            json=payload, headers=ozon_headers, timeout=60
+        )
+        if resp.status_code != 200:
+            print(f"  ⚠️ Buyout API: HTTP {resp.status_code} — {resp.text[:200]}")
+            return {'count': 0, 'amount': 0.0, 'products': []}
+
+        data = resp.json()
+        products = data.get('products', [])
+        total_count = sum(p.get('quantity', 0) for p in products)
+        total_amount = sum(p.get('amount', 0) for p in products)
+        print(f"  🌍 Выкупы СНГ: {total_count} шт. на {total_amount:.2f} ₽")
+        return {
+            'count': total_count,
+            'amount': round(total_amount, 2),
+            'products': products
+        }
+    except Exception as e:
+        print(f"  ⚠️ Ошибка запроса выкупов СНГ: {e}")
+        return {'count': 0, 'amount': 0.0, 'products': []}
+
+
 def _build_realization_from_transactions(year, month):
     """
     Построить данные реализации из /v1/finance/realization/by-day для текущего (незакрытого) месяца.
@@ -30987,6 +31019,9 @@ def api_finance_realization():
     if date_from_str and date_to_str:
         try:
             result = _build_realization_from_date_range(date_from_str, date_to_str)
+            # Добавляем данные по выкупам СНГ
+            buyout = _fetch_buyout_data(date_from_str, date_to_str)
+            result['buyout'] = buyout
             return jsonify(result)
         except Exception as e:
             print(f"  ❌ Ошибка реализации по дням: {e}")
@@ -31043,6 +31078,11 @@ def api_finance_realization():
             print(f"  📊 Месяц {yr}-{mo:02d} ещё не закрыт — используем транзакции")
             try:
                 result = _build_realization_from_transactions(yr, mo)
+                # Добавляем данные по выкупам СНГ
+                import calendar as _cal
+                last_day = _cal.monthrange(yr, mo)[1]
+                buyout = _fetch_buyout_data(f"{yr}-{mo:02d}-01", f"{yr}-{mo:02d}-{last_day}")
+                result['buyout'] = buyout
                 return jsonify(result)
             except Exception as e:
                 print(f"  ❌ Ошибка транзакций: {e}")
