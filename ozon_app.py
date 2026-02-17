@@ -18371,10 +18371,10 @@ HTML_TEMPLATE = '''
                 if (data.success && data.price_cny > 0) {
                     priceInput.value = data.price_cny;
                     // Подсказка с FIFO-разбивкой
-                    let hint = 'Авто из плана (FIFO):\n' +
-                        data.details.map(d => d.qty + ' шт × ' + d.cost + ' ¥ (' + d.date + ')').join('\n');
+                    let hint = 'Авто из плана (FIFO):\\n' +
+                        data.details.map(d => d.qty + ' шт × ' + d.cost + ' ¥ (' + d.date + ')').join('\\n');
                     if (data.uncovered_qty > 0) {
-                        hint += '\n⚠ Не покрыто планом: ' + data.uncovered_qty + ' шт';
+                        hint += '\\n⚠ Не покрыто планом: ' + data.uncovered_qty + ' шт';
                     }
                     priceInput.title = hint;
                     updateVedContainerTotals();
