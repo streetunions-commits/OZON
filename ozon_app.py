@@ -6359,6 +6359,8 @@ HTML_TEMPLATE = '''
         .real-card-storage .real-card-value { color: #c05621; }
         .real-card-cogs { border-left-color: #e07020; }
         .real-card-cogs .real-card-value { color: #e07020; }
+        .real-card-opex { border-left-color: #c0392b; }
+        .real-card-opex .real-card-value { color: #c0392b; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -9536,6 +9538,11 @@ HTML_TEMPLATE = '''
                             <div class="real-card-label">Себестоимость <span onclick="alert('Себестоимость рассчитывается по методу FIFO (первый пришёл — первый ушёл) на основе данных о приходах на склад. Приоритет цены: рассчитанная себестоимость из поставок (+6%) → ручная цена прихода. Продажи прошлых месяцев пропускаются, текущий период списывается по самым старым приходам.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-cogs-total">0 ₽</div>
                             <div class="real-card-hint" id="real-cogs-hint"></div>
+                        </div>
+                        <div class="real-card real-card-opex" id="real-opex-card" style="display:none;">
+                            <div class="real-card-label">Операционные расходы <span onclick="alert('Сумма расходов из вкладки ДДС с отметкой «Официальный расход» (зелёный чекбокс) за выбранный период реализации.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-value" id="real-opex-total">0 ₽</div>
+                            <div class="real-card-hint" id="real-opex-hint"></div>
                         </div>
                     </div>
 
@@ -13358,7 +13365,7 @@ HTML_TEMPLATE = '''
              'real-products-wrapper',
              'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
              'real-advertising-card', 'real-storage-card',
-             'real-cogs-card'].forEach(id => {
+             'real-cogs-card', 'real-opex-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13432,6 +13439,9 @@ HTML_TEMPLATE = '''
 
                 // Загружаем себестоимость (FIFO) после рендера таблицы
                 _loadRealizationCogs(data.products || [], periodType);
+
+                // Загружаем операционные расходы (ДДС, is_official=1) за тот же период
+                _loadRealizationOpex(periodType);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13510,6 +13520,80 @@ HTML_TEMPLATE = '''
             } else {
                 const mval = document.getElementById('real-month-select').value; // "YYYY-MM"
                 return mval ? mval + '-01' : '';
+            }
+        }
+
+        /** Склонение русских числительных: _pluralize(5, 'запись', 'записи', 'записей') → 'записей' */
+        function _pluralize(n, one, few, many) {
+            const abs = Math.abs(n) % 100;
+            const lastDigit = abs % 10;
+            if (abs > 10 && abs < 20) return many;
+            if (lastDigit > 1 && lastDigit < 5) return few;
+            if (lastDigit === 1) return one;
+            return many;
+        }
+
+        /**
+         * Загрузить операционные расходы из ДДС (is_official=1) за период реализации.
+         * Вычисляет date_from / date_to из текущего фильтра и запрашивает /api/finance/records.
+         */
+        async function _loadRealizationOpex(periodType) {
+            try {
+                let dateFrom = '', dateTo = '';
+                if (periodType === 'days') {
+                    dateFrom = document.getElementById('real-date-from').value;
+                    dateTo = document.getElementById('real-date-to').value;
+                } else if (periodType === 'quarter') {
+                    const qval = document.getElementById('real-quarter-select').value; // "YYYY-Q1"
+                    const m = qval.match(/^(\d{4})-Q([1-4])$/);
+                    if (m) {
+                        const year = parseInt(m[1]);
+                        const q = parseInt(m[2]);
+                        const startMonth = (q - 1) * 3 + 1;
+                        const endMonth = startMonth + 2;
+                        dateFrom = year + '-' + String(startMonth).padStart(2, '0') + '-01';
+                        // Последний день последнего месяца квартала
+                        const lastDay = new Date(year, endMonth, 0).getDate();
+                        dateTo = year + '-' + String(endMonth).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+                    }
+                } else {
+                    // month: "YYYY-MM"
+                    const mval = document.getElementById('real-month-select').value;
+                    if (mval) {
+                        dateFrom = mval + '-01';
+                        const parts = mval.split('-');
+                        const lastDay = new Date(parseInt(parts[0]), parseInt(parts[1]), 0).getDate();
+                        dateTo = mval + '-' + String(lastDay).padStart(2, '0');
+                    }
+                }
+
+                if (!dateFrom || !dateTo) return;
+
+                const params = new URLSearchParams({
+                    type: 'expense',
+                    is_official: '1',
+                    date_from: dateFrom,
+                    date_to: dateTo
+                });
+                const resp = await authFetch('/api/finance/records?' + params.toString());
+                const data = await resp.json();
+
+                const card = document.getElementById('real-opex-card');
+                if (!data.success || !card) return;
+
+                const total = data.summary ? data.summary.total_expense : 0;
+                document.getElementById('real-opex-total').textContent = fmtRealMoney(total);
+
+                const hint = document.getElementById('real-opex-hint');
+                if (hint) {
+                    const count = data.records ? data.records.length : 0;
+                    hint.textContent = count > 0
+                        ? (count + ' ' + _pluralize(count, 'запись', 'записи', 'записей') + ' в ДДС')
+                        : 'Нет записей в ДДС';
+                }
+                card.style.display = '';
+            } catch (e) {
+                console.error('[OPEX] fetch error:', e);
             }
         }
 
