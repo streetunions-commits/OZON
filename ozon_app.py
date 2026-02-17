@@ -6387,6 +6387,7 @@ HTML_TEMPLATE = '''
         .real-card-compensations .real-detail-value { color: #38a169; }
         .real-card-advertising .real-detail-value { color: #d53f8c; }
         .real-card-storage .real-detail-value { color: #c05621; }
+        .real-card-opex .real-detail-value { color: #c0392b; }
 
         /* --- Заголовки секций --- */
         .real-section-title { font-size: 16px; font-weight: 600; color: #333; margin: 24px 0 12px; }
@@ -9539,10 +9540,14 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-cogs-total">0 ₽</div>
                             <div class="real-card-hint" id="real-cogs-hint"></div>
                         </div>
-                        <div class="real-card real-card-opex" id="real-opex-card" style="display:none;">
-                            <div class="real-card-label">Операционные расходы <span onclick="alert('Сумма расходов из вкладки ДДС с отметкой «Официальный расход» (зелёный чекбокс) за выбранный период реализации.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                        <div class="real-card real-card-opex" id="real-opex-card" style="display:none;cursor:pointer;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
+                                <div class="real-card-label">Операционные расходы <span onclick="event.stopPropagation();alert('Сумма расходов из вкладки ДДС с отметкой «Официальный расход» (зелёный чекбокс) за выбранный период реализации.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                                <span class="real-card-badge" id="real-opex-badge"></span>
+                            </div>
                             <div class="real-card-value" id="real-opex-total">0 ₽</div>
                             <div class="real-card-hint" id="real-opex-hint"></div>
+                            <div class="real-card-details" id="real-opex-details"></div>
                         </div>
                     </div>
 
@@ -13582,15 +13587,44 @@ HTML_TEMPLATE = '''
                 if (!data.success || !card) return;
 
                 const total = data.summary ? data.summary.total_expense : 0;
-                document.getElementById('real-opex-total').textContent = fmtRealMoney(total);
+                document.getElementById('real-opex-total').textContent = fmtRealMoney(-total);
 
+                const records = data.records || [];
+                const count = records.length;
+
+                // Хинт с количеством записей
                 const hint = document.getElementById('real-opex-hint');
                 if (hint) {
-                    const count = data.records ? data.records.length : 0;
                     hint.textContent = count > 0
                         ? (count + ' ' + _pluralize(count, 'запись', 'записи', 'записей') + ' в ДДС')
                         : 'Нет записей в ДДС';
                 }
+
+                // Бейдж с количеством категорий
+                const catMap = {};
+                records.forEach(r => {
+                    const cat = r.category_name || 'Без категории';
+                    if (!catMap[cat]) catMap[cat] = 0;
+                    catMap[cat] += parseFloat(r.amount) || 0;
+                });
+                const categories = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+
+                const badge = document.getElementById('real-opex-badge');
+                if (badge && categories.length > 0) {
+                    badge.textContent = categories.length;
+                    badge.classList.add('visible');
+                }
+
+                // Детализация по категориям
+                let detailsHtml = '';
+                categories.forEach(([cat, sum]) => {
+                    detailsHtml += '<div class="real-detail-row">' +
+                        '<span class="real-detail-label">' + escapeHtml(cat) + '</span>' +
+                        '<span class="real-detail-value">' + fmtRealMoney(-sum) + '</span>' +
+                        '</div>';
+                });
+                document.getElementById('real-opex-details').innerHTML = detailsHtml;
+
                 card.style.display = '';
             } catch (e) {
                 console.error('[OPEX] fetch error:', e);
