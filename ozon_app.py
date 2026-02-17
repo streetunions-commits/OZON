@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 5  # v5: добавлено поле sales_after_spp
+REALIZATION_CACHE_VERSION = 6  # v6: исправлена формула sales_after_spp (+ pick_up_point_coinvestment, buyout seller_price)
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
@@ -13382,8 +13382,8 @@ HTML_TEMPLATE = '''
                 const netGrossSales = (s.gross_sales || 0) - (s.return_gross || 0);
 
                 // Данные по выкупам СНГ
-                const buyout = data.buyout || {count: 0, amount: 0};
-                const totalSellerWithBuyout = (s.sales_after_spp || 0) + (buyout.amount || 0);
+                const buyout = data.buyout || {count: 0, amount: 0, seller_price_total: 0};
+                const totalSellerWithBuyout = (s.sales_after_spp || 0) + (buyout.seller_price_total || 0);
                 const totalSalesCount = netSalesCount + (buyout.count || 0);
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(totalSellerWithBuyout);
@@ -30543,10 +30543,12 @@ def _fetch_buyout_data(date_from_str, date_to_str):
         products = data.get('products', [])
         total_count = sum(p.get('quantity', 0) for p in products)
         total_amount = sum(p.get('amount', 0) for p in products)
-        print(f"  🌍 Выкупы СНГ: {total_count} шт. на {total_amount:.2f} ₽")
+        seller_price_total = sum(p.get('seller_price_per_instance', 0) * p.get('quantity', 0) for p in products)
+        print(f"  🌍 Выкупы СНГ: {total_count} шт. на {total_amount:.2f} ₽ (исходная стоимость: {seller_price_total:.2f} ₽)")
         return {
             'count': total_count,
             'amount': round(total_amount, 2),
+            'seller_price_total': round(seller_price_total, 2),
             'products': products
         }
     except Exception as e:
@@ -30627,6 +30629,7 @@ def _build_realization_from_transactions(year, month):
     standard_fee_total = 0.0    # Стандартная комиссия
     stars_total = 0.0           # Звёзды
     bank_coinvest_total = 0.0   # Софинансирование банком (программы партнёров)
+    pup_coinvest_total = 0.0    # Софинансирование ПВЗ (pick_up_point_coinvestment)
     delivery_count = 0          # Количество доставок
     return_count = 0            # Количество возвратов
     acquiring_total = 0.0       # Эквайринг
@@ -30654,6 +30657,7 @@ def _build_realization_from_transactions(year, month):
         d_std_fee = dc.get('standard_fee', 0)
         d_stars = dc.get('stars', 0)
         d_bank = dc.get('bank_coinvestment', 0)
+        d_pup = dc.get('pick_up_point_coinvestment', 0)
         d_acquiring = dc.get('commission', 0)
 
         # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
@@ -30664,6 +30668,7 @@ def _build_realization_from_transactions(year, month):
         r_std_fee = rc.get('standard_fee', 0)    # Возврат стандартной комиссии
         r_stars = rc.get('stars', 0)             # Возврат звёзд
         r_bank = rc.get('bank_coinvestment', 0)  # Возврат соинвестирования
+        r_pup = rc.get('pick_up_point_coinvestment', 0)  # Возврат софинансирования ПВЗ
         r_acquiring = rc.get('commission', 0) if rc else 0
 
         # Гросс-продажи = цена продавца * кол-во доставок
@@ -30682,6 +30687,7 @@ def _build_realization_from_transactions(year, month):
         standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
         stars_total += d_stars - r_stars                # Чистые звёзды
         bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
+        pup_coinvest_total += d_pup - r_pup            # Чистое софинансирование ПВЗ
         acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
@@ -30779,7 +30785,7 @@ def _build_realization_from_transactions(year, month):
             'delivery_count': delivery_count,
             'return_count': return_count,
             'return_gross': round(return_gross_total, 2),
-            'sales_after_spp': round(seller_receives + bonuses_total + stars_total + bank_coinvest_total, 2),
+            'sales_after_spp': round(seller_receives + bank_coinvest_total + pup_coinvest_total, 2),
         },
         'products': products_list,
         'total_rows': len(all_rows),
@@ -30869,6 +30875,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
     standard_fee_total = 0.0
     stars_total = 0.0
     bank_coinvest_total = 0.0
+    pup_coinvest_total = 0.0
     delivery_count = 0
     return_count = 0
     acquiring_total = 0.0
@@ -30893,6 +30900,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         d_std_fee = dc.get('standard_fee', 0)
         d_stars = dc.get('stars', 0)
         d_bank = dc.get('bank_coinvestment', 0)
+        d_pup = dc.get('pick_up_point_coinvestment', 0)
         d_acquiring = dc.get('commission', 0)
 
         r_qty = rc.get('quantity', 0)
@@ -30902,6 +30910,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         r_std_fee = rc.get('standard_fee', 0)
         r_stars = rc.get('stars', 0)
         r_bank = rc.get('bank_coinvestment', 0)
+        r_pup = rc.get('pick_up_point_coinvestment', 0)
         r_acquiring = rc.get('commission', 0) if rc else 0
 
         row_gross_sales = seller_price * d_qty
@@ -30917,6 +30926,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
         stars_total += d_stars - r_stars                # Чистые звёзды
         bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
+        pup_coinvest_total += d_pup - r_pup            # Чистое софинансирование ПВЗ
         acquiring_total += d_acquiring + r_acquiring
         delivery_count += d_qty
         return_count += r_qty
@@ -30993,7 +31003,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             'delivery_count': delivery_count,
             'return_count': return_count,
             'return_gross': round(return_gross_total, 2),
-            'sales_after_spp': round(seller_receives + bonuses_total + stars_total + bank_coinvest_total, 2),
+            'sales_after_spp': round(seller_receives + bank_coinvest_total + pup_coinvest_total, 2),
         },
         'products': products_list,
         'total_rows': len(all_rows),
@@ -31227,6 +31237,7 @@ def api_finance_realization():
         standard_fee_total = 0.0    # Стандартная комиссия
         stars_total = 0.0           # Звёзды
         bank_coinvest_total = 0.0   # Софинансирование банком
+        pup_coinvest_total = 0.0    # Софинансирование ПВЗ (pick_up_point_coinvestment)
         delivery_count = 0          # Количество доставок
         return_count = 0            # Количество возвратов
         acquiring_total = 0.0       # Эквайринг (delivery_commission.commission)
@@ -31255,6 +31266,7 @@ def api_finance_realization():
             d_std_fee = dc.get('standard_fee', 0)
             d_stars = dc.get('stars', 0)
             d_bank = dc.get('bank_coinvestment', 0)
+            d_pup = dc.get('pick_up_point_coinvestment', 0)
 
             # Возвраты (все поля — отрицательные при возврате, уменьшают итоги)
             r_qty = rc.get('quantity', 0)
@@ -31264,6 +31276,7 @@ def api_finance_realization():
             r_std_fee = rc.get('standard_fee', 0)    # Возврат стандартной комиссии
             r_stars = rc.get('stars', 0)             # Возврат звёзд
             r_bank = rc.get('bank_coinvestment', 0)  # Возврат соинвестирования
+            r_pup = rc.get('pick_up_point_coinvestment', 0)  # Возврат софинансирования ПВЗ
 
             # Гросс-продажи = цена продавца * кол-во доставок
             row_gross_sales = seller_price * d_qty
@@ -31285,6 +31298,7 @@ def api_finance_realization():
             standard_fee_total += d_std_fee - r_std_fee    # Чистая комиссия (доставки минус возврат)
             stars_total += d_stars - r_stars                # Чистые звёзды
             bank_coinvest_total += d_bank - r_bank          # Чистое соинвестирование
+            pup_coinvest_total += d_pup - r_pup            # Чистое софинансирование ПВЗ
             acquiring_total += d_acquiring + r_acquiring
             delivery_count += d_qty
             return_count += r_qty
@@ -31394,7 +31408,7 @@ def api_finance_realization():
                 'delivery_count': delivery_count,
                 'return_count': return_count,
                 'return_gross': round(return_gross_total, 2),
-                'sales_after_spp': round(seller_receives + bonuses_total + stars_total + bank_coinvest_total, 2),
+                'sales_after_spp': round(seller_receives + bank_coinvest_total + pup_coinvest_total, 2),
             },
             'products': products_list,
             'total_rows': total_rows_count,
