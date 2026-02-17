@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 4  # v4: добавлены данные по выкупам СНГ (buyout)
+REALIZATION_CACHE_VERSION = 5  # v5: добавлено поле sales_after_spp
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
@@ -6359,8 +6359,6 @@ HTML_TEMPLATE = '''
         .real-card-storage .real-card-value { color: #c05621; }
         .real-card-cogs { border-left-color: #e07020; }
         .real-card-cogs .real-card-value { color: #e07020; }
-        .real-card-profit { border-left-color: #38a169; }
-        .real-card-profit .real-card-value { color: #38a169; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -9539,11 +9537,6 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-cogs-total">0 ₽</div>
                             <div class="real-card-hint" id="real-cogs-hint"></div>
                         </div>
-                        <div class="real-card real-card-profit" id="real-profit-card" style="display:none;">
-                            <div class="real-card-label">Прибыль</div>
-                            <div class="real-card-value" id="real-profit-total">0 ₽</div>
-                            <div class="real-card-hint" id="real-profit-hint"></div>
-                        </div>
                     </div>
 
                     <!-- Таблица по товарам (SKU) -->
@@ -9561,7 +9554,6 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Комиссия</th>
                                         <th style="text-align:right">К получению</th>
                                         <th style="text-align:right" class="cogs-col">Себестоимость</th>
-                                        <th style="text-align:right" class="cogs-col">Прибыль</th>
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
@@ -13361,7 +13353,7 @@ HTML_TEMPLATE = '''
              'real-products-wrapper',
              'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
              'real-advertising-card', 'real-storage-card',
-             'real-cogs-card', 'real-profit-card'].forEach(id => {
+             'real-cogs-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13391,7 +13383,7 @@ HTML_TEMPLATE = '''
 
                 // Данные по выкупам СНГ
                 const buyout = data.buyout || {count: 0, amount: 0};
-                const totalSellerWithBuyout = (s.seller_receives || 0) + (buyout.amount || 0);
+                const totalSellerWithBuyout = (s.sales_after_spp || 0) + (buyout.amount || 0);
                 const totalSalesCount = netSalesCount + (buyout.count || 0);
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(totalSellerWithBuyout);
@@ -13483,7 +13475,6 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
                     '<td class="real-amount-right cogs-col" data-field="cogs" style="color:#999;">—</td>' +
-                    '<td class="real-amount-right cogs-col" data-field="profit" style="color:#999;">—</td>' +
                 '</tr>';
             }).join('');
 
@@ -13563,7 +13554,6 @@ HTML_TEMPLATE = '''
                         const sku = row.getAttribute('data-sku');
                         const cogsData = cogsMap[sku];
                         const cogsTd = row.querySelector('td[data-field="cogs"]');
-                        const profitTd = row.querySelector('td[data-field="profit"]');
 
                         if (cogsData && cogsData.cogs > 0) {
                             // Себестоимость
@@ -13585,26 +13575,14 @@ HTML_TEMPLATE = '''
                                 }
                             }
 
-                            // Прибыль = К получению - Себестоимость
-                            if (profitTd) {
-                                // Находим seller_receives из products
-                                const prd = products.find(pp => String(pp.sku) === sku);
-                                const receives = prd ? (prd.seller_receives || 0) : 0;
-                                const profit = receives - cogsData.cogs;
-                                profitTd.textContent = fmtRealMoney(profit);
-                                profitTd.style.color = profit >= 0 ? '#38a169' : '#e53e3e';
-                                profitTd.style.fontWeight = '700';
-                            }
                         } else {
                             if (cogsTd) { cogsTd.textContent = '—'; cogsTd.style.color = '#999'; }
-                            if (profitTd) { profitTd.textContent = '—'; profitTd.style.color = '#999'; }
                         }
                     });
                 }
 
                 // Обновляем карточки сводки
                 const cogsCard = document.getElementById('real-cogs-card');
-                const profitCard = document.getElementById('real-profit-card');
 
                 if (totalCogs > 0) {
                     // Карточка «Себестоимость»
@@ -13612,25 +13590,8 @@ HTML_TEMPLATE = '''
                     const cogsHint = document.getElementById('real-cogs-hint');
                     if (cogsHint) cogsHint.textContent = 'FIFO по приходам';
                     if (cogsCard) cogsCard.style.display = '';
-
-                    // Карточка «Прибыль» = Продажи после СПП (включая СНГ) - Себестоимость
-                    // Считаем seller_receives из массива products + сумма выкупов СНГ
-                    const totalSellerReceives = products.reduce((sum, p) => sum + (p.seller_receives || 0), 0) + _realBuyoutAmount;
-                    const totalProfit = totalSellerReceives - totalCogs;
-
-                    document.getElementById('real-profit-total').textContent = fmtRealMoney(totalProfit);
-                    const profitHint = document.getElementById('real-profit-hint');
-                    if (profitHint) {
-                        const margin = totalSellerReceives > 0 ? Math.round(totalProfit / totalSellerReceives * 100) : 0;
-                        profitHint.textContent = 'Маржа ' + margin + '%';
-                    }
-                    if (profitCard) {
-                        profitCard.style.display = '';
-                        document.getElementById('real-profit-total').style.color = totalProfit >= 0 ? '#38a169' : '#e53e3e';
-                    }
                 } else {
                     if (cogsCard) cogsCard.style.display = 'none';
-                    if (profitCard) profitCard.style.display = 'none';
                 }
 
             } catch (e) {
@@ -30817,7 +30778,8 @@ def _build_realization_from_transactions(year, month):
             'avg_commission_pct': round(avg_commission_pct, 2),
             'delivery_count': delivery_count,
             'return_count': return_count,
-            'return_gross': round(return_gross_total, 2)
+            'return_gross': round(return_gross_total, 2),
+            'sales_after_spp': round((gross_sales - return_gross_total) + bonuses_total + stars_total + bank_coinvest_total, 2),
         },
         'products': products_list,
         'total_rows': len(all_rows),
@@ -31030,7 +30992,8 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             'avg_commission_pct': round(avg_commission_pct, 2),
             'delivery_count': delivery_count,
             'return_count': return_count,
-            'return_gross': round(return_gross_total, 2)
+            'return_gross': round(return_gross_total, 2),
+            'sales_after_spp': round((gross_sales - return_gross_total) + bonuses_total + stars_total + bank_coinvest_total, 2),
         },
         'products': products_list,
         'total_rows': len(all_rows),
@@ -31430,7 +31393,8 @@ def api_finance_realization():
                 'avg_commission_pct': round(avg_commission_pct, 2),  # % = (standard_fee + эквайринг) / gross
                 'delivery_count': delivery_count,
                 'return_count': return_count,
-                'return_gross': round(return_gross_total, 2)
+                'return_gross': round(return_gross_total, 2),
+                'sales_after_spp': round((gross_sales - return_gross_total) + bonuses_total + stars_total + bank_coinvest_total, 2),
             },
             'products': products_list,
             'total_rows': total_rows_count,
@@ -31456,6 +31420,7 @@ def api_finance_realization():
                     s['delivery_count'] += tx_s.get('delivery_count', 0)
                     s['return_count'] += tx_s.get('return_count', 0)
                     s['return_gross'] = round(s.get('return_gross', 0) + tx_s.get('return_gross', 0), 2)
+                    s['sales_after_spp'] = round(s.get('sales_after_spp', 0) + tx_s.get('sales_after_spp', 0), 2)
                     # Пересчитываем средний % комиссии от валового гросса
                     if s['gross_sales'] > 0:
                         s['avg_commission_pct'] = round(s['commission'] / s['gross_sales'] * 100, 2)
