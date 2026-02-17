@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 6  # v6: исправлена формула sales_after_spp (+ pick_up_point_coinvestment, buyout seller_price)
+REALIZATION_CACHE_VERSION = 7  # v7: добавлено buyout.commission + buyout.seller_price_total в кэш
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
