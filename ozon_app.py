@@ -9338,6 +9338,14 @@ HTML_TEMPLATE = '''
                     </select>
                     <span class="finance-filter-sep">|</span>
 
+                    <label>Официальный:</label>
+                    <select id="finance-filter-official" style="width: 140px;" onchange="loadFinanceRecords()">
+                        <option value="">Все</option>
+                        <option value="1">✅ Да</option>
+                        <option value="0">❌ Нет</option>
+                    </select>
+                    <span class="finance-filter-sep">|</span>
+
                     <label>Период:</label>
                     <select id="finance-period" style="width: 180px;" onchange="applyFinancePeriod(); loadFinanceRecords()">
                         <option value="month">Текущий месяц</option>
@@ -9366,6 +9374,7 @@ HTML_TEMPLATE = '''
                                 <th style="width: 50px;">№</th>
                                 <th style="width: 110px;">Дата</th>
                                 <th style="width: 100px;">Тип</th>
+                                <th style="width: 90px;">Официальный</th>
                                 <th style="width: 120px;">Сумма</th>
                                 <th style="width: 100px;">Юани</th>
                                 <th style="width: 140px; text-align: left;">Счёт / Источник</th>
@@ -11700,6 +11709,7 @@ HTML_TEMPLATE = '''
                 const recordType = document.getElementById('finance-filter-type')?.value || '';
                 const accountId = document.getElementById('finance-filter-account')?.value || '';
                 const categoryId = document.getElementById('finance-filter-category')?.value || '';
+                const isOfficial = document.getElementById('finance-filter-official')?.value || '';
                 const dateFrom = document.getElementById('finance-date-from')?.value || '';
                 const dateTo = document.getElementById('finance-date-to')?.value || '';
 
@@ -11707,6 +11717,7 @@ HTML_TEMPLATE = '''
                 if (recordType) params.append('type', recordType);
                 if (accountId) params.append('account_id', accountId);
                 if (categoryId) params.append('category_id', categoryId);
+                if (isOfficial !== '') params.append('is_official', isOfficial);
                 if (dateFrom) params.append('date_from', dateFrom);
                 if (dateTo) params.append('date_to', dateTo);
                 params.append('sort_by', 'date');
@@ -11849,6 +11860,19 @@ HTML_TEMPLATE = '''
                 badge.textContent = rec.record_type === 'income' ? '📈 Доход' : '📉 Расход';
                 tdType.appendChild(badge);
                 tr.appendChild(tdType);
+
+                // Официальный расход
+                const tdOfficial = document.createElement('td');
+                tdOfficial.style.textAlign = 'center';
+                const acc = financeAccounts.find(a => a.id === rec.account_id);
+                if (rec.record_type === 'expense' && acc && acc.requires_official) {
+                    if (rec.is_official === 1) {
+                        tdOfficial.innerHTML = '<span style="color: #16a34a; font-size: 16px;" title="Официальный">✅</span>';
+                    } else {
+                        tdOfficial.innerHTML = '<span style="color: #dc2626; font-size: 16px;" title="Не официальный">❌</span>';
+                    }
+                }
+                tr.appendChild(tdOfficial);
 
                 // Сумма
                 const tdAmount = document.createElement('td');
@@ -12002,7 +12026,7 @@ HTML_TEMPLATE = '''
                     accordionTr.className = 'finance-dist-accordion';
                     accordionTr.id = `finance-dist-accordion-${rec.id}`;
                     const accordionTd = document.createElement('td');
-                    accordionTd.colSpan = 12;
+                    accordionTd.colSpan = 13;
                     accordionTd.className = 'finance-dist-accordion-cell';
                     const accordionContent = document.createElement('div');
                     accordionContent.className = 'finance-dist-accordion-content';
@@ -12359,6 +12383,7 @@ HTML_TEMPLATE = '''
             document.getElementById('finance-filter-type').value = '';
             document.getElementById('finance-filter-account').value = '';
             document.getElementById('finance-filter-category').value = '';
+            document.getElementById('finance-filter-official').value = '';
             // Сбрасываем период — вся история
             document.getElementById('finance-period').value = 'all';
             applyFinancePeriod();
@@ -29147,6 +29172,7 @@ def api_finance_records():
     Query-параметры:
         type: 'income' | 'expense' | '' (все)
         account_id: ID счёта или '' (все)
+        is_official: '1' | '0' | '' (фильтр по официальному расходу)
         date_from: 'YYYY-MM-DD' (начало периода)
         date_to: 'YYYY-MM-DD' (конец периода)
         sort_by: 'date' | 'amount' (по умолчанию 'date')
@@ -29158,6 +29184,7 @@ def api_finance_records():
         record_type = request.args.get('type', '').strip()
         account_id = request.args.get('account_id', '').strip()
         category_id = request.args.get('category_id', '').strip()
+        is_official_filter = request.args.get('is_official', '').strip()
         date_from = request.args.get('date_from', '').strip()
         date_to = request.args.get('date_to', '').strip()
         sort_by = request.args.get('sort_by', 'date').strip()
@@ -29182,6 +29209,11 @@ def api_finance_records():
         if category_id:
             conditions.append('category_id = ?')
             params.append(int(category_id))
+
+        # Фильтр по «Официальный расход»
+        if is_official_filter in ('0', '1'):
+            conditions.append('is_official = ?')
+            params.append(int(is_official_filter))
 
         if date_from:
             conditions.append('record_date >= ?')
