@@ -8927,10 +8927,13 @@ HTML_TEMPLATE = '''
                         </div>
                     </div>
 
-                    <!-- История контейнеров -->
+                    <!-- Список контейнеров -->
                     <div class="receipt-history">
-                        <div class="receipt-history-header">
-                            <h4>📋 История контейнеров</h4>
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+                            <label style="font-weight: 500; white-space: nowrap;">Фильтр по товару:</label>
+                            <select id="ved-containers-product-filter" class="wh-input" style="width: 250px;" onchange="loadVedContainersHistory()">
+                                <option value="">Все контейнеры</option>
+                            </select>
                         </div>
                         <div class="wh-table-wrapper" id="ved-containers-history-wrapper" style="display: none; overflow-x: auto;">
                             <table class="wh-table" id="ved-containers-history-table">
@@ -18099,6 +18102,16 @@ HTML_TEMPLATE = '''
                         vedProducts = data.products;
                         // Инициализируем форму после загрузки товаров
                         initVedContainerForm();
+                        // Заполняем фильтр по товару
+                        const filterSelect = document.getElementById('ved-containers-product-filter');
+                        if (filterSelect) {
+                            vedProducts.forEach(p => {
+                                const opt = document.createElement('option');
+                                opt.value = p.sku;
+                                opt.textContent = p.offer_id || p.sku;
+                                filterSelect.appendChild(opt);
+                            });
+                        }
                     }
                 })
                 .catch(err => console.error('Ошибка загрузки товаров ВЭД:', err));
@@ -18523,7 +18536,10 @@ HTML_TEMPLATE = '''
          */
         async function loadVedContainersHistory() {
             try {
-                const response = await authFetch('/api/ved/containers');
+                // Фильтр по товару (SKU)
+                const filterSku = document.getElementById('ved-containers-product-filter')?.value || '';
+                const url = filterSku ? '/api/ved/containers?sku=' + encodeURIComponent(filterSku) : '/api/ved/containers';
+                const response = await authFetch(url);
                 const result = await response.json();
 
                 const tbody = document.getElementById('ved-containers-history-tbody');
@@ -18532,7 +18548,12 @@ HTML_TEMPLATE = '''
 
                 if (!result.success || !result.containers || result.containers.length === 0) {
                     if (wrapper) wrapper.style.display = 'none';
-                    if (empty) empty.style.display = 'block';
+                    if (empty) {
+                        empty.style.display = 'block';
+                        empty.querySelector('p').textContent = filterSku
+                            ? 'Нет контейнеров с этим товаром'
+                            : 'Нет сохранённых контейнеров';
+                    }
                     return;
                 }
 
@@ -25802,7 +25823,10 @@ def get_ved_containers():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        cursor.execute('''
+        # Фильтр по товару (SKU): показать только контейнеры, содержащие этот товар
+        filter_sku = request.args.get('sku', '', type=str).strip()
+
+        query = '''
             SELECT
                 d.id,
                 d.container_date,
@@ -25826,9 +25850,20 @@ def get_ved_containers():
                 COALESCE(SUM(i.logistics_rf + i.logistics_cn + i.terminal + i.customs), 0) as total_all_logistics
             FROM ved_container_docs d
             LEFT JOIN ved_container_items i ON i.doc_id = d.id
+        '''
+        params = []
+
+        if filter_sku:
+            # Подзапрос: только контейнеры, в которых есть товар с указанным SKU
+            query += ' WHERE d.id IN (SELECT doc_id FROM ved_container_items WHERE sku = ?)'
+            params.append(int(filter_sku))
+
+        query += '''
             GROUP BY d.id
             ORDER BY d.is_completed ASC, d.container_date DESC, d.created_at DESC
-        ''')
+        '''
+
+        cursor.execute(query, params)
 
         docs = [dict(row) for row in cursor.fetchall()]
         conn.close()
