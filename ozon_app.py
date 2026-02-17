@@ -13390,7 +13390,7 @@ HTML_TEMPLATE = '''
                 const realHint = document.getElementById('real-realization-hint');
                 if (realHint) {
                     if (buyout.count > 0) {
-                        realHint.innerHTML = totalSalesCount + ' продаж <span style="color:#e67e22;font-size:11px;">(в т.ч. СНГ: ' + buyout.count + ' шт. / ' + fmtRealMoney(buyout.amount) + ')</span>';
+                        realHint.innerHTML = totalSalesCount + ' продаж <span style="color:#e67e22;font-size:11px;">(в т.ч. СНГ: ' + fmtRealMoney(buyout.seller_price_total || 0) + ')</span>';
                     } else {
                         realHint.textContent = totalSalesCount + ' продаж';
                     }
