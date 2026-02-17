@@ -9474,7 +9474,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-hint" id="real-realization-hint"></div>
                         </div>
                         <div class="real-card real-card-sales">
-                            <div class="real-card-label">Реализация</div>
+                            <div class="real-card-label">Реализация <span onclick="alert('Итого реализовано по акту (seller_price × кол-во) + продажи СНГ - возвраты (seller_price × кол-во)')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                             <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
