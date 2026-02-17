@@ -13552,7 +13552,6 @@ HTML_TEMPLATE = '''
 
                 const cogsMap = data.products || {};
                 let totalCogs = data.total_cogs || 0;
-                console.log('[COGS] totalCogs:', totalCogs, 'products:', Object.keys(cogsMap).length);
 
                 // Обновляем колонки в таблице товаров
                 const tbody = document.getElementById('real-products-tbody');
@@ -13592,7 +13591,6 @@ HTML_TEMPLATE = '''
                 // Обновляем карточки сводки
                 const cogsCard = document.getElementById('real-cogs-card');
 
-                console.log('[COGS] cogsCard element:', cogsCard, 'totalCogs:', totalCogs);
                 if (totalCogs > 0) {
                     // Карточка «Себестоимость»
                     document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
