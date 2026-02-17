@@ -9485,7 +9485,7 @@ HTML_TEMPLATE = '''
                         </div>
                         <div class="real-card real-card-commission" onclick="toggleCardDetails(this)">
                             <div class="real-card-header">
-                                <div class="real-card-label">Комиссия МП</div>
+                                <div class="real-card-label">Комиссия МП <span onclick="event.stopPropagation();alert('Базовое вознаграждение по реализации - возвраты вознаграждения + комиссия СНГ + эквайринг')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                                 <span class="real-card-badge" id="real-commission-badge"></span>
                             </div>
                             <div class="real-card-value" id="real-commission">0 ₽</div>
@@ -13276,26 +13276,30 @@ HTML_TEMPLATE = '''
         let _realCommissionBase = 0;
         let _realGrossSales = 0;
         let _realAcquiring = 0;
+        let _realBuyoutCommission = 0;  // Комиссия СНГ (seller_price - amount)
         let _realBonuses = 0;  // Баллы за скидки (из realization API)
         let _realBuyoutAmount = 0;  // Сумма выкупов СНГ (из buyout API)
         let _realLoading = false;  // Защита от параллельных загрузок
 
-        /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
+        /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
-            const total = _realCommissionBase + _realAcquiring;
+            const total = _realCommissionBase + _realBuyoutCommission + _realAcquiring;
             const el = document.getElementById('real-commission');
             const hint = document.getElementById('real-commission-hint');
             const details = document.getElementById('real-commission-details');
             const badge = document.getElementById('real-commission-badge');
             if (el) el.textContent = fmtRealMoney(total);
             if (hint && _realGrossSales > 0) {
-                hint.textContent = Math.round(total / _realGrossSales * 100) + '% от реализации';
+                hint.textContent = (total / _realGrossSales * 100).toFixed(1) + '% от реализации';
             }
-            // Раскрытие: показать комиссию и эквайринг отдельно
+            // Раскрытие: показать составляющие отдельно
             if (details) {
                 let rows = [];
                 if (_realCommissionBase !== 0) {
-                    rows.push('<div class="real-detail-row"><span class="real-detail-label">Комиссия</span><span class="real-detail-value">' + fmtRealMoney(_realCommissionBase) + '</span></div>');
+                    rows.push('<div class="real-detail-row"><span class="real-detail-label">Вознаграждение</span><span class="real-detail-value">' + fmtRealMoney(_realCommissionBase) + '</span></div>');
+                }
+                if (_realBuyoutCommission !== 0) {
+                    rows.push('<div class="real-detail-row"><span class="real-detail-label">Комиссия СНГ</span><span class="real-detail-value">' + fmtRealMoney(_realBuyoutCommission) + '</span></div>');
                 }
                 if (_realAcquiring !== 0) {
                     rows.push('<div class="real-detail-row"><span class="real-detail-label">Эквайринг</span><span class="real-detail-value">' + fmtRealMoney(_realAcquiring) + '</span></div>');
@@ -13303,7 +13307,7 @@ HTML_TEMPLATE = '''
                 details.innerHTML = rows.join('');
                 // Бейдж: кол-во составляющих
                 if (badge) {
-                    const cnt = ((_realCommissionBase !== 0) ? 1 : 0) + ((_realAcquiring !== 0) ? 1 : 0);
+                    const cnt = ((_realCommissionBase !== 0) ? 1 : 0) + ((_realBuyoutCommission !== 0) ? 1 : 0) + ((_realAcquiring !== 0) ? 1 : 0);
                     if (cnt > 0) {
                         badge.textContent = cnt;
                         badge.classList.add('visible');
@@ -13326,6 +13330,7 @@ HTML_TEMPLATE = '''
             _realCommissionBase = 0;
             _realGrossSales = 0;
             _realAcquiring = 0;
+            _realBuyoutCommission = 0;
             _realBonuses = 0;
 
             const periodType = document.getElementById('real-period-type').value;
@@ -13406,9 +13411,10 @@ HTML_TEMPLATE = '''
                 const retHint = document.getElementById('real-returns-hint');
                 if (retHint) retHint.textContent = s.return_count + ' возвратов';
 
-                // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга если уже загружен)
+                // Сохраняем базовую комиссию и обновляем карточку (с учётом эквайринга и СНГ)
                 _realCommissionBase = s.commission;
-                _realGrossSales = netGrossSales;
+                _realGrossSales = totalGrossSales;
+                _realBuyoutCommission = buyout.commission || 0;
                 _realBonuses = Math.abs(s.bonuses || 0);
                 _realBuyoutAmount = buyout.amount || 0;
                 updateCommissionCard();
@@ -30545,11 +30551,13 @@ def _fetch_buyout_data(date_from_str, date_to_str):
         total_count = sum(p.get('quantity', 0) for p in products)
         total_amount = sum(p.get('amount', 0) for p in products)
         seller_price_total = sum(p.get('seller_price_per_instance', 0) * p.get('quantity', 0) for p in products)
-        print(f"  🌍 Выкупы СНГ: {total_count} шт. на {total_amount:.2f} ₽ (исходная стоимость: {seller_price_total:.2f} ₽)")
+        commission = seller_price_total - total_amount  # Комиссия СНГ = seller_price - buyout_price
+        print(f"  🌍 Выкупы СНГ: {total_count} шт. на {total_amount:.2f} ₽ (исходная стоимость: {seller_price_total:.2f} ₽, комиссия: {commission:.2f} ₽)")
         return {
             'count': total_count,
             'amount': round(total_amount, 2),
             'seller_price_total': round(seller_price_total, 2),
+            'commission': round(commission, 2),
             'products': products
         }
     except Exception as e:
