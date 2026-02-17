@@ -8790,8 +8790,8 @@ HTML_TEMPLATE = '''
                                     </div>
                                 </div>
                                 <div class="ved-form-field-percent">
-                                    <label>% к переводу</label>
-                                    <input type="number" id="ved-cny-percent" class="wh-input" style="text-align: center; font-weight: 600;" value="0" step="0.1" min="0" onchange="updateVedContainerTotals()">
+                                    <label>% к переводу <span style="color: #e74c3c;">*</span></label>
+                                    <input type="number" id="ved-cny-percent" class="wh-input" style="text-align: center; font-weight: 600;" value="" step="0.1" min="0.1" placeholder="0.0" onchange="updateVedContainerTotals()">
                                 </div>
                                 <div class="ved-form-field-date">
                                     <label>Дата выхода <span style="color: #e74c3c;">*</span></label>
@@ -18427,10 +18427,10 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            if (cnyPercent === 0 || isNaN(cnyPercent)) {
-                if (!confirm('Процент к переводу не указан (0%). Продолжить сохранение?')) {
-                    return;
-                }
+            if (!cnyPercent || cnyPercent <= 0 || isNaN(cnyPercent)) {
+                alert('Укажите процент к переводу по юаням (должен быть больше 0)');
+                document.getElementById('ved-cny-percent')?.focus();
+                return;
             }
 
             // Собираем позиции товаров с валидацией
@@ -19127,7 +19127,7 @@ HTML_TEMPLATE = '''
             document.getElementById('ved-container-supplier').value = '';
             document.getElementById('ved-container-comment').value = '';
             document.getElementById('ved-container-important').value = '';
-            document.getElementById('ved-cny-percent').value = 0;  // Сбрасываем процент к переводу
+            document.getElementById('ved-cny-percent').value = '';  // Сбрасываем процент к переводу (обязательное поле)
             // Сбрасываем дату на сегодня
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('ved-container-date').value = today;
@@ -25913,6 +25913,9 @@ def save_ved_container():
 
         if not container_date:
             return jsonify({'success': False, 'error': 'Укажите дату контейнера'})
+
+        if not cny_percent or float(cny_percent) <= 0:
+            return jsonify({'success': False, 'error': 'Укажите процент к переводу по юаням (должен быть больше 0)'})
 
         if not items:
             return jsonify({'success': False, 'error': 'Добавьте хотя бы один товар'})
