@@ -9469,7 +9469,7 @@ HTML_TEMPLATE = '''
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-realization">
-                            <div class="real-card-label">Продажи после СПП</div>
+                            <div class="real-card-label">Продажи после СПП <span onclick="alert('Сумма реализации по акту с механикой лояльности + сумма продаж СНГ - возвраты с механикой лояльности')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-realization">0 ₽</div>
                             <div class="real-card-hint" id="real-realization-hint"></div>
                         </div>
