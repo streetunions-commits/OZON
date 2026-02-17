@@ -18194,12 +18194,15 @@ HTML_TEMPLATE = '''
             row.innerHTML = `
                 <td>${vedContainerItemCounter}</td>
                 <td>
-                    <select class="wh-select ved-container-product" style="width: 100%;" onchange="updateVedContainerTotals()">
+                    <select class="wh-select ved-container-product" style="width: 100%;"
+                        onchange="this.closest('tr').querySelector('.ved-container-price').dataset.manualPrice='false'; updateVedContainerTotals(); debouncedFetchFifoPlanCost(this.closest('tr'))">
                         ${productOptions}
                     </select>
                 </td>
-                <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0" oninput="updateVedContainerTotals()"></td>
-                <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" oninput="updateVedContainerTotals()"></td>
+                <td><input type="number" class="wh-input ved-container-qty" value="" min="1" placeholder="0"
+                    oninput="updateVedContainerTotals(); debouncedFetchFifoPlanCost(this.closest('tr'))"></td>
+                <td><input type="number" class="wh-input ved-container-price" value="" min="0" step="0.01" placeholder="0.00" data-manual-price="false"
+                    oninput="this.dataset.manualPrice='true'; updateVedContainerTotals()"></td>
                 <td class="ved-container-supplier-sum" style="font-weight: 500;">0 ¥</td>
                 <td class="ved-container-cost" style="font-weight: 500;">0 ₽</td>
                 <td><span class="ved-container-cost-readonly ved-container-logrf" data-value="0">0</span></td>
@@ -18321,6 +18324,75 @@ HTML_TEMPLATE = '''
 
         // ID контейнера при редактировании (null = новый)
         let editingVedContainerId = null;
+
+        // ── Авто-заполнение себестоимости из плана (FIFO) ──
+
+        let _fifoCostTimers = {};  // Таймеры debounce по id строки
+
+        /**
+         * Запросить себестоимость за штуку из плана по FIFO.
+         * Вызывается при выборе товара или изменении кол-ва.
+         * Не перезаписывает вручную введённую цену (data-manual-price).
+         */
+        async function fetchFifoPlanCost(row) {
+            const select = row.querySelector('.ved-container-product');
+            const qtyInput = row.querySelector('.ved-container-qty');
+            const priceInput = row.querySelector('.ved-container-price');
+
+            const sku = parseInt(select?.value) || 0;
+            const qty = parseInt(qtyInput?.value) || 0;
+
+            if (!sku || qty <= 0) return;
+
+            // Если пользователь вручную менял цену — не перезаписываем
+            if (priceInput.dataset.manualPrice === 'true') return;
+
+            // Считаем кол-во того же SKU в других строках текущей формы
+            let otherRowsQty = 0;
+            document.querySelectorAll('#ved-container-items-tbody tr').forEach(r => {
+                if (r === row) return;
+                const rSku = parseInt(r.querySelector('.ved-container-product')?.value) || 0;
+                const rQty = parseInt(r.querySelector('.ved-container-qty')?.value) || 0;
+                if (rSku === sku) otherRowsQty += rQty;
+            });
+
+            try {
+                const resp = await authFetch('/api/ved/containers/fifo-cost', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sku: sku,
+                        quantity: qty,
+                        skip_extra: otherRowsQty,
+                        exclude_doc_id: editingVedContainerId || null
+                    })
+                });
+                const data = await resp.json();
+                if (data.success && data.price_cny > 0) {
+                    priceInput.value = data.price_cny;
+                    // Подсказка с FIFO-разбивкой
+                    let hint = 'Авто из плана (FIFO):\n' +
+                        data.details.map(d => d.qty + ' шт × ' + d.cost + ' ¥ (' + d.date + ')').join('\n');
+                    if (data.uncovered_qty > 0) {
+                        hint += '\n⚠ Не покрыто планом: ' + data.uncovered_qty + ' шт';
+                    }
+                    priceInput.title = hint;
+                    updateVedContainerTotals();
+                }
+            } catch (err) {
+                console.error('Ошибка авто-расчёта себестоимости:', err);
+            }
+        }
+
+        /**
+         * Debounce-обёртка для fetchFifoPlanCost.
+         * Отдельный таймер на каждую строку, чтобы ввод в разных строках не конфликтовал.
+         */
+        function debouncedFetchFifoPlanCost(row) {
+            const rowId = row.id || 'row';
+            if (_fifoCostTimers[rowId]) clearTimeout(_fifoCostTimers[rowId]);
+            _fifoCostTimers[rowId] = setTimeout(() => fetchFifoPlanCost(row), 400);
+        }
 
         /**
          * Сохранить контейнер ВЭД
@@ -18783,7 +18855,10 @@ HTML_TEMPLATE = '''
                     if (qtyInput) qtyInput.value = item.quantity;
 
                     const priceInput = row.querySelector('.ved-container-price');
-                    if (priceInput) priceInput.value = item.price_cny;
+                    if (priceInput) {
+                        priceInput.value = item.price_cny;
+                        priceInput.dataset.manualPrice = 'true';  // Не перезаписывать сохранённую цену авто-расчётом
+                    }
 
                     // Логистические поля — span (read-only), заполняем data-value и текст
                     const logRfEl = row.querySelector('.ved-container-logrf');
@@ -25980,6 +26055,118 @@ def save_ved_container():
         conn.close()
 
         return jsonify({'success': True, 'doc_id': doc_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+def _resolve_sku_to_offer_id(cursor, sku):
+    """
+    Маппинг SKU → offer_id для связки контейнеров с планом.
+
+    Контейнеры хранят sku (число), план — product_name (offer_id строка).
+    Ищем offer_id в products_history (последний снимок), фоллбэк — products.
+    """
+    cursor.execute('''
+        SELECT COALESCE(ph.offer_id, p.offer_id) AS offer_id
+        FROM products_history ph
+        JOIN (
+            SELECT sku, MAX(snapshot_date) AS max_date
+            FROM products_history WHERE sku = ?
+        ) last ON last.sku = ph.sku AND last.max_date = ph.snapshot_date
+        LEFT JOIN products p ON p.sku = ph.sku
+        WHERE ph.sku = ?
+    ''', (sku, sku))
+    row = cursor.fetchone()
+    return row['offer_id'] if row and row['offer_id'] else None
+
+
+def _get_consumed_qty_for_sku(cursor, sku, exclude_doc_id=None):
+    """
+    Суммарное кол-во товара (SKU) во всех контейнерах ВЭД.
+
+    При редактировании контейнера exclude_doc_id исключает текущий документ
+    из подсчёта, чтобы не считать свои же позиции как «уже потреблённые».
+    """
+    if exclude_doc_id:
+        cursor.execute('''
+            SELECT COALESCE(SUM(quantity), 0) as total
+            FROM ved_container_items WHERE sku = ? AND doc_id != ?
+        ''', (sku, exclude_doc_id))
+    else:
+        cursor.execute('''
+            SELECT COALESCE(SUM(quantity), 0) as total
+            FROM ved_container_items WHERE sku = ?
+        ''', (sku,))
+    return cursor.fetchone()['total']
+
+
+@app.route('/api/ved/containers/fifo-cost', methods=['POST'])
+@require_auth(['admin', 'viewer'])
+def get_ved_fifo_plan_cost():
+    """
+    Рассчитать себестоимость за штуку по FIFO из плана закупок.
+
+    Принимает JSON:
+        sku (int): SKU товара
+        quantity (int): кол-во в текущей строке контейнера
+        skip_extra (int): доп. кол-во из других строк формы с тем же SKU
+        exclude_doc_id (int|null): ID контейнера при редактировании
+
+    Возвращает:
+        price_cny (float): средневзвешенная цена за штуку (¥)
+        details (list): FIFO-разбивка по слоям плана
+        uncovered_qty (int): кол-во единиц, не покрытых планом
+    """
+    try:
+        data = request.json
+        sku = data.get('sku', 0)
+        quantity = data.get('quantity', 0)
+        skip_extra = data.get('skip_extra', 0)
+        exclude_doc_id = data.get('exclude_doc_id')
+
+        if not sku or quantity <= 0:
+            return jsonify({'success': False, 'error': 'Укажите SKU и количество'})
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # SKU → offer_id для маппинга с plan_items.product_name
+        offer_id = _resolve_sku_to_offer_id(cursor, sku)
+        if not offer_id:
+            conn.close()
+            return jsonify({'success': True, 'price_cny': 0, 'details': [], 'uncovered_qty': quantity})
+
+        # Слои плана: кол-во и цена (invoice + delta) по дате выхода ASC
+        cursor.execute('''
+            SELECT planned_qty as qty, total_yuan as cost, planned_release_date as date
+            FROM plan_items
+            WHERE product_name = ? AND planned_qty > 0 AND total_yuan > 0
+            ORDER BY planned_release_date ASC
+        ''', (offer_id,))
+        layers = [dict(row) for row in cursor.fetchall()]
+
+        # Уже потреблённое кол-во из других контейнеров + доп. строки формы
+        skip_qty = _get_consumed_qty_for_sku(cursor, sku, exclude_doc_id) + skip_extra
+
+        conn.close()
+
+        if not layers:
+            return jsonify({'success': True, 'price_cny': 0, 'details': [], 'uncovered_qty': quantity})
+
+        # FIFO-расчёт (переиспользуем паттерн _fifo_cogs)
+        total_cost, avg_cost, details = _fifo_cogs(layers, skip_qty, quantity)
+
+        # Непокрытое кол-во = запрошенное - реально потреблённое из слоёв
+        covered_qty = sum(d['qty'] for d in details)
+        uncovered_qty = quantity - covered_qty
+
+        return jsonify({
+            'success': True,
+            'price_cny': round(avg_cost, 2),
+            'details': details,
+            'uncovered_qty': uncovered_qty
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
