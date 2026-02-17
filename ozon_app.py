@@ -9542,7 +9542,7 @@ HTML_TEMPLATE = '''
                         </div>
                         <div class="real-card real-card-opex" id="real-opex-card" style="display:none;cursor:pointer;" onclick="toggleCardDetails(this)">
                             <div class="real-card-header">
-                                <div class="real-card-label">Операционные расходы <span onclick="event.stopPropagation();alert('Сумма расходов из вкладки ДДС с отметкой «Официальный расход» (зелёный чекбокс) за выбранный период реализации.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                                <div class="real-card-label">Расходы к вычету <span onclick="event.stopPropagation();alert('Сумма расходов из вкладки ДДС с отметкой «Официальный расход» (зелёный чекбокс) за выбранный период реализации.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                                 <span class="real-card-badge" id="real-opex-badge"></span>
                             </div>
                             <div class="real-card-value" id="real-opex-total">0 ₽</div>
