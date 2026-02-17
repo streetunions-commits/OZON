@@ -1135,13 +1135,13 @@ def init_database():
                      "ALTER TABLE finance_categories ADD COLUMN is_plan_linked INTEGER DEFAULT 0"):
         print("✅ Добавлена колонка is_plan_linked в finance_categories")
 
-    # Миграция: добавляем колонку requires_official в finance_categories.
-    # Флаг означает, что при создании расхода в этой категории пользователь должен
+    # Миграция: добавляем колонку requires_official в finance_accounts.
+    # Флаг означает, что при создании расхода с этого счёта пользователь должен
     # указать — официальный это расход или нет (Да/Нет).
     # Если «Нет» — отправляется уведомление админу в Telegram.
-    if ensure_column(cursor, 'finance_categories', 'requires_official',
-                     "ALTER TABLE finance_categories ADD COLUMN requires_official INTEGER DEFAULT 0"):
-        print("✅ Добавлена колонка requires_official в finance_categories")
+    if ensure_column(cursor, 'finance_accounts', 'requires_official',
+                     "ALTER TABLE finance_accounts ADD COLUMN requires_official INTEGER DEFAULT 0"):
+        print("✅ Добавлена колонка requires_official в finance_accounts")
 
     # Миграция: добавляем колонку is_official в finance_records.
     # Пометка: NULL = вопрос не задавался (категория без флага), 0 = нет, 1 = да.
@@ -9147,8 +9147,12 @@ HTML_TEMPLATE = '''
                         <button class="wh-clear-btn" onclick="toggleFinanceAccountsManager()" style="padding: 4px 10px; font-size: 12px;">Закрыть</button>
                     </div>
                     <div id="finance-accounts-list" style="margin-bottom: 12px;"></div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                         <input type="text" id="finance-new-account-name" class="wh-input" placeholder="Название нового счёта" style="flex: 1; max-width: 300px;">
+                        <label class="finance-category-container-link">
+                            <input type="checkbox" id="finance-new-account-requires-official">
+                            Официальный расход
+                        </label>
                         <button class="wh-save-receipt-btn" onclick="addFinanceAccountFromManager()" style="padding: 8px 16px; font-size: 13px;">+ Добавить</button>
                     </div>
                 </div>
@@ -9181,10 +9185,6 @@ HTML_TEMPLATE = '''
                         <label class="finance-category-container-link">
                             <input type="checkbox" id="finance-new-category-plan-linked">
                             Привязка к плану
-                        </label>
-                        <label class="finance-category-container-link">
-                            <input type="checkbox" id="finance-new-category-requires-official">
-                            Официальный расход
                         </label>
                         <input type="text" id="finance-new-category-description-hint" class="wh-input"
                                placeholder="Текст подсказки для описания" style="padding: 6px 8px; font-size: 12px; width: 200px;">
@@ -9506,6 +9506,16 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-storage-total">0 ₽</div>
                             <div class="real-card-details" id="real-storage-details"></div>
                         </div>
+                        <div class="real-card real-card-cogs" id="real-cogs-card" style="display:none;">
+                            <div class="real-card-label">Себестоимость</div>
+                            <div class="real-card-value" id="real-cogs-total">0 ₽</div>
+                            <div class="real-card-hint" id="real-cogs-hint"></div>
+                        </div>
+                        <div class="real-card real-card-profit" id="real-profit-card" style="display:none;">
+                            <div class="real-card-label">Прибыль</div>
+                            <div class="real-card-value" id="real-profit-total">0 ₽</div>
+                            <div class="real-card-hint" id="real-profit-hint"></div>
+                        </div>
                     </div>
 
                     <!-- Таблица по товарам (SKU) -->
@@ -9522,6 +9532,8 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия</th>
                                         <th style="text-align:right">К получению</th>
+                                        <th style="text-align:right" class="cogs-col">Себестоимость</th>
+                                        <th style="text-align:right" class="cogs-col">Прибыль</th>
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
@@ -12183,9 +12195,10 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Валидация «Официальный расход» — если категория требует ответ
+            // Валидация «Официальный расход» — если счёт требует ответ
             let isOfficialValue = null;
-            if (selectedCat?.requires_official && recordType === 'expense') {
+            const selectedAcc = financeAccounts.find(a => a.id === selectedFinanceAccountId);
+            if (selectedAcc?.requires_official && recordType === 'expense') {
                 const officialRadio = document.querySelector('input[name="finance-is-official"]:checked');
                 if (!officialRadio) {
                     alert('Укажите, является ли расход официальным (Да / Нет)');
@@ -12417,6 +12430,8 @@ HTML_TEMPLATE = '''
             input.value = name;
             selectedFinanceAccountId = id;
             dropdown.classList.remove('show');
+            // Проверяем, нужно ли показать поле «Официальный расход?»
+            checkFinanceOfficialField();
         }
 
         // Примечание: закрытие dropdown счетов обрабатывается общим обработчиком
@@ -12464,6 +12479,30 @@ HTML_TEMPLATE = '''
                 name.textContent = acc.name;
                 name.style.cssText = 'flex: 1; font-size: 14px;';
                 row.appendChild(name);
+
+                // Чекбокс «Официальный» — при создании расхода с этого счёта спрашивать Да/Нет
+                const officialLabel = document.createElement('label');
+                officialLabel.className = 'finance-category-container-link';
+                const officialCb = document.createElement('input');
+                officialCb.type = 'checkbox';
+                officialCb.checked = !!acc.requires_official;
+                officialCb.onchange = async () => {
+                    try {
+                        const resp = await authFetch('/api/finance/accounts/update', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: acc.id, requires_official: officialCb.checked })
+                        });
+                        const result = await resp.json();
+                        if (result.success) {
+                            acc.requires_official = officialCb.checked ? 1 : 0;
+                            await loadFinanceAccounts();
+                        }
+                    } catch(e) { console.error(e); }
+                };
+                officialLabel.appendChild(officialCb);
+                officialLabel.appendChild(document.createTextNode(' Официальный'));
+                row.appendChild(officialLabel);
 
                 const editBtn = document.createElement('button');
                 editBtn.textContent = '✎';
@@ -12560,12 +12599,17 @@ HTML_TEMPLATE = '''
                 const resp = await authFetch('/api/finance/accounts/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({
+                        name: name,
+                        requires_official: document.getElementById('finance-new-account-requires-official')?.checked ? true : false
+                    })
                 });
                 const data = await resp.json();
 
                 if (data.success) {
                     input.value = '';
+                    const offCb = document.getElementById('finance-new-account-requires-official');
+                    if (offCb) offCb.checked = false;
                     await loadFinanceAccounts();
                     renderFinanceAccountsList();
                 } else {
@@ -12666,7 +12710,6 @@ HTML_TEMPLATE = '''
             // Проверяем, нужно ли показать поле суммы в юанях
             checkFinanceYuanField();
             checkFinanceDescriptionField();
-            checkFinanceOfficialField();
         }
 
         /**
@@ -12832,30 +12875,6 @@ HTML_TEMPLATE = '''
                     planLabel.appendChild(document.createTextNode(' План'));
                     name.appendChild(planLabel);
 
-                    // Чекбокс «Официальный» — при создании расхода спрашивать Да/Нет
-                    const officialLabel = document.createElement('label');
-                    officialLabel.className = 'finance-category-container-link';
-                    const officialCb = document.createElement('input');
-                    officialCb.type = 'checkbox';
-                    officialCb.checked = !!cat.requires_official;
-                    officialCb.onchange = async () => {
-                        try {
-                            const resp = await authFetch('/api/finance/categories/update', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: cat.id, requires_official: officialCb.checked })
-                            });
-                            const result = await resp.json();
-                            if (result.success) {
-                                cat.requires_official = officialCb.checked ? 1 : 0;
-                                await loadFinanceCategories();
-                            }
-                        } catch(e) { console.error(e); }
-                    };
-                    officialLabel.appendChild(officialCb);
-                    officialLabel.appendChild(document.createTextNode(' Официальный'));
-                    name.appendChild(officialLabel);
-
                     // Поле «Подсказка» — текст-пример для описания (виден всегда для расходных)
                     const hintWrap = document.createElement('div');
                     hintWrap.style.cssText = 'width: 100%; margin-top: 4px;';
@@ -12987,8 +13006,7 @@ HTML_TEMPLATE = '''
                         requires_yuan: document.getElementById('finance-new-category-requires-yuan')?.checked ? true : false,
                         requires_description: document.getElementById('finance-new-category-requires-description')?.checked ? true : false,
                         description_hint: document.getElementById('finance-new-category-description-hint')?.value || '',
-                        is_plan_linked: document.getElementById('finance-new-category-plan-linked')?.checked ? true : false,
-                        requires_official: document.getElementById('finance-new-category-requires-official')?.checked ? true : false
+                        is_plan_linked: document.getElementById('finance-new-category-plan-linked')?.checked ? true : false
                     })
                 });
                 const data = await resp.json();
@@ -13005,8 +13023,6 @@ HTML_TEMPLATE = '''
                     if (hintInput) hintInput.value = '';
                     const planCb = document.getElementById('finance-new-category-plan-linked');
                     if (planCb) planCb.checked = false;
-                    const officialCb2 = document.getElementById('finance-new-category-requires-official');
-                    if (officialCb2) officialCb2.checked = false;
                     await loadFinanceCategories();
                     renderFinanceCategoriesList();
                 } else {
@@ -13299,7 +13315,8 @@ HTML_TEMPLATE = '''
             ['real-empty', 'real-error', 'real-summary',
              'real-products-wrapper',
              'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
-             'real-advertising-card', 'real-storage-card'].forEach(id => {
+             'real-advertising-card', 'real-storage-card',
+             'real-cogs-card', 'real-profit-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13356,6 +13373,9 @@ HTML_TEMPLATE = '''
 
                 // Таблица по товарам
                 renderRealizationProducts(data.products || []);
+
+                // Загружаем себестоимость (FIFO) после рендера таблицы
+                _loadRealizationCogs(data.products || [], periodType);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13724,15 +13744,17 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Показать/скрыть поле «Официальный расход?» в зависимости от категории.
+         * Показать/скрыть поле «Официальный расход?» в зависимости от счёта.
+         * Если у выбранного счёта стоит флаг requires_official и тип = расход,
+         * показываем вопрос Да/Нет.
          */
         function checkFinanceOfficialField() {
             const officialField = document.getElementById('finance-official-field');
             if (!officialField) return;
 
             const recordType = document.getElementById('finance-type')?.value;
-            const cat = financeCategories.find(c => c.id === selectedFinanceCategoryId);
-            if (recordType === 'expense' && cat && cat.requires_official) {
+            const acc = financeAccounts.find(a => a.id === selectedFinanceAccountId);
+            if (recordType === 'expense' && acc && acc.requires_official) {
                 officialField.style.display = '';
             } else {
                 officialField.style.display = 'none';
@@ -28613,9 +28635,9 @@ def api_finance_accounts():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, is_default, created_at FROM finance_accounts ORDER BY is_default DESC, name ASC')
+        cursor.execute('SELECT id, name, is_default, COALESCE(requires_official, 0) as requires_official, created_at FROM finance_accounts ORDER BY is_default DESC, name ASC')
         rows = cursor.fetchall()
-        accounts = [{'id': r['id'], 'name': r['name'], 'is_default': bool(r['is_default']), 'created_at': r['created_at']} for r in rows]
+        accounts = [{'id': r['id'], 'name': r['name'], 'is_default': bool(r['is_default']), 'requires_official': r['requires_official'] or 0, 'created_at': r['created_at']} for r in rows]
         conn.close()
         return jsonify({'success': True, 'accounts': accounts})
     except Exception as e:
@@ -28646,7 +28668,10 @@ def api_finance_accounts_add():
             conn.close()
             return jsonify({'success': False, 'error': f'Счёт "{name}" уже существует'}), 400
 
-        cursor.execute('INSERT INTO finance_accounts (name, is_default) VALUES (?, 0)', (name,))
+        # Флаг «Официальный расход» — при создании расхода с этого счёта спрашивает Да/Нет
+        requires_official = 1 if data.get('requires_official') else 0
+
+        cursor.execute('INSERT INTO finance_accounts (name, is_default, requires_official) VALUES (?, 0, ?)', (name, requires_official))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -28763,6 +28788,51 @@ def api_finance_accounts_rename():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/finance/accounts/update', methods=['POST'])
+@require_auth(['admin'])
+def api_finance_accounts_update():
+    """
+    Обновить флаги финансового счёта (requires_official и др.).
+    Payload: {'id': 5, 'requires_official': true}
+    """
+    try:
+        data = request.json
+        account_id = data.get('id')
+
+        if not account_id:
+            return jsonify({'success': False, 'error': 'Укажите ID счёта'}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT id FROM finance_accounts WHERE id = ?', (account_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
+
+        updates = []
+        params = []
+
+        # requires_official — требует пометки «Официальный расход»
+        if 'requires_official' in data:
+            requires_official = 1 if data.get('requires_official') else 0
+            updates.append('requires_official = ?')
+            params.append(requires_official)
+
+        if not updates:
+            conn.close()
+            return jsonify({'success': True, 'message': 'Нечего обновлять'})
+
+        params.append(account_id)
+        cursor.execute(f'UPDATE finance_accounts SET {", ".join(updates)} WHERE id = ?', params)
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Счёт обновлён'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ============================================================================
 # API ФИНАНСЫ — СПРАВОЧНИК КАТЕГОРИЙ
 # ============================================================================
@@ -28786,9 +28856,9 @@ def api_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official, created_at FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, created_at FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
         categories = [{
@@ -28798,7 +28868,6 @@ def api_finance_categories():
             'requires_description': r['requires_description'] or 0,
             'description_hint': r['description_hint'] or '',
             'is_plan_linked': r['is_plan_linked'] or 0,
-            'requires_official': r['requires_official'] or 0,
             'created_at': r['created_at']
         } for r in rows]
         conn.close()
@@ -28845,11 +28914,8 @@ def api_finance_categories_add():
         description_hint = (data.get('description_hint') or '').strip()
         # Флаг привязки к плану закупок (распределение юаней по строкам плана)
         is_plan_linked = 1 if (data.get('is_plan_linked') and record_type == 'expense') else 0
-        # Флаг «Официальный расход» — при создании расхода спрашивает Да/Нет
-        requires_official = 1 if (data.get('requires_official') and record_type == 'expense') else 0
-
-        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked, requires_official) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked, requires_official))
+        cursor.execute('INSERT INTO finance_categories (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                       (name, record_type, is_container_linked, requires_yuan, requires_description, description_hint, is_plan_linked))
         conn.commit()
         new_id = cursor.lastrowid
         conn.close()
@@ -29138,15 +29204,16 @@ def api_finance_records_add():
         # Получаем название счёта и категории
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        cursor.execute('SELECT name, COALESCE(requires_official, 0) as requires_official FROM finance_accounts WHERE id = ?', (account_id,))
         acc_row = cursor.fetchone()
         if not acc_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
 
         account_name = acc_row[0]
+        requires_official = acc_row[1] or 0
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -29158,7 +29225,6 @@ def api_finance_records_add():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
-        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -29321,15 +29387,16 @@ def api_finance_records_update():
         cursor = conn.cursor()
 
         # Получаем название счёта и категории
-        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        cursor.execute('SELECT name, COALESCE(requires_official, 0) as requires_official FROM finance_accounts WHERE id = ?', (account_id,))
         acc_row = cursor.fetchone()
         if not acc_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
 
         account_name = acc_row[0]
+        requires_official = acc_row[1] or 0
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -29341,7 +29408,6 @@ def api_finance_records_update():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
-        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:
@@ -29951,12 +30017,6 @@ def api_finance_categories_update():
             is_plan_linked = 1 if (data.get('is_plan_linked') and row['record_type'] == 'expense') else 0
             updates.append('is_plan_linked = ?')
             params_upd.append(is_plan_linked)
-
-        # requires_official — требует пометки «Официальный расход» (только для расходных)
-        if 'requires_official' in data:
-            requires_official = 1 if (data.get('requires_official') and row['record_type'] == 'expense') else 0
-            updates.append('requires_official = ?')
-            params_upd.append(requires_official)
 
         if not updates:
             conn.close()
@@ -30904,6 +30964,214 @@ def api_finance_realization():
 
 
 # ============================================================================
+# API ФИНАНСЫ — СЕБЕСТОИМОСТЬ (FIFO)
+# ============================================================================
+# Рассчитывает себестоимость проданных товаров по методу FIFO.
+# Берёт слои приходов из warehouse_receipts (от самых старых к новым),
+# учитывает кумулятивные продажи из realization_cache для корректного
+# «потребления» слоёв.
+# ============================================================================
+
+
+def _fifo_cogs(layers, skip_qty, consume_qty):
+    """
+    Рассчитать себестоимость по методу FIFO.
+
+    Аргументы:
+        layers (list): Список слоёв приходов [{qty, cost, date}, ...],
+                       отсортированных по дате (от старых к новым).
+        skip_qty (int): Сколько единиц уже потреблено прошлыми периодами.
+        consume_qty (int): Сколько единиц продано в текущем периоде.
+
+    Возвращает:
+        tuple: (total_cogs, avg_cost_per_unit, details)
+    """
+    if not layers or consume_qty <= 0:
+        return 0.0, 0.0, []
+
+    total_cogs = 0.0
+    details = []
+    remaining_skip = skip_qty
+    remaining_consume = consume_qty
+
+    for layer in layers:
+        if remaining_consume <= 0:
+            break
+
+        layer_qty = layer['qty']
+        layer_cost = layer['cost']
+
+        # Пропускаем единицы, уже потреблённые прошлыми периодами
+        if remaining_skip > 0:
+            skip_from_layer = min(remaining_skip, layer_qty)
+            layer_qty -= skip_from_layer
+            remaining_skip -= skip_from_layer
+
+        if layer_qty <= 0:
+            continue
+
+        # Потребляем единицы из текущего слоя
+        take = min(remaining_consume, layer_qty)
+        cost_for_take = round(take * layer_cost, 2)
+        total_cogs += cost_for_take
+        remaining_consume -= take
+
+        details.append({
+            'qty': take,
+            'cost': round(layer_cost, 2),
+            'date': layer['date'],
+            'subtotal': cost_for_take
+        })
+
+    avg_cost = round(total_cogs / consume_qty, 2) if consume_qty > 0 and total_cogs > 0 else 0.0
+    return round(total_cogs, 2), avg_cost, details
+
+
+def _get_cumulative_prior_sales(period_start_str):
+    """
+    Получить кумулятивные продажи по SKU из кэша реализации
+    за все месяцы ДО указанной даты начала периода.
+
+    Аргументы:
+        period_start_str (str): Дата начала периода "YYYY-MM-DD"
+
+    Возвращает:
+        dict: {sku_str: net_sales_qty, ...}
+    """
+    import json as _json
+
+    period_month = period_start_str[:7]
+    cumulative = {}
+
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        rows = conn.execute('SELECT period_key, response_json FROM realization_cache').fetchall()
+        conn.close()
+
+        for period_key, response_json in rows:
+            if len(period_key) != 7 or 'Q' in period_key:
+                continue
+            if period_key >= period_month:
+                continue
+
+            try:
+                data = _json.loads(response_json)
+                for p in data.get('products', []):
+                    sku = str(p.get('sku', ''))
+                    if not sku:
+                        continue
+                    net_qty = (p.get('delivery_qty', 0) or 0) - (p.get('return_qty', 0) or 0)
+                    if net_qty > 0:
+                        cumulative[sku] = cumulative.get(sku, 0) + net_qty
+            except (ValueError, KeyError):
+                continue
+
+    except Exception as e:
+        print(f"  ⚠️ Ошибка чтения кумулятивных продаж: {e}")
+
+    return cumulative
+
+
+@app.route('/api/finance/realization/cogs', methods=['POST'])
+@require_auth(['admin', 'viewer'])
+def api_finance_realization_cogs():
+    """
+    Рассчитать себестоимость (COGS) для товаров из реализации по методу FIFO.
+
+    Принимает JSON:
+        products: [{sku: "123", net_qty: 50}, ...]
+        period_start: "YYYY-MM-DD"
+
+    Возвращает JSON:
+        success, total_cogs, products: {sku: {cogs, avg_cost, details, uncovered_qty}}
+    """
+    try:
+        data = request.get_json(force=True)
+        products = data.get('products', [])
+        period_start = data.get('period_start', '')
+
+        if not products:
+            return jsonify({'success': True, 'total_cogs': 0, 'products': {}})
+
+        skus_info = {}
+        for p in products:
+            sku = str(p.get('sku', ''))
+            if sku:
+                skus_info[sku] = p.get('net_qty', 0)
+
+        if not skus_info:
+            return jsonify({'success': True, 'total_cogs': 0, 'products': {}})
+
+        cumulative_prior = _get_cumulative_prior_sales(period_start) if period_start else {}
+
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        sku_list = list(skus_info.keys())
+        placeholders = ','.join('?' * len(sku_list))
+
+        cursor.execute(f'''
+            SELECT sku, receipt_date, quantity,
+                   COALESCE(NULLIF(calculated_cost, 0), purchase_price, 0) as cost_per_unit
+            FROM warehouse_receipts
+            WHERE sku IN ({placeholders})
+            ORDER BY receipt_date ASC, id ASC
+        ''', sku_list)
+
+        layers_by_sku = {}
+        for row in cursor.fetchall():
+            sku = str(row['sku'])
+            if sku not in layers_by_sku:
+                layers_by_sku[sku] = []
+            layers_by_sku[sku].append({
+                'qty': row['quantity'],
+                'cost': row['cost_per_unit'] or 0,
+                'date': row['receipt_date'] or ''
+            })
+
+        conn.close()
+
+        result_products = {}
+        total_cogs = 0.0
+
+        for sku, net_qty in skus_info.items():
+            if net_qty <= 0:
+                result_products[sku] = {'cogs': 0, 'avg_cost': 0, 'details': [], 'uncovered_qty': 0}
+                continue
+
+            layers = layers_by_sku.get(sku, [])
+            if not layers:
+                result_products[sku] = {'cogs': 0, 'avg_cost': 0, 'details': [], 'uncovered_qty': net_qty}
+                continue
+
+            prior_sales = cumulative_prior.get(sku, 0)
+            cogs, avg_cost, details = _fifo_cogs(layers, prior_sales, net_qty)
+
+            covered = sum(d['qty'] for d in details)
+            uncovered = net_qty - covered
+
+            result_products[sku] = {
+                'cogs': cogs,
+                'avg_cost': avg_cost,
+                'details': details,
+                'uncovered_qty': max(uncovered, 0)
+            }
+            total_cogs += cogs
+
+        return jsonify({
+            'success': True,
+            'total_cogs': round(total_cogs, 2),
+            'products': result_products
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'total_cogs': 0, 'products': {}})
+
+
+# ============================================================================
 # API ФИНАНСЫ — ДЕТАЛИЗАЦИЯ УДЕРЖАНИЙ (из /v3/finance/transaction/list)
 # ============================================================================
 # Собирает ВСЕ удержания из Ozon Transaction API за указанный период.
@@ -31742,9 +32010,9 @@ def api_telegram_finance_accounts():
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name FROM finance_accounts ORDER BY is_default DESC, name ASC')
+        cursor.execute('SELECT id, name, COALESCE(requires_official, 0) as requires_official FROM finance_accounts ORDER BY is_default DESC, name ASC')
         rows = cursor.fetchall()
-        accounts = [{'id': r['id'], 'name': r['name']} for r in rows]
+        accounts = [{'id': r['id'], 'name': r['name'], 'requires_official': r['requires_official'] or 0} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'accounts': accounts})
@@ -31772,12 +32040,12 @@ def api_telegram_finance_categories():
         cursor = conn.cursor()
 
         if record_type in ('income', 'expense'):
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories WHERE record_type = ? ORDER BY name ASC', (record_type,))
         else:
-            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(requires_official, 0) as requires_official FROM finance_categories ORDER BY name ASC')
+            cursor.execute('SELECT id, name, is_container_linked, requires_yuan, requires_description, description_hint FROM finance_categories ORDER BY name ASC')
 
         rows = cursor.fetchall()
-        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0, 'description_hint': r['description_hint'] or '', 'requires_official': r['requires_official'] or 0} for r in rows]
+        categories = [{'id': r['id'], 'name': r['name'], 'is_container_linked': r['is_container_linked'] or 0, 'requires_yuan': r['requires_yuan'] or 0, 'requires_description': r['requires_description'] or 0, 'description_hint': r['description_hint'] or ''} for r in rows]
         conn.close()
 
         return jsonify({'success': True, 'categories': categories})
@@ -31836,15 +32104,16 @@ def api_telegram_finance_add():
         # Получаем названия счёта и категории
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('SELECT name FROM finance_accounts WHERE id = ?', (account_id,))
+        cursor.execute('SELECT name, COALESCE(requires_official, 0) as requires_official FROM finance_accounts WHERE id = ?', (account_id,))
         acc_row = cursor.fetchone()
         if not acc_row:
             conn.close()
             return jsonify({'success': False, 'error': 'Счёт не найден'}), 404
 
         account_name = acc_row[0]
+        requires_official = acc_row[1] or 0
 
-        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked, COALESCE(requires_official, 0) as requires_official FROM finance_categories WHERE id = ?', (category_id,))
+        cursor.execute('SELECT name, is_container_linked, requires_yuan, requires_description, description_hint, COALESCE(is_plan_linked, 0) as is_plan_linked FROM finance_categories WHERE id = ?', (category_id,))
         cat_row = cursor.fetchone()
         if not cat_row:
             conn.close()
@@ -31856,7 +32125,6 @@ def api_telegram_finance_add():
         requires_description = cat_row[3] or 0
         description_hint = cat_row[4] or ''
         is_plan_linked = cat_row[5] or 0
-        requires_official = cat_row[6] or 0
 
         # При категории "Другое" комментарий обязателен
         if category_name.lower() == 'другое' and not description:

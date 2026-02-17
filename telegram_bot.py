@@ -2116,11 +2116,12 @@ async def finance_amount_entered(update: Update, context: ContextTypes.DEFAULT_T
     keyboard = []
     row = []
     for acc in accounts:
-        # Ограничиваем длину callback_data: fin_acc:id:name (до 64 байт)
-        acc_name = acc['name'][:30]
+        # Ограничиваем длину callback_data: fin_acc:id:name:official (до 64 байт)
+        acc_name = acc['name'][:28]
+        official = acc.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             acc['name'],
-            callback_data=f"fin_acc:{acc['id']}:{acc_name}"
+            callback_data=f"fin_acc:{acc['id']}:{acc_name}:{official}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2151,13 +2152,15 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_acc:id:name
-    parts = query.data.split(':', 2)
+    # Парсим callback: fin_acc:id:name:official
+    parts = query.data.split(':', 3)
     account_id = int(parts[1])
-    account_name = parts[2]
+    account_name = parts[2] if len(parts) > 2 else ''
+    requires_official = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
 
     context.user_data['finance']['account_id'] = account_id
     context.user_data['finance']['account_name'] = account_name
+    context.user_data['finance']['requires_official'] = requires_official
 
     # Загружаем категории только для выбранного типа (расход/доход)
     fin_type = context.user_data['finance'].get('record_type', 'expense')
@@ -2186,10 +2189,9 @@ async def finance_account_selected(update: Update, context: ContextTypes.DEFAULT
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
         desc_req = cat.get('requires_description', 0) or 0
-        official = cat.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}:{official}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2222,21 +2224,20 @@ async def finance_category_selected(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan:requires_description:requires_official
-    parts = query.data.split(':', 6)
+    # Парсим callback: fin_cat:id:name:is_container_linked:requires_yuan:requires_description
+    parts = query.data.split(':', 5)
     category_id = int(parts[1])
     category_name = parts[2] if len(parts) > 2 else ''
     is_container_linked = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
     requires_yuan = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
     requires_description = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0
-    requires_official = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
 
     context.user_data['finance']['category_id'] = category_id
     context.user_data['finance']['category_name'] = category_name
     context.user_data['finance']['is_container_linked'] = is_container_linked
     context.user_data['finance']['requires_yuan'] = requires_yuan
     context.user_data['finance']['requires_description'] = requires_description
-    context.user_data['finance']['requires_official'] = requires_official
+    # requires_official уже установлен при выборе счёта (finance_account_selected)
 
     # Получаем description_hint из кеша категорий
     categories_cache = context.user_data['finance'].get('categories_cache', [])
@@ -2669,10 +2670,11 @@ async def finance_back_to_account(update: Update, context: ContextTypes.DEFAULT_
     keyboard = []
     row = []
     for acc in accounts:
-        acc_name = acc['name'][:30]
+        acc_name = acc['name'][:28]
+        official = acc.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             acc['name'],
-            callback_data=f"fin_acc:{acc['id']}:{acc_name}"
+            callback_data=f"fin_acc:{acc['id']}:{acc_name}:{official}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -2722,10 +2724,9 @@ async def finance_back_to_category(update: Update, context: ContextTypes.DEFAULT
         linked = cat.get('is_container_linked', 0) or 0
         yuan = cat.get('requires_yuan', 0) or 0
         desc_req = cat.get('requires_description', 0) or 0
-        official = cat.get('requires_official', 0) or 0
         row.append(InlineKeyboardButton(
             cat['name'],
-            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}:{official}"
+            callback_data=f"fin_cat:{cat['id']}:{cat_name}:{linked}:{yuan}:{desc_req}"
         ))
         if len(row) == 2:
             keyboard.append(row)
