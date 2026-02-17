@@ -13396,10 +13396,11 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                // Реализация = гросс минус гросс-возвраты (seller_price * net_qty)
-                document.getElementById('real-gross-sales').textContent = fmtRealMoney(netGrossSales);
+                // Реализация = гросс минус гросс-возвраты + СНГ (seller_price)
+                const totalGrossSales = netGrossSales + (buyout.seller_price_total || 0);
+                document.getElementById('real-gross-sales').textContent = fmtRealMoney(totalGrossSales);
                 const grossHint = document.getElementById('real-gross-hint');
-                if (grossHint) grossHint.textContent = netSalesCount + ' продаж';
+                if (grossHint) grossHint.textContent = totalSalesCount + ' продаж';
 
                 document.getElementById('real-returns').textContent = fmtRealMoney(s.returns);
                 const retHint = document.getElementById('real-returns-hint');
