@@ -26051,6 +26051,11 @@ def save_ved_container():
         if affected_receipt_doc_ids:
             _redistribute_receipt_docs(cursor, affected_receipt_doc_ids)
 
+        # Пересчёт FIFO-цен по всем контейнерам с теми же SKU
+        affected_skus = list(set(item.get('sku', 0) for item in items if item.get('sku')))
+        if affected_skus:
+            _recalculate_fifo_prices_for_skus(cursor, affected_skus)
+
         conn.commit()
         conn.close()
 
@@ -26098,6 +26103,67 @@ def _get_consumed_qty_for_sku(cursor, sku, exclude_doc_id=None):
             FROM ved_container_items WHERE sku = ?
         ''', (sku,))
     return cursor.fetchone()['total']
+
+
+def _recalculate_fifo_prices_for_skus(cursor, skus):
+    """
+    Пересчитать FIFO-цены по всем контейнерам для списка SKU.
+
+    Вызывается после сохранения/удаления контейнера, чтобы при изменении
+    количества в одном контейнере автоматически обновились себестоимости
+    во всех контейнерах с тем же товаром.
+
+    Порядок FIFO: контейнеры сортируются по дате (container_date ASC),
+    затем по id (ASC). Каждый последующий контейнер получает цену из
+    следующих слоёв плана после исчерпания предыдущих.
+    """
+    for sku in skus:
+        offer_id = _resolve_sku_to_offer_id(cursor, sku)
+        if not offer_id:
+            continue
+
+        # Слои плана: кол-во и цена (invoice + delta) по дате выхода ASC
+        cursor.execute('''
+            SELECT planned_qty as qty, total_yuan as cost, planned_release_date as date
+            FROM plan_items
+            WHERE product_name = ? AND planned_qty > 0 AND total_yuan > 0
+            ORDER BY planned_release_date ASC
+        ''', (offer_id,))
+        layers = [dict(row) for row in cursor.fetchall()]
+
+        if not layers:
+            continue
+
+        # Все позиции контейнеров с этим SKU, отсортированные по дате контейнера
+        cursor.execute('''
+            SELECT ci.id as item_id, ci.quantity
+            FROM ved_container_items ci
+            JOIN ved_container_docs d ON d.id = ci.doc_id
+            WHERE ci.sku = ?
+            ORDER BY d.container_date ASC, ci.id ASC
+        ''', (sku,))
+        items = [dict(row) for row in cursor.fetchall()]
+
+        if not items:
+            continue
+
+        # FIFO: последовательно назначаем цену каждой позиции
+        consumed = 0
+        for item in items:
+            qty = item['quantity']
+            total_cost, avg_cost, details = _fifo_cogs(layers, consumed, qty)
+            consumed += qty
+
+            # Обновляем только если FIFO дал ненулевую цену
+            if avg_cost > 0:
+                new_price = round(avg_cost, 2)
+                cursor.execute('''
+                    UPDATE ved_container_items SET price_cny = ? WHERE id = ?
+                ''', (new_price, item['item_id']))
+                # Обновляем supplies.price_cny тоже (авто-создаются при сохранении контейнера)
+                cursor.execute('''
+                    UPDATE supplies SET price_cny = ? WHERE container_item_id = ?
+                ''', (new_price, item['item_id']))
 
 
 @app.route('/api/ved/containers/fifo-cost', methods=['POST'])
@@ -26199,6 +26265,10 @@ def delete_ved_container():
                          'Сначала удалите или отвяжите расходы в Финансах.'
             }), 400
 
+        # Запоминаем SKU до удаления — для пересчёта FIFO в оставшихся контейнерах
+        cursor.execute('SELECT DISTINCT sku FROM ved_container_items WHERE doc_id = ?', (doc_id,))
+        affected_skus = [row['sku'] for row in cursor.fetchall()]
+
         # Перед удалением поставок — откатываем распределения приходов
         cursor.execute('SELECT id FROM supplies WHERE container_doc_id = ?', (doc_id,))
         old_supply_ids = [row['id'] for row in cursor.fetchall()]
@@ -26216,6 +26286,10 @@ def delete_ved_container():
         # Перераспределяем затронутые приходы по оставшимся поставкам
         if affected_receipt_doc_ids:
             _redistribute_receipt_docs(cursor, affected_receipt_doc_ids)
+
+        # Пересчёт FIFO-цен в оставшихся контейнерах с теми же SKU
+        if affected_skus:
+            _recalculate_fifo_prices_for_skus(cursor, affected_skus)
 
         conn.commit()
         conn.close()
