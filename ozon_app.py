@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 3  # v3: комиссия по товарам учитывает возвраты (d_std_fee - r_std_fee)
+REALIZATION_CACHE_VERSION = 4  # v4: добавлены данные по выкупам СНГ (buyout)
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
@@ -13282,6 +13282,7 @@ HTML_TEMPLATE = '''
         let _realGrossSales = 0;
         let _realAcquiring = 0;
         let _realBonuses = 0;  // Баллы за скидки (из realization API)
+        let _realBuyoutAmount = 0;  // Сумма выкупов СНГ (из buyout API)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + эквайринг с раскрытием деталей */
@@ -13385,9 +13386,20 @@ HTML_TEMPLATE = '''
                 const netSalesCount = (s.delivery_count || 0) - (s.return_count || 0);
                 const netGrossSales = (s.gross_sales || 0) - (s.return_gross || 0);
 
-                document.getElementById('real-realization').textContent = fmtRealMoney(s.seller_receives);
+                // Данные по выкупам СНГ
+                const buyout = data.buyout || {count: 0, amount: 0};
+                const totalSellerWithBuyout = (s.seller_receives || 0) + (buyout.amount || 0);
+                const totalSalesCount = netSalesCount + (buyout.count || 0);
+
+                document.getElementById('real-realization').textContent = fmtRealMoney(totalSellerWithBuyout);
                 const realHint = document.getElementById('real-realization-hint');
-                if (realHint) realHint.textContent = netSalesCount + ' продаж';
+                if (realHint) {
+                    if (buyout.count > 0) {
+                        realHint.innerHTML = totalSalesCount + ' продаж <span style="color:#e67e22;font-size:11px;">(в т.ч. СНГ: ' + buyout.count + ' шт. / ' + fmtRealMoney(buyout.amount) + ')</span>';
+                    } else {
+                        realHint.textContent = totalSalesCount + ' продаж';
+                    }
+                }
 
                 // Реализация = гросс минус гросс-возвраты (seller_price * net_qty)
                 document.getElementById('real-gross-sales').textContent = fmtRealMoney(netGrossSales);
@@ -13402,6 +13414,7 @@ HTML_TEMPLATE = '''
                 _realCommissionBase = s.commission;
                 _realGrossSales = netGrossSales;
                 _realBonuses = Math.abs(s.bonuses || 0);
+                _realBuyoutAmount = buyout.amount || 0;
                 updateCommissionCard();
 
                 document.getElementById('real-summary').style.display = 'grid';
@@ -13597,9 +13610,9 @@ HTML_TEMPLATE = '''
                     if (cogsHint) cogsHint.textContent = 'FIFO по приходам';
                     if (cogsCard) cogsCard.style.display = '';
 
-                    // Карточка «Прибыль» = Продажи после СПП - Себестоимость
-                    // Считаем seller_receives из массива products (надёжнее парсинга текста)
-                    const totalSellerReceives = products.reduce((sum, p) => sum + (p.seller_receives || 0), 0);
+                    // Карточка «Прибыль» = Продажи после СПП (включая СНГ) - Себестоимость
+                    // Считаем seller_receives из массива products + сумма выкупов СНГ
+                    const totalSellerReceives = products.reduce((sum, p) => sum + (p.seller_receives || 0), 0) + _realBuyoutAmount;
                     const totalProfit = totalSellerReceives - totalCogs;
 
                     document.getElementById('real-profit-total').textContent = fmtRealMoney(totalProfit);
@@ -18446,11 +18459,6 @@ HTML_TEMPLATE = '''
                 // Валидация обязательных полей в строке
                 if (qty <= 0) {
                     alert('Строка ' + rowNum + ': укажите количество товара');
-                    hasValidationErrors = true;
-                    return;
-                }
-                if (priceCny <= 0) {
-                    alert('Строка ' + rowNum + ': нет себестоимости. Добавьте товар в план с ценой инвойса.');
                     hasValidationErrors = true;
                     return;
                 }
@@ -31434,6 +31442,27 @@ def api_finance_realization():
                     print(f"  ✅ Квартал {period_label}: данные транзакций за {tx_yr}-{tx_mo:02d} добавлены")
             except Exception as e:
                 print(f"  ⚠️ Ошибка добавления транзакций в квартал: {e}")
+
+        # ── Добавляем данные по выкупам СНГ ──
+        try:
+            if is_quarter:
+                # Квартал: полный диапазон Q1=01-01..03-31 и т.д.
+                q_first_mo = quarter_months[q_num][0]
+                q_last_mo = quarter_months[q_num][-1]
+                q_last_day = calendar.monthrange(q_year, q_last_mo)[1]
+                buyout_from = f"{q_year}-{q_first_mo:02d}-01"
+                buyout_to = f"{q_year}-{q_last_mo:02d}-{q_last_day}"
+            else:
+                # Один месяц
+                m_yr, m_mo = months_to_fetch[0] if months_to_fetch else (now.year, now.month)
+                m_last_day = calendar.monthrange(m_yr, m_mo)[1]
+                buyout_from = f"{m_yr}-{m_mo:02d}-01"
+                buyout_to = f"{m_yr}-{m_mo:02d}-{m_last_day}"
+            buyout = _fetch_buyout_data(buyout_from, buyout_to)
+            response_data['buyout'] = buyout
+        except Exception as e:
+            print(f"  ⚠️ Ошибка загрузки выкупов СНГ: {e}")
+            response_data['buyout'] = {'count': 0, 'amount': 0.0, 'products': []}
 
         # ── Сохраняем в кэш (только закрытые периоды — текущий месяц не кэшируем) ──
         if not current_month_in_quarter:
