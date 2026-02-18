@@ -9564,7 +9564,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-details" id="real-opex-details"></div>
                         </div>
                         <div class="real-card real-card-tax" id="real-tax-card" style="display:none;">
-                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('НДС + УСН\n\nНДС = (Продажи после СПП + Компенсации − Баллы) / (100 + НДС%) × НДС%\n\nУСН = (Реализация − НДС − Себестоимость − Возвраты − Логистика − Комиссия − Иные удержания − Хранение − Реклама − Расходы к вычету) × НДС%\n\nСтавка определяется из вкладки «Контроль НДС» по годовому обороту.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('НДС + УСН\n\nНДС = (Продажи после СПП + Компенсации) / (100 + НДС%) × НДС%\nСтавка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\n\nУСН = (Реализация − НДС − Себестоимость − Возвраты − Логистика − Комиссия − Иные удержания − Хранение − Реклама − Расходы к вычету) × 15%\nСтавка УСН фиксированная — 15%.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-tax-total">0 ₽</div>
                             <div class="real-card-hint" id="real-tax-hint"></div>
                         </div>
@@ -13624,7 +13624,7 @@ HTML_TEMPLATE = '''
          */
         function fmtRealMoney(val) {
             if (val == null || isNaN(val)) return '0 ₽';
-            return Math.round(val).toLocaleString('ru-RU') + ' ₽';
+            return Math.round(Math.abs(val)).toLocaleString('ru-RU') + ' ₽';
         }
 
         // Общее состояние для комиссии + эквайринга (из разных API)
@@ -14072,8 +14072,9 @@ HTML_TEMPLATE = '''
                     - _realAdvertising
                     - _realOpex;
 
-                // 6. Итого = НДС + УСН (если УСН > 0)
-                const usnTax = usn > 0 ? usn * ndsPercent / 100 : 0;
+                // 6. Итого = НДС + УСН (если УСН > 0). УСН всегда 15%
+                const usnPercent = 15;
+                const usnTax = usn > 0 ? usn * usnPercent / 100 : 0;
                 const totalTax = nds + usnTax;
 
                 // 7. Отображаем
@@ -14082,22 +14083,21 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-tax-total').textContent = fmtRealMoney(totalTax);
                 const hint = document.getElementById('real-tax-hint');
                 if (hint) {
-                    const f = v => Math.round(v).toLocaleString('ru-RU');
-                    const returns = Math.abs(_realReturns);
+                    const f = v => Math.round(Math.abs(v)).toLocaleString('ru-RU');
                     hint.innerHTML =
                         '<div style="font-size:12px;line-height:1.6;margin-top:4px;">' +
                         '<b>НДС ' + ndsPercent + '% = ' + fmtRealMoney(nds) + '</b><br>' +
                         '<span style="color:#888;">(' + f(_realSalesAfterSpp) + ' + ' + f(_realCompensations) + ') / (100 + ' + ndsPercent + ') × ' + ndsPercent + '</span><br>' +
                         '<span style="color:#aaa;font-size:11px;">(Продажи после СПП + Компенсации)</span>' +
                         '<br style="margin-bottom:6px;">' +
-                        '<b>УСН ' + ndsPercent + '% = ' + fmtRealMoney(usnTax) + '</b>' +
+                        '<b>УСН ' + usnPercent + '% = ' + fmtRealMoney(usnTax) + '</b>' +
                         (usn <= 0 ? ' <span style="color:#e74c3c;">(база ≤ 0)</span>' : '') + '<br>' +
-                        '<span style="color:#888;">' +
-                        f(_realGrossSalesTotal) + ' − ' + f(nds) + ' − ' + f(_realCogs) + ' − ' + f(returns) +
+                        '<span style="color:#888;">(' +
+                        f(_realGrossSalesTotal) + ' − ' + f(nds) + ' − ' + f(_realCogs) + ' − ' + f(_realReturns) +
                         ' − ' + f(_realLogistics) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
                         ' − ' + f(_realStorage) + ' − ' + f(_realAdvertising) + ' − ' + f(_realOpex) +
-                        ' = ' + f(usn) + '</span><br>' +
-                        '<span style="color:#aaa;font-size:11px;">(Реализация − НДС − Себест. − Возвр. − Логист. − Комисс. − Удерж. − Хран. − Рекл. − Расх.к выч.)</span>' +
+                        ') × ' + usnPercent + '% = ' + f(usnTax) + '</span><br>' +
+                        '<span style="color:#aaa;font-size:11px;">(Реализация − НДС − Себест. − Возвр. − Логист. − Комисс. − Удерж. − Хран. − Рекл. − Расх.к выч.) × 15%</span>' +
                         '<br><span style="color:#999;font-size:11px;">Оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>' +
                         '</div>';
                 }
