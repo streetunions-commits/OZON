@@ -9118,6 +9118,7 @@ HTML_TEMPLATE = '''
                     <button class="finance-subtab-btn active" onclick="switchFinanceSubtab(event, 'finance-records')">ДДС</button>
                     <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-pendel')">P&amp;L</button>
                     <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-realization')">Реализация</button>
+                    <button class="finance-subtab-btn" onclick="switchFinanceSubtab(event, 'finance-nds')">Контроль НДС</button>
                 </div>
 
                 <!-- Подвкладка: Записи (существующий контент) -->
@@ -9596,6 +9597,14 @@ HTML_TEMPLATE = '''
 
                 </div><!-- /finance-realization -->
 
+                <div id="finance-nds" class="finance-subtab-content">
+                    <div style="padding:40px 20px;text-align:center;color:#999;">
+                        <div style="font-size:48px;margin-bottom:16px;">🧾</div>
+                        <div style="font-size:18px;font-weight:600;color:#555;margin-bottom:8px;">Контроль НДС</div>
+                        <div style="font-size:14px;">Раздел в разработке</div>
+                    </div>
+                </div><!-- /finance-nds -->
+
             </div>
 
             <!-- ТАБ: ПЛАН ЗАКУПОК -->
@@ -9944,7 +9953,7 @@ HTML_TEMPLATE = '''
             const validTabs = ['history', 'warehouse', 'ved', 'finance', 'plan', 'messages', 'users'];
             const validWarehouseSubtabs = ['wh-receipt', 'wh-shipments', 'wh-stock'];
             const validVedSubtabs = ['ved-containers', 'ved-receipts', 'ved-supplies'];
-            const validFinanceSubtabs = ['finance-records', 'finance-pendel', 'finance-realization'];
+            const validFinanceSubtabs = ['finance-records', 'finance-pendel', 'finance-realization', 'finance-nds'];
 
             if (savedTab && validTabs.includes(savedTab)) {
                 // Для users таба - проверяем роль
