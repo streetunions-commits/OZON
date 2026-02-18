@@ -6348,44 +6348,44 @@ HTML_TEMPLATE = '''
             grid-column: 1 / -1;
         }
         .real-card-profit .real-card-value { color: #2d6a4f; font-size: 26px; }
-        /* Зелёные карточки (доход) — как чистая прибыль */
-        .real-card-realization { border-left-color: #2d6a4f; }
+        /* Зелёные карточки (доход) — бледно-зелёный фон как у чистой прибыли */
+        .real-card-realization { border-left-color: #2d6a4f; background: linear-gradient(135deg, #f0fdf4, #fff); }
         .real-card-realization .real-card-value { color: #2d6a4f; font-size: 22px; }
-        .real-card-sales { border-left-color: #2d6a4f; }
+        .real-card-sales { border-left-color: #2d6a4f; background: linear-gradient(135deg, #f0fdf4, #fff); }
         .real-card-sales .real-card-value { color: #2d6a4f; }
-        .real-card-compensations { border-left-color: #2d6a4f; cursor: pointer; }
+        .real-card-compensations { border-left-color: #2d6a4f; cursor: pointer; background: linear-gradient(135deg, #f0fdf4, #fff); }
         .real-card-compensations .real-card-value { color: #2d6a4f; }
         .real-card-compensations .real-detail-value { color: #2d6a4f; }
-        /* Красные карточки (расход) — как расходы к вычету */
-        .real-card-returns { border-left-color: #c0392b; }
+        /* Красные карточки (расход) — бледно-розовый фон */
+        .real-card-returns { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-returns .real-card-value { color: #c0392b; }
-        .real-card-commission { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-commission { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-commission .real-card-value { color: #c0392b; }
         .real-card-commission .real-detail-value { color: #c0392b; }
-        .real-card-bonus { border-left-color: #c0392b; }
+        .real-card-bonus { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-bonus .real-card-value { color: #c0392b; }
-        .real-card-fee { border-left-color: #c0392b; }
+        .real-card-fee { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-fee .real-card-value { color: #c0392b; }
-        .real-card-stars { border-left-color: #c0392b; }
+        .real-card-stars { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-stars .real-card-value { color: #c0392b; }
-        .real-card-logistics { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-logistics { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-logistics .real-card-value { color: #c0392b; }
         .real-card-logistics .real-detail-value { color: #c0392b; }
-        .real-card-other-deductions { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-other-deductions { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-other-deductions .real-card-value { color: #c0392b; }
         .real-card-other-deductions .real-detail-value { color: #c0392b; }
-        .real-card-advertising { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-advertising { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-advertising .real-card-value { color: #c0392b; }
         .real-card-advertising .real-detail-value { color: #c0392b; }
-        .real-card-storage { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-storage { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-storage .real-card-value { color: #c0392b; }
         .real-card-storage .real-detail-value { color: #c0392b; }
-        .real-card-cogs { border-left-color: #c0392b; }
+        .real-card-cogs { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-cogs .real-card-value { color: #c0392b; }
-        .real-card-opex { border-left-color: #c0392b; }
+        .real-card-opex { border-left-color: #c0392b; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-opex .real-card-value { color: #c0392b; }
         .real-card-opex .real-detail-value { color: #c0392b; }
-        .real-card-tax { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-tax { border-left-color: #c0392b; cursor: pointer; background: linear-gradient(135deg, #fef2f2, #fff); }
         .real-card-tax .real-card-value { color: #c0392b; }
         .real-card-tax .real-detail-value { color: #c0392b; }
 
