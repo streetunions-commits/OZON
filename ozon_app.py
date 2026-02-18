@@ -9607,7 +9607,7 @@ HTML_TEMPLATE = '''
                             </div>
                             <span style="color:#888;font-size:14px;">до</span>
                             <div style="display:flex;align-items:center;gap:4px;">
-                                <input type="number" id="nds-row1-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any" disabled>
+                                <input type="text" id="nds-row1-amount" class="date-filter-input" style="width:140px;" placeholder="0" disabled oninput="ndsFormatAmount(this)">
                                 <span style="color:#888;font-size:14px;">₽</span>
                             </div>
                             <span id="nds-pen-1" onclick="ndsStartEdit(1)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
@@ -9624,7 +9624,7 @@ HTML_TEMPLATE = '''
                             </div>
                             <span style="color:#888;font-size:14px;">до</span>
                             <div style="display:flex;align-items:center;gap:4px;">
-                                <input type="number" id="nds-row2-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any" disabled>
+                                <input type="text" id="nds-row2-amount" class="date-filter-input" style="width:140px;" placeholder="0" disabled oninput="ndsFormatAmount(this)">
                                 <span style="color:#888;font-size:14px;">₽</span>
                             </div>
                             <span id="nds-pen-2" onclick="ndsStartEdit(2)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
@@ -13228,6 +13228,22 @@ HTML_TEMPLATE = '''
         // ============================================================================
 
         const _ndsOriginal = {1: {percent: '', amount: ''}, 2: {percent: '', amount: ''}};
+
+        /** Форматировать число с разделителями тысяч (пробелами) */
+        function ndsFormatAmount(input) {
+            const pos = input.selectionStart;
+            const oldLen = input.value.length;
+            // Оставляем только цифры, точку/запятую и минус
+            let raw = input.value.replace(/[^\d.,-]/g, '').replace(',', '.');
+            // Разделяем целую и дробную части
+            const parts = raw.split('.');
+            // Форматируем целую часть с пробелами
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+            input.value = parts.length > 1 ? parts[0] + '.' + parts[1] : parts[0];
+            // Корректируем позицию курсора
+            const newLen = input.value.length;
+            input.setSelectionRange(pos + (newLen - oldLen), pos + (newLen - oldLen));
+        }
 
         /** Клик по карандашу — включить редактирование, показать кнопки */
         function ndsStartEdit(row) {
