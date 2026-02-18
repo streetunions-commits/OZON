@@ -9634,8 +9634,21 @@ HTML_TEMPLATE = '''
                             </span>
                         </div>
 
+                        <!-- Итого с 1 января (авто-загрузка) -->
                         <div style="border-top:1px solid #e9ecef;margin:20px 0 16px;"></div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <span style="font-weight:700;font-size:15px;color:#333;">Оборот с 1 января</span>
+                            <span id="nds-ytd-loading" style="color:#888;font-size:13px;">загрузка...</span>
+                        </div>
+                        <div id="nds-ytd-result" style="display:none;padding:0 0 4px;">
+                            <div style="display:flex;justify-content:space-between;font-size:15px;">
+                                <span style="color:#555;">Итого</span>
+                                <span style="font-weight:700;color:#333;" id="nds-ytd-total">0 ₽</span>
+                            </div>
+                        </div>
 
+                        <!-- Общий оборот с фильтром дат -->
+                        <div style="border-top:1px solid #e9ecef;margin:16px 0 16px;"></div>
                         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
                             <span style="font-weight:600;font-size:14px;color:#333;">Общий оборот</span>
                             <span style="color:#888;font-size:13px;">с</span>
@@ -9646,9 +9659,12 @@ HTML_TEMPLATE = '''
                         <div id="nds-turnover-loading" style="display:none;color:#888;font-size:13px;padding:8px 0;">Загрузка...</div>
                         <div id="nds-turnover-result" style="display:none;padding:8px 0;">
                             <div style="display:flex;flex-direction:column;gap:8px;">
-                                <div style="display:flex;justify-content:space-between;font-size:14px;">
-                                    <span style="color:#555;">Приходы (ДДС)</span>
-                                    <span style="font-weight:600;color:#27ae60;" id="nds-turnover-dds">0 ₽</span>
+                                <div>
+                                    <div onclick="document.getElementById('nds-turnover-dds-details').classList.toggle('open')" style="display:flex;justify-content:space-between;font-size:14px;cursor:pointer;">
+                                        <span style="color:#555;">Приходы (ДДС) <span style="font-size:11px;color:#aaa;">&#9660;</span></span>
+                                        <span style="font-weight:600;color:#27ae60;" id="nds-turnover-dds">0 ₽</span>
+                                    </div>
+                                    <div id="nds-turnover-dds-details" class="real-card-details" style="margin-top:6px;padding-top:6px;"></div>
                                 </div>
                                 <div style="display:flex;justify-content:space-between;font-size:14px;">
                                     <span style="color:#555;">Продажи после СПП (Реализация)</span>
@@ -13173,6 +13189,9 @@ HTML_TEMPLATE = '''
             if (subtab === 'finance-realization' && !realizationInitialized) {
                 initRealizationMonthSelect();
             }
+            if (subtab === 'finance-nds') {
+                ndsLoadYtd();
+            }
         }
 
         /**
@@ -13198,6 +13217,9 @@ HTML_TEMPLATE = '''
             }
             if (subtab === 'finance-realization' && !realizationInitialized) {
                 initRealizationMonthSelect();
+            }
+            if (subtab === 'finance-nds') {
+                ndsLoadYtd();
             }
         }
 
@@ -13257,9 +13279,52 @@ HTML_TEMPLATE = '''
             document.getElementById('nds-pen-' + row).style.display = '';
         }
 
+        let _ndsYtdLoaded = false;
+
+        /**
+         * Загрузить оборот с 1 января текущего года (авто при открытии вкладки).
+         */
+        async function ndsLoadYtd() {
+            if (_ndsYtdLoaded) return;
+            _ndsYtdLoaded = true;
+
+            const year = new Date().getFullYear();
+            const dateFrom = year + '-01-01';
+            const today = new Date();
+            const dateTo = today.getFullYear() + '-' +
+                String(today.getMonth() + 1).padStart(2, '0') + '-' +
+                String(today.getDate()).padStart(2, '0');
+
+            try {
+                const [ddsResp, realResp] = await Promise.all([
+                    authFetch('/api/finance/records?' + new URLSearchParams({
+                        type: 'income', date_from: dateFrom, date_to: dateTo
+                    })),
+                    authFetch('/api/finance/realization?date_from=' +
+                        encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
+                ]);
+                const ddsData = await ddsResp.json();
+                const realData = await realResp.json();
+
+                const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
+                let salesAfterSpp = 0;
+                if (realData.success && realData.summary) {
+                    salesAfterSpp = realData.summary.sales_after_spp || 0;
+                    if (realData.buyout) salesAfterSpp += realData.buyout.seller_price_total || 0;
+                }
+
+                document.getElementById('nds-ytd-total').textContent = fmtRealMoney(ddsIncome + salesAfterSpp);
+                document.getElementById('nds-ytd-loading').style.display = 'none';
+                document.getElementById('nds-ytd-result').style.display = '';
+            } catch (e) {
+                console.error('[NDS YTD] error:', e);
+                document.getElementById('nds-ytd-loading').textContent = 'Ошибка загрузки';
+            }
+        }
+
         /**
          * Загрузить общий оборот: приходы из ДДС + продажи после СПП из реализации.
-         * Оба запроса идут параллельно по выбранному диапазону дат.
+         * Оба запроса идут параллельно. Приходы ДДС раскрываются по категориям.
          */
         async function ndsLoadTurnover() {
             const dateFrom = document.getElementById('nds-turnover-date-from').value;
@@ -13272,7 +13337,6 @@ HTML_TEMPLATE = '''
             resultEl.style.display = 'none';
 
             try {
-                // Параллельные запросы: приходы ДДС + реализация
                 const [ddsResp, realResp] = await Promise.all([
                     authFetch('/api/finance/records?' + new URLSearchParams({
                         type: 'income', date_from: dateFrom, date_to: dateTo
@@ -13285,7 +13349,25 @@ HTML_TEMPLATE = '''
 
                 const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
 
-                // sales_after_spp + выкупы СНГ (как в карточке реализации)
+                // Группировка приходов ДДС по категориям
+                const catMap = {};
+                if (ddsData.success && ddsData.records) {
+                    ddsData.records.forEach(r => {
+                        const cat = r.category_name || 'Без категории';
+                        if (!catMap[cat]) catMap[cat] = 0;
+                        catMap[cat] += parseFloat(r.amount) || 0;
+                    });
+                }
+                const categories = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+                let detailsHtml = '';
+                categories.forEach(([cat, sum]) => {
+                    detailsHtml += '<div class="real-detail-row">' +
+                        '<span class="real-detail-label">' + escapeHtml(cat) + '</span>' +
+                        '<span class="real-detail-value" style="color:#27ae60;">' + fmtRealMoney(sum) + '</span>' +
+                        '</div>';
+                });
+                document.getElementById('nds-turnover-dds-details').innerHTML = detailsHtml;
+
                 let salesAfterSpp = 0;
                 if (realData.success && realData.summary) {
                     salesAfterSpp = realData.summary.sales_after_spp || 0;
