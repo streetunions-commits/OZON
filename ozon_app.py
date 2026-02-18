@@ -14035,28 +14035,12 @@ HTML_TEMPLATE = '''
          */
         async function _loadRealizationTax() {
             try {
-                // 1. Загружаем НДС-ставки из БД
-                let row1Pct = 0, row1Amt = 0, row2Pct = 0;
-                const settResp = await authFetch('/api/settings?key=nds_rows');
-                const settData = await settResp.json();
-                if (settData.success && settData.value) {
-                    const rows = JSON.parse(settData.value);
-                    if (rows[1]) {
-                        row1Pct = parseFloat((rows[1].percent || '0').replace(/\s/g, '')) || 0;
-                        row1Amt = parseFloat((rows[1].amount || '0').replace(/\s/g, '')) || 0;
-                    }
-                    if (rows[2]) {
-                        row2Pct = parseFloat((rows[2].percent || '0').replace(/\s/g, '')) || 0;
-                    }
-                }
-
-                // 2. Определяем конец квартала просматриваемого периода
+                // 1. Определяем конец квартала просматриваемого периода (синхронно, без запросов)
                 const today = new Date();
                 const todayStr = today.getFullYear() + '-' +
                     String(today.getMonth() + 1).padStart(2, '0') + '-' +
                     String(today.getDate()).padStart(2, '0');
 
-                // Определяем дату конца просматриваемого периода
                 let periodEndDate = todayStr;
                 const periodType = document.getElementById('real-period-type').value;
                 if (periodType === 'days') {
@@ -14080,29 +14064,42 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                // Определяем квартал просматриваемого периода → конец этого квартала
                 const peDate = new Date(periodEndDate + 'T00:00:00');
                 const peYear = peDate.getFullYear();
                 const peQuarter = Math.ceil((peDate.getMonth() + 1) / 3);
                 const qEndMonth = peQuarter * 3;
                 const qEndDay = new Date(peYear, qEndMonth, 0).getDate();
                 const quarterEndDate = peYear + '-' + String(qEndMonth).padStart(2, '0') + '-' + String(qEndDay).padStart(2, '0');
-
-                // dateTo = min(конец квартала, сегодня) — не заглядываем в будущее
                 const turnoverDateTo = quarterEndDate <= todayStr ? quarterEndDate : todayStr;
                 const turnoverDateFrom = peYear + '-01-01';
 
-                // 3. Загружаем оборот с 1 января по turnoverDateTo
-                const [ddsResp, realResp] = await Promise.all([
+                // 2. Запускаем ВСЕ 3 запроса параллельно (настройки + ДДС + реализация)
+                const [settResp, ddsResp, realResp] = await Promise.all([
+                    authFetch('/api/settings?key=nds_rows'),
                     authFetch('/api/finance/records?' + new URLSearchParams({
                         type: 'income', is_official: '1', date_from: turnoverDateFrom, date_to: turnoverDateTo
                     })),
                     authFetch('/api/finance/realization?date_from=' +
                         encodeURIComponent(turnoverDateFrom) + '&date_to=' + encodeURIComponent(turnoverDateTo))
                 ]);
-                const ddsData = await ddsResp.json();
-                const realData = await realResp.json();
+                const [settData, ddsData, realData] = await Promise.all([
+                    settResp.json(), ddsResp.json(), realResp.json()
+                ]);
 
+                // 3. Парсим НДС-ставки
+                let row1Pct = 0, row1Amt = 0, row2Pct = 0;
+                if (settData.success && settData.value) {
+                    const rows = JSON.parse(settData.value);
+                    if (rows[1]) {
+                        row1Pct = parseFloat((rows[1].percent || '0').replace(/\s/g, '')) || 0;
+                        row1Amt = parseFloat((rows[1].amount || '0').replace(/\s/g, '')) || 0;
+                    }
+                    if (rows[2]) {
+                        row2Pct = parseFloat((rows[2].percent || '0').replace(/\s/g, '')) || 0;
+                    }
+                }
+
+                // 4. Считаем оборот
                 const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
                 let realSales = 0;
                 if (realData.success && realData.summary) {
@@ -14111,7 +14108,7 @@ HTML_TEMPLATE = '''
                 }
                 const yearlyTurnover = ddsIncome + realSales;
 
-                // 4. Определяем ставку НДС по обороту на конец квартала просматриваемого периода
+                // 5. Определяем ставку НДС по обороту на конец квартала просматриваемого периода
                 //    Если оборот < порога 1-й строки → ставка 1-й строки, иначе → 2-й строки
                 //    Прошлые кварталы сохраняют свою ставку (оборот фиксируется на конец квартала)
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
