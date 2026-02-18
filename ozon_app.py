@@ -6348,38 +6348,46 @@ HTML_TEMPLATE = '''
             grid-column: 1 / -1;
         }
         .real-card-profit .real-card-value { color: #2d6a4f; font-size: 26px; }
-        .real-card-realization { border-left-color: #276749; }
-        .real-card-realization .real-card-value { color: #276749; font-size: 22px; }
-        .real-card-sales { border-left-color: #38a169; }
-        .real-card-sales .real-card-value { color: #38a169; }
-        .real-card-returns { border-left-color: #e53e3e; }
-        .real-card-returns .real-card-value { color: #e53e3e; }
-        .real-card-commission { border-left-color: #d69e2e; cursor: pointer; }
-        .real-card-commission .real-card-value { color: #d69e2e; }
-        .real-card-commission .real-detail-value { color: #d69e2e; }
-        .real-card-bonus { border-left-color: #667eea; }
-        .real-card-bonus .real-card-value { color: #667eea; }
-        .real-card-fee { border-left-color: #805ad5; }
-        .real-card-fee .real-card-value { color: #805ad5; }
-        .real-card-stars { border-left-color: #ed8936; }
-        .real-card-stars .real-card-value { color: #ed8936; }
-        .real-card-logistics { border-left-color: #3182ce; cursor: pointer; }
-        .real-card-logistics .real-card-value { color: #3182ce; }
-        .real-card-other-deductions { border-left-color: #805ad5; cursor: pointer; }
-        .real-card-other-deductions .real-card-value { color: #805ad5; }
-        .real-card-advertising { border-left-color: #d53f8c; cursor: pointer; }
-        .real-card-advertising .real-card-value { color: #d53f8c; }
-        .real-card-compensations { border-left-color: #38a169; cursor: pointer; }
-        .real-card-compensations .real-card-value { color: #38a169; }
-        .real-card-storage { border-left-color: #c05621; cursor: pointer; }
-        .real-card-storage .real-card-value { color: #c05621; }
-        .real-card-cogs { border-left-color: #e07020; }
-        .real-card-cogs .real-card-value { color: #e07020; }
+        /* Зелёные карточки (доход) — как чистая прибыль */
+        .real-card-realization { border-left-color: #2d6a4f; }
+        .real-card-realization .real-card-value { color: #2d6a4f; font-size: 22px; }
+        .real-card-sales { border-left-color: #2d6a4f; }
+        .real-card-sales .real-card-value { color: #2d6a4f; }
+        .real-card-compensations { border-left-color: #2d6a4f; cursor: pointer; }
+        .real-card-compensations .real-card-value { color: #2d6a4f; }
+        .real-card-compensations .real-detail-value { color: #2d6a4f; }
+        /* Красные карточки (расход) — как расходы к вычету */
+        .real-card-returns { border-left-color: #c0392b; }
+        .real-card-returns .real-card-value { color: #c0392b; }
+        .real-card-commission { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-commission .real-card-value { color: #c0392b; }
+        .real-card-commission .real-detail-value { color: #c0392b; }
+        .real-card-bonus { border-left-color: #c0392b; }
+        .real-card-bonus .real-card-value { color: #c0392b; }
+        .real-card-fee { border-left-color: #c0392b; }
+        .real-card-fee .real-card-value { color: #c0392b; }
+        .real-card-stars { border-left-color: #c0392b; }
+        .real-card-stars .real-card-value { color: #c0392b; }
+        .real-card-logistics { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-logistics .real-card-value { color: #c0392b; }
+        .real-card-logistics .real-detail-value { color: #c0392b; }
+        .real-card-other-deductions { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-other-deductions .real-card-value { color: #c0392b; }
+        .real-card-other-deductions .real-detail-value { color: #c0392b; }
+        .real-card-advertising { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-advertising .real-card-value { color: #c0392b; }
+        .real-card-advertising .real-detail-value { color: #c0392b; }
+        .real-card-storage { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-storage .real-card-value { color: #c0392b; }
+        .real-card-storage .real-detail-value { color: #c0392b; }
+        .real-card-cogs { border-left-color: #c0392b; }
+        .real-card-cogs .real-card-value { color: #c0392b; }
         .real-card-opex { border-left-color: #c0392b; }
         .real-card-opex .real-card-value { color: #c0392b; }
-        .real-card-tax { border-left-color: #8e44ad; cursor: pointer; }
-        .real-card-tax .real-card-value { color: #8e44ad; }
-        .real-card-tax .real-detail-value { color: #8e44ad; }
+        .real-card-opex .real-detail-value { color: #c0392b; }
+        .real-card-tax { border-left-color: #c0392b; cursor: pointer; }
+        .real-card-tax .real-card-value { color: #c0392b; }
+        .real-card-tax .real-detail-value { color: #c0392b; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -9506,6 +9514,14 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-gross-sales">0 ₽</div>
                             <div class="real-card-hint" id="real-gross-hint"></div>
                         </div>
+                        <div class="real-card real-card-compensations" id="real-compensations-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
+                                <div class="real-card-label">Компенсации</div>
+                                <span class="real-card-badge" id="real-compensations-badge"></span>
+                            </div>
+                            <div class="real-card-value" id="real-compensations-total">0 ₽</div>
+                            <div class="real-card-details" id="real-compensations-details"></div>
+                        </div>
                         <div class="real-card real-card-returns">
                             <div class="real-card-label">Возвраты</div>
                             <div class="real-card-value" id="real-returns">0 ₽</div>
@@ -9535,14 +9551,6 @@ HTML_TEMPLATE = '''
                             </div>
                             <div class="real-card-value" id="real-other-deductions-total">0 ₽</div>
                             <div class="real-card-details" id="real-other-deductions-details"></div>
-                        </div>
-                        <div class="real-card real-card-compensations" id="real-compensations-card" style="display:none;" onclick="toggleCardDetails(this)">
-                            <div class="real-card-header">
-                                <div class="real-card-label">Компенсации</div>
-                                <span class="real-card-badge" id="real-compensations-badge"></span>
-                            </div>
-                            <div class="real-card-value" id="real-compensations-total">0 ₽</div>
-                            <div class="real-card-details" id="real-compensations-details"></div>
                         </div>
                         <div class="real-card real-card-advertising" id="real-advertising-card" style="display:none;" onclick="toggleCardDetails(this)">
                             <div class="real-card-header">
