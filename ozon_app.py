@@ -6361,6 +6361,8 @@ HTML_TEMPLATE = '''
         .real-card-cogs .real-card-value { color: #e07020; }
         .real-card-opex { border-left-color: #c0392b; }
         .real-card-opex .real-card-value { color: #c0392b; }
+        .real-card-tax { border-left-color: #8e44ad; }
+        .real-card-tax .real-card-value { color: #8e44ad; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -9549,6 +9551,11 @@ HTML_TEMPLATE = '''
                             <div class="real-card-value" id="real-opex-total">0 ₽</div>
                             <div class="real-card-hint" id="real-opex-hint"></div>
                             <div class="real-card-details" id="real-opex-details"></div>
+                        </div>
+                        <div class="real-card real-card-tax" id="real-tax-card" style="display:none;">
+                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('Продажи после СПП / (100 + НДС%) × НДС%. Ставка НДС определяется автоматически из вкладки «Контроль НДС» по годовому обороту.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-value" id="real-tax-total">0 ₽</div>
+                            <div class="real-card-hint" id="real-tax-hint"></div>
                         </div>
                     </div>
 
@@ -13640,7 +13647,7 @@ HTML_TEMPLATE = '''
              'real-products-wrapper',
              'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
              'real-advertising-card', 'real-storage-card',
-             'real-cogs-card', 'real-opex-card'].forEach(id => {
+             'real-cogs-card', 'real-opex-card', 'real-tax-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -13717,6 +13724,9 @@ HTML_TEMPLATE = '''
 
                 // Загружаем операционные расходы (ДДС, is_official=1) за тот же период
                 _loadRealizationOpex(periodType);
+
+                // Загружаем карточку «Налоги» (НДС от продаж после СПП)
+                _loadRealizationTax(totalSellerWithBuyout);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13898,6 +13908,67 @@ HTML_TEMPLATE = '''
                 card.style.display = '';
             } catch (e) {
                 console.error('[OPEX] fetch error:', e);
+            }
+        }
+
+        /**
+         * Загрузить карточку «Налоги»: НДС от продаж после СПП.
+         * Ставка определяется из строк «Контроль НДС» по годовому обороту.
+         * Формула: salesAfterSpp / (100 + ndsPercent) * ndsPercent
+         */
+        async function _loadRealizationTax(salesAfterSpp) {
+            try {
+                // 1. Получаем НДС-ставки из полей вкладки «Контроль НДС»
+                const row1Pct = parseFloat((document.getElementById('nds-row1-percent').value || '0').replace(/\s/g, '')) || 0;
+                const row1Amt = parseFloat((document.getElementById('nds-row1-amount').value || '0').replace(/\s/g, '')) || 0;
+                const row2Pct = parseFloat((document.getElementById('nds-row2-percent').value || '0').replace(/\s/g, '')) || 0;
+
+                // 2. Загружаем годовой оборот (приходы ДДС is_official + реализация) с 1 января
+                const year = new Date().getFullYear();
+                const dateFrom = year + '-01-01';
+                const today = new Date();
+                const dateTo = today.getFullYear() + '-' +
+                    String(today.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(today.getDate()).padStart(2, '0');
+
+                const [ddsResp, realResp] = await Promise.all([
+                    authFetch('/api/finance/records?' + new URLSearchParams({
+                        type: 'income', is_official: '1', date_from: dateFrom, date_to: dateTo
+                    })),
+                    authFetch('/api/finance/realization?date_from=' +
+                        encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
+                ]);
+                const ddsData = await ddsResp.json();
+                const realData = await realResp.json();
+
+                const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
+                let realSales = 0;
+                if (realData.success && realData.summary) {
+                    realSales = realData.summary.sales_after_spp || 0;
+                    if (realData.buyout) realSales += realData.buyout.seller_price_total || 0;
+                }
+                const yearlyTurnover = ddsIncome + realSales;
+
+                // 3. Определяем ставку НДС: если оборот < порог строки 1 → ставка 1, иначе → ставка 2
+                const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
+
+                // 4. Считаем налог: salesAfterSpp / (100 + nds%) * nds%
+                let tax = 0;
+                if (ndsPercent > 0) {
+                    tax = salesAfterSpp / (100 + ndsPercent) * ndsPercent;
+                }
+
+                // 5. Отображаем
+                const card = document.getElementById('real-tax-card');
+                if (!card) return;
+                document.getElementById('real-tax-total').textContent = fmtRealMoney(tax);
+                const hint = document.getElementById('real-tax-hint');
+                if (hint) {
+                    hint.textContent = 'НДС ' + ndsPercent + '% (оборот за год: ' + fmtRealMoney(yearlyTurnover) + ')';
+                }
+                card.style.display = '';
+            } catch (e) {
+                console.error('[TAX] fetch error:', e);
             }
         }
 
