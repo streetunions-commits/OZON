@@ -6343,6 +6343,11 @@ HTML_TEMPLATE = '''
         .real-card-label { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
         .real-card-value { font-size: 20px; font-weight: 700; }
         .real-card-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+        .real-card-profit {
+            border-left-color: #2d6a4f; background: linear-gradient(135deg, #f0fdf4, #fff);
+            grid-column: 1 / -1;
+        }
+        .real-card-profit .real-card-value { color: #2d6a4f; font-size: 26px; }
         .real-card-realization { border-left-color: #276749; }
         .real-card-realization .real-card-value { color: #276749; font-size: 22px; }
         .real-card-sales { border-left-color: #38a169; }
@@ -9486,6 +9491,11 @@ HTML_TEMPLATE = '''
 
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
+                        <div class="real-card real-card-profit" id="real-profit-card" style="display:none;">
+                            <div class="real-card-label">Чистая прибыль <span onclick="event.stopPropagation();alert('Чистая прибыль (без операционных расходов)\\n\\nПродажи до СПП − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение + Компенсации − Баллы за отзывы')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-value" id="real-profit-total">0 ₽</div>
+                            <div class="real-card-hint" id="real-profit-hint"></div>
+                        </div>
                         <div class="real-card real-card-realization">
                             <div class="real-card-label">Продажи после СПП <span onclick="alert('Сумма реализации по акту с механикой лояльности + сумма продаж СНГ - возвраты с механикой лояльности')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-realization">0 ₽</div>
@@ -13649,6 +13659,7 @@ HTML_TEMPLATE = '''
         let _realCompensations = 0;  // Компенсации (без баллов)
         let _realCogs = 0;           // Себестоимость
         let _realOpex = 0;           // Расходы к вычету
+        let _realTotalTax = 0;       // Налоги (НДС + УСН)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
@@ -13712,6 +13723,7 @@ HTML_TEMPLATE = '''
             _realCompensations = 0;
             _realCogs = 0;
             _realOpex = 0;
+            _realTotalTax = 0;
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13738,7 +13750,7 @@ HTML_TEMPLATE = '''
              'real-products-wrapper',
              'real-logistics-card', 'real-compensations-card', 'real-other-deductions-card',
              'real-advertising-card', 'real-storage-card',
-             'real-cogs-card', 'real-opex-card', 'real-tax-card'].forEach(id => {
+             'real-cogs-card', 'real-opex-card', 'real-tax-card', 'real-profit-card'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });
@@ -14121,6 +14133,7 @@ HTML_TEMPLATE = '''
                 const usnPercent = 15;
                 const usnTax = usn > 0 ? usn * usnPercent / 100 : 0;
                 const totalTax = nds + usnTax;
+                _realTotalTax = totalTax;
 
                 // 7. Отображаем
                 const card = document.getElementById('real-tax-card');
@@ -14172,9 +14185,43 @@ HTML_TEMPLATE = '''
                 }
 
                 card.style.display = '';
+
+                // 8. Обновляем карточку «Чистая прибыль»
+                _updateProfitCard();
             } catch (e) {
                 console.error('[TAX] fetch error:', e);
             }
+        }
+
+        /**
+         * Обновить карточку «Чистая прибыль» (без операционных расходов).
+         * Формула: Продажи до СПП − Реклама − Налоги − Логистика − Комиссия
+         *          − Себестоимость − Иные удержания − Хранение + Компенсации − Баллы
+         */
+        function _updateProfitCard() {
+            const commission = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
+            const allCompensations = _realCompensations + _realBonuses;
+            const profit = _realGrossSalesTotal
+                - _realAdvertising
+                - _realTotalTax
+                - _realLogistics
+                - commission
+                - _realCogs
+                - _realOtherDeductions
+                - _realStorage
+                + allCompensations
+                - _realBonuses;
+
+            const card = document.getElementById('real-profit-card');
+            if (!card) return;
+            document.getElementById('real-profit-total').textContent = fmtRealMoney(profit);
+
+            const hint = document.getElementById('real-profit-hint');
+            if (hint) {
+                hint.innerHTML = '<span style="color:' + (profit >= 0 ? '#2d6a4f' : '#e53e3e') +
+                    ';font-size:11px;">без учёта операционных расходов</span>';
+            }
+            card.style.display = '';
         }
 
         /**
