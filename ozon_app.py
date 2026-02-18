@@ -13298,7 +13298,7 @@ HTML_TEMPLATE = '''
             try {
                 const [ddsResp, realResp] = await Promise.all([
                     authFetch('/api/finance/records?' + new URLSearchParams({
-                        type: 'income', date_from: dateFrom, date_to: dateTo
+                        type: 'income', is_official: '1', date_from: dateFrom, date_to: dateTo
                     })),
                     authFetch('/api/finance/realization?date_from=' +
                         encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
@@ -13339,7 +13339,7 @@ HTML_TEMPLATE = '''
             try {
                 const [ddsResp, realResp] = await Promise.all([
                     authFetch('/api/finance/records?' + new URLSearchParams({
-                        type: 'income', date_from: dateFrom, date_to: dateTo
+                        type: 'income', is_official: '1', date_from: dateFrom, date_to: dateTo
                     })),
                     authFetch('/api/finance/realization?date_from=' +
                         encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
