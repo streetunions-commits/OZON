@@ -9564,7 +9564,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-details" id="real-opex-details"></div>
                         </div>
                         <div class="real-card real-card-tax" id="real-tax-card" style="display:none;">
-                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('НДС + УСН\n\nНДС = (Продажи после СПП + Компенсации) / (100 + НДС%) × НДС%\nСтавка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\n\nУСН = (Реализация − НДС − Себестоимость − Возвраты − Логистика − Комиссия − Иные удержания − Хранение − Реклама − Расходы к вычету) × 15%\nСтавка УСН фиксированная — 15%.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('НДС + УСН\n\nНДС = (Продажи после СПП + Компенсации) / (100 + НДС%) × НДС%\nСтавка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\n\nУСН = (Продажи до СПП − Реклама − Логистика − Хранение − Комиссия − Иные удержания − Себестоимость − Расходы к вычету − НДС + Компенсации − Баллы за отзывы) × 15%\nСтавка УСН фиксированная — 15%.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-tax-total">0 ₽</div>
                             <div class="real-card-hint" id="real-tax-hint"></div>
                         </div>
@@ -14058,19 +14058,21 @@ HTML_TEMPLATE = '''
                     nds = ndsBase / (100 + ndsPercent) * ndsPercent;
                 }
 
-                // 5. УСН = Реализация − НДС − Себестоимость − Возвраты − Логистика
-                //          − Комиссия − Иные удержания − Хранение − Реклама − Расходы к вычету
+                // 5. УСН = Продажи до СПП − Реклама − Логистика − Хранение − Комиссия
+                //          − Иные удержания − Себестоимость − Расходы к вычету − НДС
+                //          + Компенсации − Баллы за отзывы
                 const commission = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
                 const usn = _realGrossSalesTotal
-                    - nds
-                    - _realCogs
-                    - Math.abs(_realReturns)
+                    - _realAdvertising
                     - _realLogistics
+                    - _realStorage
                     - commission
                     - _realOtherDeductions
-                    - _realStorage
-                    - _realAdvertising
-                    - _realOpex;
+                    - _realCogs
+                    - _realOpex
+                    - nds
+                    + _realCompensations
+                    - _realBonuses;
 
                 // 6. Итого = НДС + УСН (если УСН > 0). УСН всегда 15%
                 const usnPercent = 15;
@@ -14093,11 +14095,12 @@ HTML_TEMPLATE = '''
                         '<b>УСН ' + usnPercent + '% = ' + fmtRealMoney(usnTax) + '</b>' +
                         (usn <= 0 ? ' <span style="color:#e74c3c;">(база ≤ 0)</span>' : '') + '<br>' +
                         '<span style="color:#888;">(' +
-                        f(_realGrossSalesTotal) + ' − ' + f(nds) + ' − ' + f(_realCogs) + ' − ' + f(_realReturns) +
-                        ' − ' + f(_realLogistics) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
-                        ' − ' + f(_realStorage) + ' − ' + f(_realAdvertising) + ' − ' + f(_realOpex) +
+                        f(_realGrossSalesTotal) + ' − ' + f(_realAdvertising) + ' − ' + f(_realLogistics) +
+                        ' − ' + f(_realStorage) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
+                        ' − ' + f(_realCogs) + ' − ' + f(_realOpex) + ' − ' + f(nds) +
+                        ' + ' + f(_realCompensations) + ' − ' + f(_realBonuses) +
                         ') × ' + usnPercent + '% = ' + f(usnTax) + '</span><br>' +
-                        '<span style="color:#aaa;font-size:11px;">(Реализация − НДС − Себест. − Возвр. − Логист. − Комисс. − Удерж. − Хран. − Рекл. − Расх.к выч.) × 15%</span>' +
+                        '<span style="color:#aaa;font-size:11px;">(Прод.до СПП − Рекл. − Логист. − Хран. − Комисс. − Удерж. − Себест. − Расх.к выч. − НДС + Компенс. − Баллы) × 15%</span>' +
                         '<br><span style="color:#999;font-size:11px;">Оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>' +
                         '</div>';
                 }
