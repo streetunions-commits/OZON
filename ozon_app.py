@@ -9492,7 +9492,7 @@ HTML_TEMPLATE = '''
                     <!-- Сводные карточки -->
                     <div class="real-summary" id="real-summary" style="display: none;">
                         <div class="real-card real-card-profit" id="real-profit-card" style="display:none;">
-                            <div class="real-card-label">Чистая прибыль <span onclick="event.stopPropagation();alert('Чистая прибыль (без операционных расходов)\\n\\nПродажи до СПП − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение + Компенсации − Баллы за отзывы')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-label">Чистая прибыль / Прибыль за единицу <span onclick="event.stopPropagation();alert('Чистая прибыль / Прибыль за единицу продаж\\n(без операционных расходов)\\n\\nПродажи до СПП − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение + Компенсации − Баллы за отзывы\\n\\nПрибыль за единицу = Чистая прибыль / Кол-во продаж')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-profit-total">0 ₽</div>
                             <div class="real-card-hint" id="real-profit-hint"></div>
                         </div>
@@ -13660,6 +13660,7 @@ HTML_TEMPLATE = '''
         let _realCogs = 0;           // Себестоимость
         let _realOpex = 0;           // Расходы к вычету
         let _realTotalTax = 0;       // Налоги (НДС + УСН)
+        let _realSalesCount = 0;     // Количество продаж (шт)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
@@ -13724,6 +13725,7 @@ HTML_TEMPLATE = '''
             _realCogs = 0;
             _realOpex = 0;
             _realTotalTax = 0;
+            _realSalesCount = 0;
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13783,6 +13785,7 @@ HTML_TEMPLATE = '''
                 const totalSellerWithBuyout = (s.sales_after_spp || 0) + (buyout.seller_price_total || 0);
                 _realSalesAfterSpp = totalSellerWithBuyout;
                 const totalSalesCount = netSalesCount + (buyout.count || 0);
+                _realSalesCount = totalSalesCount;
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(totalSellerWithBuyout);
                 const realHint = document.getElementById('real-realization-hint');
@@ -14214,12 +14217,16 @@ HTML_TEMPLATE = '''
 
             const card = document.getElementById('real-profit-card');
             if (!card) return;
-            document.getElementById('real-profit-total').textContent = fmtRealMoney(profit);
+
+            // Прибыль за единицу продаж
+            const perUnit = _realSalesCount > 0 ? profit / _realSalesCount : 0;
+            document.getElementById('real-profit-total').innerHTML =
+                fmtRealMoney(profit) + ' <span style="color:#888;font-size:16px;font-weight:400;">/ ' + fmtRealMoney(perUnit) + '</span>';
 
             const hint = document.getElementById('real-profit-hint');
             if (hint) {
-                hint.innerHTML = '<span style="color:' + (profit >= 0 ? '#2d6a4f' : '#e53e3e') +
-                    ';font-size:11px;">без учёта операционных расходов</span>';
+                hint.innerHTML = '<span style="color:#999;font-size:11px;">без учёта операционных расходов · ' +
+                    _realSalesCount + ' ' + _pluralize(_realSalesCount, 'продажа', 'продажи', 'продаж') + '</span>';
             }
             card.style.display = '';
         }
