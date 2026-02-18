@@ -9633,6 +9633,33 @@ HTML_TEMPLATE = '''
                                 <button onclick="ndsCancel(2)" style="padding:4px 12px;font-size:13px;background:#e9ecef;color:#333;border:none;border-radius:6px;cursor:pointer;">Отменить</button>
                             </span>
                         </div>
+
+                        <div style="border-top:1px solid #e9ecef;margin:20px 0 16px;"></div>
+
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+                            <span style="font-weight:600;font-size:14px;color:#333;">Общий оборот</span>
+                            <span style="color:#888;font-size:13px;">с</span>
+                            <input type="date" id="nds-turnover-date-from" class="date-filter-input" style="width:150px;" onclick="this.showPicker()" onchange="ndsLoadTurnover()">
+                            <span style="color:#888;font-size:13px;">по</span>
+                            <input type="date" id="nds-turnover-date-to" class="date-filter-input" style="width:150px;" onclick="this.showPicker()" onchange="ndsLoadTurnover()">
+                        </div>
+                        <div id="nds-turnover-loading" style="display:none;color:#888;font-size:13px;padding:8px 0;">Загрузка...</div>
+                        <div id="nds-turnover-result" style="display:none;padding:8px 0;">
+                            <div style="display:flex;flex-direction:column;gap:8px;">
+                                <div style="display:flex;justify-content:space-between;font-size:14px;">
+                                    <span style="color:#555;">Приходы (ДДС)</span>
+                                    <span style="font-weight:600;color:#27ae60;" id="nds-turnover-dds">0 ₽</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;font-size:14px;">
+                                    <span style="color:#555;">Продажи после СПП (Реализация)</span>
+                                    <span style="font-weight:600;color:#667eea;" id="nds-turnover-real">0 ₽</span>
+                                </div>
+                                <div style="display:flex;justify-content:space-between;font-size:15px;border-top:1px solid #e9ecef;padding-top:8px;margin-top:4px;">
+                                    <span style="font-weight:700;color:#333;">Итого</span>
+                                    <span style="font-weight:700;color:#333;" id="nds-turnover-total">0 ₽</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div><!-- /finance-nds -->
 
@@ -13228,6 +13255,55 @@ HTML_TEMPLATE = '''
 
             document.getElementById('nds-actions-' + row).style.display = 'none';
             document.getElementById('nds-pen-' + row).style.display = '';
+        }
+
+        /**
+         * Загрузить общий оборот: приходы из ДДС + продажи после СПП из реализации.
+         * Оба запроса идут параллельно по выбранному диапазону дат.
+         */
+        async function ndsLoadTurnover() {
+            const dateFrom = document.getElementById('nds-turnover-date-from').value;
+            const dateTo = document.getElementById('nds-turnover-date-to').value;
+            const resultEl = document.getElementById('nds-turnover-result');
+            const loadingEl = document.getElementById('nds-turnover-loading');
+            if (!dateFrom || !dateTo) { resultEl.style.display = 'none'; return; }
+
+            loadingEl.style.display = 'block';
+            resultEl.style.display = 'none';
+
+            try {
+                // Параллельные запросы: приходы ДДС + реализация
+                const [ddsResp, realResp] = await Promise.all([
+                    authFetch('/api/finance/records?' + new URLSearchParams({
+                        type: 'income', date_from: dateFrom, date_to: dateTo
+                    })),
+                    authFetch('/api/finance/realization?date_from=' +
+                        encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
+                ]);
+                const ddsData = await ddsResp.json();
+                const realData = await realResp.json();
+
+                const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
+
+                // sales_after_spp + выкупы СНГ (как в карточке реализации)
+                let salesAfterSpp = 0;
+                if (realData.success && realData.summary) {
+                    salesAfterSpp = realData.summary.sales_after_spp || 0;
+                    if (realData.buyout) salesAfterSpp += realData.buyout.seller_price_total || 0;
+                }
+
+                const total = ddsIncome + salesAfterSpp;
+
+                document.getElementById('nds-turnover-dds').textContent = fmtRealMoney(ddsIncome);
+                document.getElementById('nds-turnover-real').textContent = fmtRealMoney(salesAfterSpp);
+                document.getElementById('nds-turnover-total').textContent = fmtRealMoney(total);
+
+                loadingEl.style.display = 'none';
+                resultEl.style.display = '';
+            } catch (e) {
+                console.error('[NDS turnover] error:', e);
+                loadingEl.style.display = 'none';
+            }
         }
 
         // ============================================================================
