@@ -9598,10 +9598,29 @@ HTML_TEMPLATE = '''
                 </div><!-- /finance-realization -->
 
                 <div id="finance-nds" class="finance-subtab-content">
-                    <div style="padding:40px 20px;text-align:center;color:#999;">
-                        <div style="font-size:48px;margin-bottom:16px;">🧾</div>
-                        <div style="font-size:18px;font-weight:600;color:#555;margin-bottom:8px;">Контроль НДС</div>
-                        <div style="font-size:14px;">Раздел в разработке</div>
+                    <div style="max-width:600px;margin:20px auto;">
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                            <span style="min-width:80px;font-weight:600;font-size:14px;color:#333;">ДС</span>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <input type="number" id="nds-row1-percent" class="date-filter-input" style="width:80px;" placeholder="0" step="any">
+                                <span style="color:#888;font-size:14px;">%</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <input type="number" id="nds-row1-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any">
+                                <span style="color:#888;font-size:14px;">₽</span>
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                            <span style="min-width:80px;font-weight:600;font-size:14px;color:#333;">ДС</span>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <input type="number" id="nds-row2-percent" class="date-filter-input" style="width:80px;" placeholder="0" step="any">
+                                <span style="color:#888;font-size:14px;">%</span>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <input type="number" id="nds-row2-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any">
+                                <span style="color:#888;font-size:14px;">₽</span>
+                            </div>
+                        </div>
                     </div>
                 </div><!-- /finance-nds -->
 
