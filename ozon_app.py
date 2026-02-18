@@ -1243,6 +1243,17 @@ def init_database():
         print(f"🗑️ Кэш реализации сброшен: v{stored_version} → v{REALIZATION_CACHE_VERSION}")
 
     # ============================================================================
+    # ТАБЛИЦА: НАСТРОЙКИ ПРИЛОЖЕНИЯ (app_settings)
+    # ============================================================================
+    # Простое key-value хранилище для настроек (НДС ставки и т.д.)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    ''')
+
+    # ============================================================================
     # АВТОМАТИЧЕСКАЯ ОЧИСТКА: удаление сиротских отгрузок
     # ============================================================================
     # Сиротские отгрузки — записи в warehouse_shipments без связанного документа
@@ -13197,6 +13208,7 @@ HTML_TEMPLATE = '''
                 initRealizationMonthSelect();
             }
             if (subtab === 'finance-nds') {
+                ndsLoadSettings();
                 ndsLoadYtd();
             }
         }
@@ -13226,6 +13238,7 @@ HTML_TEMPLATE = '''
                 initRealizationMonthSelect();
             }
             if (subtab === 'finance-nds') {
+                ndsLoadSettings();
                 ndsLoadYtd();
             }
         }
@@ -13235,6 +13248,34 @@ HTML_TEMPLATE = '''
         // ============================================================================
 
         const _ndsOriginal = {1: {percent: '', amount: ''}, 2: {percent: '', amount: ''}};
+        let _ndsSettingsLoaded = false;
+
+        /** Загрузить сохранённые НДС-ставки из БД при открытии вкладки */
+        async function ndsLoadSettings() {
+            if (_ndsSettingsLoaded) return;
+            _ndsSettingsLoaded = true;
+            try {
+                const resp = await authFetch('/api/settings?key=nds_rows');
+                const data = await resp.json();
+                if (data.success && data.value) {
+                    const rows = JSON.parse(data.value);
+                    if (rows[1]) {
+                        document.getElementById('nds-row1-percent').value = rows[1].percent || '';
+                        const amt1 = document.getElementById('nds-row1-amount');
+                        amt1.value = rows[1].amount || '';
+                        if (amt1.value) ndsFormatAmount(amt1);
+                    }
+                    if (rows[2]) {
+                        document.getElementById('nds-row2-percent').value = rows[2].percent || '';
+                        const amt2 = document.getElementById('nds-row2-amount');
+                        amt2.value = rows[2].amount || '';
+                        if (amt2.value) ndsFormatAmount(amt2);
+                    }
+                }
+            } catch (e) {
+                console.error('[NDS] load settings error:', e);
+            }
+        }
 
         /** Форматировать число с разделителями тысяч (пробелами) */
         function ndsFormatAmount(input) {
@@ -13268,12 +13309,37 @@ HTML_TEMPLATE = '''
             actions.style.display = 'inline-flex';
         }
 
-        /** Кнопка «Сохранить» — подтверждение и блокировка полей */
-        function ndsSave(row) {
+        /** Кнопка «Сохранить» — подтверждение, сохранение в БД, блокировка полей */
+        async function ndsSave(row) {
             if (!confirm('Вы уверены, что хотите сохранить изменения?')) return;
 
             const pct = document.getElementById('nds-row' + row + '-percent');
             const amt = document.getElementById('nds-row' + row + '-amount');
+
+            // Собираем обе строки для сохранения одним ключом
+            const rows = {
+                1: {
+                    percent: document.getElementById('nds-row1-percent').value,
+                    amount: document.getElementById('nds-row1-amount').value
+                },
+                2: {
+                    percent: document.getElementById('nds-row2-percent').value,
+                    amount: document.getElementById('nds-row2-amount').value
+                }
+            };
+
+            try {
+                await authFetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({key: 'nds_rows', value: JSON.stringify(rows)})
+                });
+            } catch (e) {
+                console.error('[NDS] save error:', e);
+                alert('Ошибка сохранения');
+                return;
+            }
+
             pct.disabled = true;
             amt.disabled = true;
             _ndsOriginal[row] = {percent: pct.value, amount: amt.value};
@@ -13918,10 +13984,20 @@ HTML_TEMPLATE = '''
          */
         async function _loadRealizationTax(salesAfterSpp) {
             try {
-                // 1. Получаем НДС-ставки из полей вкладки «Контроль НДС»
-                const row1Pct = parseFloat((document.getElementById('nds-row1-percent').value || '0').replace(/\s/g, '')) || 0;
-                const row1Amt = parseFloat((document.getElementById('nds-row1-amount').value || '0').replace(/\s/g, '')) || 0;
-                const row2Pct = parseFloat((document.getElementById('nds-row2-percent').value || '0').replace(/\s/g, '')) || 0;
+                // 1. Загружаем НДС-ставки из БД (не из DOM — вкладка НДС может быть не открыта)
+                let row1Pct = 0, row1Amt = 0, row2Pct = 0;
+                const settResp = await authFetch('/api/settings?key=nds_rows');
+                const settData = await settResp.json();
+                if (settData.success && settData.value) {
+                    const rows = JSON.parse(settData.value);
+                    if (rows[1]) {
+                        row1Pct = parseFloat((rows[1].percent || '0').replace(/\s/g, '')) || 0;
+                        row1Amt = parseFloat((rows[1].amount || '0').replace(/\s/g, '')) || 0;
+                    }
+                    if (rows[2]) {
+                        row2Pct = parseFloat((rows[2].percent || '0').replace(/\s/g, '')) || 0;
+                    }
+                }
 
                 // 2. Загружаем годовой оборот (приходы ДДС is_official + реализация) с 1 января
                 const year = new Date().getFullYear();
@@ -29900,6 +29976,47 @@ def api_finance_categories_delete():
 
 # ============================================================================
 # API ФИНАНСЫ — ЗАПИСИ ДОХОДОВ И РАСХОДОВ
+# ============================================================================
+# НАСТРОЙКИ ПРИЛОЖЕНИЯ (app_settings) — GET / POST
+# ============================================================================
+
+@app.route('/api/settings', methods=['GET'])
+@require_auth(['admin', 'viewer'])
+def api_settings_get():
+    """Получить все настройки или конкретный ключ (?key=...)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        key = request.args.get('key', '').strip()
+        if key:
+            row = conn.execute('SELECT value FROM app_settings WHERE key = ?', (key,)).fetchone()
+            conn.close()
+            return jsonify({'success': True, 'value': row['value'] if row else None})
+        else:
+            rows = conn.execute('SELECT key, value FROM app_settings').fetchall()
+            conn.close()
+            return jsonify({'success': True, 'settings': {r['key']: r['value'] for r in rows}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/settings', methods=['POST'])
+@require_auth(['admin'])
+def api_settings_save():
+    """Сохранить настройку: {key, value}."""
+    try:
+        data = request.get_json()
+        key = data.get('key', '').strip()
+        value = data.get('value', '')
+        if not key:
+            return jsonify({'success': False, 'error': 'key обязателен'})
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', (key, str(value)))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # ============================================================================
 # CRUD-эндпоинты для финансовых записей.
 # Поддерживают фильтрацию по типу, счёту, дате и сортировку.
