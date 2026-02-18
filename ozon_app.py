@@ -14082,10 +14082,24 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-tax-total').textContent = fmtRealMoney(totalTax);
                 const hint = document.getElementById('real-tax-hint');
                 if (hint) {
-                    hint.innerHTML = 'НДС ' + ndsPercent + '%: ' + fmtRealMoney(nds) +
-                        ' &nbsp;|&nbsp; УСН ' + ndsPercent + '%: ' + fmtRealMoney(usnTax) +
-                        (usn <= 0 ? ' <span style="color:#999;">(база ≤ 0)</span>' : '') +
-                        '<br><span style="color:#999;font-size:10px;">оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>';
+                    const f = v => Math.round(v).toLocaleString('ru-RU');
+                    const returns = Math.abs(_realReturns);
+                    hint.innerHTML =
+                        '<div style="font-size:12px;line-height:1.6;margin-top:4px;">' +
+                        '<b>НДС ' + ndsPercent + '% = ' + fmtRealMoney(nds) + '</b><br>' +
+                        '<span style="color:#888;">(' + f(_realSalesAfterSpp) + ' + ' + f(_realCompensations) + ') / (100 + ' + ndsPercent + ') × ' + ndsPercent + '</span><br>' +
+                        '<span style="color:#aaa;font-size:11px;">(Продажи после СПП + Компенсации)</span>' +
+                        '<br style="margin-bottom:6px;">' +
+                        '<b>УСН ' + ndsPercent + '% = ' + fmtRealMoney(usnTax) + '</b>' +
+                        (usn <= 0 ? ' <span style="color:#e74c3c;">(база ≤ 0)</span>' : '') + '<br>' +
+                        '<span style="color:#888;">' +
+                        f(_realGrossSalesTotal) + ' − ' + f(nds) + ' − ' + f(_realCogs) + ' − ' + f(returns) +
+                        ' − ' + f(_realLogistics) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
+                        ' − ' + f(_realStorage) + ' − ' + f(_realAdvertising) + ' − ' + f(_realOpex) +
+                        ' = ' + f(usn) + '</span><br>' +
+                        '<span style="color:#aaa;font-size:11px;">(Реализация − НДС − Себест. − Возвр. − Логист. − Комисс. − Удерж. − Хран. − Рекл. − Расх.к выч.)</span>' +
+                        '<br><span style="color:#999;font-size:11px;">Оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>' +
+                        '</div>';
                 }
                 card.style.display = '';
             } catch (e) {
