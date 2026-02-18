@@ -9598,8 +9598,8 @@ HTML_TEMPLATE = '''
                 </div><!-- /finance-realization -->
 
                 <div id="finance-nds" class="finance-subtab-content">
-                    <div style="max-width:600px;padding:20px;">
-                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                    <div style="max-width:700px;padding:20px;">
+                        <div id="nds-row-1" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
                             <span style="min-width:50px;font-weight:600;font-size:14px;color:#333;">НДС</span>
                             <div style="display:flex;align-items:center;gap:4px;">
                                 <input type="number" id="nds-row1-percent" class="date-filter-input" style="width:80px;" placeholder="0" step="any" disabled>
@@ -9610,9 +9610,13 @@ HTML_TEMPLATE = '''
                                 <input type="number" id="nds-row1-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any" disabled>
                                 <span style="color:#888;font-size:14px;">₽</span>
                             </div>
-                            <span class="nds-edit-btn" onclick="ndsToggleEdit(1)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
+                            <span id="nds-pen-1" onclick="ndsStartEdit(1)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
+                            <span id="nds-actions-1" style="display:none;margin-left:4px;display:none;gap:6px;">
+                                <button onclick="ndsSave(1)" style="padding:4px 12px;font-size:13px;background:#667eea;color:#fff;border:none;border-radius:6px;cursor:pointer;">Сохранить</button>
+                                <button onclick="ndsCancel(1)" style="padding:4px 12px;font-size:13px;background:#e9ecef;color:#333;border:none;border-radius:6px;cursor:pointer;">Отменить</button>
+                            </span>
                         </div>
-                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                        <div id="nds-row-2" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
                             <span style="min-width:50px;font-weight:600;font-size:14px;color:#333;">НДС</span>
                             <div style="display:flex;align-items:center;gap:4px;">
                                 <input type="number" id="nds-row2-percent" class="date-filter-input" style="width:80px;" placeholder="0" step="any" disabled>
@@ -9623,7 +9627,11 @@ HTML_TEMPLATE = '''
                                 <input type="number" id="nds-row2-amount" class="date-filter-input" style="width:140px;" placeholder="0" step="any" disabled>
                                 <span style="color:#888;font-size:14px;">₽</span>
                             </div>
-                            <span class="nds-edit-btn" onclick="ndsToggleEdit(2)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
+                            <span id="nds-pen-2" onclick="ndsStartEdit(2)" style="cursor:pointer;font-size:16px;color:#888;margin-left:4px;" title="Редактировать">&#9998;</span>
+                            <span id="nds-actions-2" style="display:none;margin-left:4px;display:none;gap:6px;">
+                                <button onclick="ndsSave(2)" style="padding:4px 12px;font-size:13px;background:#667eea;color:#fff;border:none;border-radius:6px;cursor:pointer;">Сохранить</button>
+                                <button onclick="ndsCancel(2)" style="padding:4px 12px;font-size:13px;background:#e9ecef;color:#333;border:none;border-radius:6px;cursor:pointer;">Отменить</button>
+                            </span>
                         </div>
                     </div>
                 </div><!-- /finance-nds -->
@@ -13170,38 +13178,56 @@ HTML_TEMPLATE = '''
         // КОНТРОЛЬ НДС — редактирование строк с подтверждением
         // ============================================================================
 
-        // Сохранённые значения для отслеживания изменений
         const _ndsOriginal = {1: {percent: '', amount: ''}, 2: {percent: '', amount: ''}};
 
-        /**
-         * Включить/выключить режим редактирования строки НДС.
-         * При выключении — проверить изменения и запросить подтверждение.
-         */
-        function ndsToggleEdit(row) {
+        /** Клик по карандашу — включить редактирование, показать кнопки */
+        function ndsStartEdit(row) {
             const pct = document.getElementById('nds-row' + row + '-percent');
             const amt = document.getElementById('nds-row' + row + '-amount');
             if (!pct || !amt) return;
 
-            if (pct.disabled) {
-                // Запоминаем текущие значения и включаем редактирование
-                _ndsOriginal[row] = {percent: pct.value, amount: amt.value};
-                pct.disabled = false;
-                amt.disabled = false;
-                pct.focus();
-            } else {
-                // Проверяем, изменились ли данные
-                const changed = pct.value !== _ndsOriginal[row].percent ||
-                                amt.value !== _ndsOriginal[row].amount;
-                if (changed) {
-                    if (!confirm('Данные изменены. Вы уверены, что хотите сохранить?')) {
-                        // Откатываем к исходным значениям
-                        pct.value = _ndsOriginal[row].percent;
-                        amt.value = _ndsOriginal[row].amount;
-                    }
-                }
-                pct.disabled = true;
-                amt.disabled = true;
+            _ndsOriginal[row] = {percent: pct.value, amount: amt.value};
+            pct.disabled = false;
+            amt.disabled = false;
+            pct.focus();
+
+            document.getElementById('nds-pen-' + row).style.display = 'none';
+            const actions = document.getElementById('nds-actions-' + row);
+            actions.style.display = 'inline-flex';
+        }
+
+        /** Кнопка «Сохранить» — подтверждение и блокировка полей */
+        function ndsSave(row) {
+            if (!confirm('Вы уверены, что хотите сохранить изменения?')) return;
+
+            const pct = document.getElementById('nds-row' + row + '-percent');
+            const amt = document.getElementById('nds-row' + row + '-amount');
+            pct.disabled = true;
+            amt.disabled = true;
+            _ndsOriginal[row] = {percent: pct.value, amount: amt.value};
+
+            document.getElementById('nds-actions-' + row).style.display = 'none';
+            document.getElementById('nds-pen-' + row).style.display = '';
+        }
+
+        /** Кнопка «Отменить» — откат если были изменения (с подтверждением) */
+        function ndsCancel(row) {
+            const pct = document.getElementById('nds-row' + row + '-percent');
+            const amt = document.getElementById('nds-row' + row + '-amount');
+            const changed = pct.value !== _ndsOriginal[row].percent ||
+                            amt.value !== _ndsOriginal[row].amount;
+
+            if (changed) {
+                if (!confirm('Вы уверены, что не хотите внести изменения?')) return;
             }
+
+            pct.value = _ndsOriginal[row].percent;
+            amt.value = _ndsOriginal[row].amount;
+            pct.disabled = true;
+            amt.disabled = true;
+
+            document.getElementById('nds-actions-' + row).style.display = 'none';
+            document.getElementById('nds-pen-' + row).style.display = '';
         }
 
         // ============================================================================
