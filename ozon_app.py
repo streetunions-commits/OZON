@@ -9564,7 +9564,7 @@ HTML_TEMPLATE = '''
                             <div class="real-card-details" id="real-opex-details"></div>
                         </div>
                         <div class="real-card real-card-tax" id="real-tax-card" style="display:none;">
-                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('Продажи после СПП / (100 + НДС%) × НДС%. Ставка НДС определяется автоматически из вкладки «Контроль НДС» по годовому обороту.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('(Продажи после СПП + Компенсации − Баллы за скидки) / (100 + НДС%) × НДС%.\n\nСтавка НДС определяется автоматически из вкладки «Контроль НДС» по годовому обороту.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
                             <div class="real-card-value" id="real-tax-total">0 ₽</div>
                             <div class="real-card-hint" id="real-tax-hint"></div>
                         </div>
@@ -13634,6 +13634,7 @@ HTML_TEMPLATE = '''
         let _realBuyoutCommission = 0;  // Комиссия СНГ (seller_price - amount)
         let _realBonuses = 0;  // Баллы за скидки (из realization API)
         let _realBuyoutAmount = 0;  // Сумма выкупов СНГ (из buyout API)
+        let _realSalesAfterSpp = 0;  // Продажи после СПП (для расчёта налога)
         let _realLoading = false;  // Защита от параллельных загрузок
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
@@ -13744,6 +13745,7 @@ HTML_TEMPLATE = '''
                 // Данные по выкупам СНГ
                 const buyout = data.buyout || {count: 0, amount: 0, seller_price_total: 0};
                 const totalSellerWithBuyout = (s.sales_after_spp || 0) + (buyout.seller_price_total || 0);
+                _realSalesAfterSpp = totalSellerWithBuyout;
                 const totalSalesCount = netSalesCount + (buyout.count || 0);
 
                 document.getElementById('real-realization').textContent = fmtRealMoney(totalSellerWithBuyout);
@@ -13790,9 +13792,6 @@ HTML_TEMPLATE = '''
 
                 // Загружаем операционные расходы (ДДС, is_official=1) за тот же период
                 _loadRealizationOpex(periodType);
-
-                // Загружаем карточку «Налоги» (НДС от продаж после СПП)
-                _loadRealizationTax(totalSellerWithBuyout);
 
                 // Сохраняем выбранный фильтр в localStorage для восстановления при обновлении
                 try {
@@ -13978,11 +13977,11 @@ HTML_TEMPLATE = '''
         }
 
         /**
-         * Загрузить карточку «Налоги»: НДС от продаж после СПП.
+         * Загрузить карточку «Налоги»: НДС от (продаж после СПП + компенсации без баллов).
          * Ставка определяется из строк «Контроль НДС» по годовому обороту.
-         * Формула: salesAfterSpp / (100 + ndsPercent) * ndsPercent
+         * Формула: (salesAfterSpp + compensations) / (100 + nds%) * nds%
          */
-        async function _loadRealizationTax(salesAfterSpp) {
+        async function _loadRealizationTax(salesAfterSpp, compensations) {
             try {
                 // 1. Загружаем НДС-ставки из БД (не из DOM — вкладка НДС может быть не открыта)
                 let row1Pct = 0, row1Amt = 0, row2Pct = 0;
@@ -14028,10 +14027,11 @@ HTML_TEMPLATE = '''
                 // 3. Определяем ставку НДС: если оборот < порог строки 1 → ставка 1, иначе → ставка 2
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
 
-                // 4. Считаем налог: salesAfterSpp / (100 + nds%) * nds%
+                // 4. Считаем налог: (salesAfterSpp + компенсации без баллов) / (100 + nds%) * nds%
+                const taxBase = salesAfterSpp + (compensations || 0);
                 let tax = 0;
                 if (ndsPercent > 0) {
-                    tax = salesAfterSpp / (100 + ndsPercent) * ndsPercent;
+                    tax = taxBase / (100 + ndsPercent) * ndsPercent;
                 }
 
                 // 5. Отображаем
@@ -14040,7 +14040,7 @@ HTML_TEMPLATE = '''
                 document.getElementById('real-tax-total').textContent = fmtRealMoney(tax);
                 const hint = document.getElementById('real-tax-hint');
                 if (hint) {
-                    hint.textContent = 'НДС ' + ndsPercent + '% (оборот за год: ' + fmtRealMoney(yearlyTurnover) + ')';
+                    hint.textContent = 'НДС ' + ndsPercent + '% от ' + fmtRealMoney(taxBase) + ' (оборот за год: ' + fmtRealMoney(yearlyTurnover) + ')';
                 }
                 card.style.display = '';
             } catch (e) {
@@ -14380,6 +14380,11 @@ HTML_TEMPLATE = '''
                     card.style.display = '';
                 }
             });
+
+            // Загружаем карточку «Налоги» после расчёта компенсаций
+            // База: продажи после СПП + компенсации (без баллов за скидки)
+            const compensationsWithoutBonuses = catTotals.compensations - _realBonuses;
+            _loadRealizationTax(_realSalesAfterSpp, compensationsWithoutBonuses);
         }
 
         // ============================================================================
