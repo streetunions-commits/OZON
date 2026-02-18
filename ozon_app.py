@@ -14073,17 +14073,18 @@ HTML_TEMPLATE = '''
                 const turnoverDateTo = quarterEndDate <= todayStr ? quarterEndDate : todayStr;
                 const turnoverDateFrom = peYear + '-01-01';
 
-                // 2. Запускаем ВСЕ 3 запроса параллельно (настройки + ДДС + реализация)
-                const [settResp, ddsResp, realResp] = await Promise.all([
+                // 2. Запускаем ВСЕ 3 запроса параллельно (настройки + ДДС + оборот из кэша)
+                const [settResp, ddsResp, turnoverResp] = await Promise.all([
                     authFetch('/api/settings?key=nds_rows'),
                     authFetch('/api/finance/records?' + new URLSearchParams({
                         type: 'income', is_official: '1', date_from: turnoverDateFrom, date_to: turnoverDateTo
                     })),
-                    authFetch('/api/finance/realization?date_from=' +
-                        encodeURIComponent(turnoverDateFrom) + '&date_to=' + encodeURIComponent(turnoverDateTo))
+                    authFetch('/api/finance/realization/turnover?' + new URLSearchParams({
+                        date_from: turnoverDateFrom, date_to: turnoverDateTo
+                    }))
                 ]);
-                const [settData, ddsData, realData] = await Promise.all([
-                    settResp.json(), ddsResp.json(), realResp.json()
+                const [settData, ddsData, turnoverData] = await Promise.all([
+                    settResp.json(), ddsResp.json(), turnoverResp.json()
                 ]);
 
                 // 3. Парсим НДС-ставки
@@ -14099,13 +14100,9 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                // 4. Считаем оборот
+                // 4. Считаем оборот (ДДС + реализация из кэша)
                 const ddsIncome = ddsData.success && ddsData.summary ? ddsData.summary.total_income : 0;
-                let realSales = 0;
-                if (realData.success && realData.summary) {
-                    realSales = realData.summary.sales_after_spp || 0;
-                    if (realData.buyout) realSales += realData.buyout.seller_price_total || 0;
-                }
+                const realSales = turnoverData.success ? (turnoverData.sales_after_spp || 0) : 0;
                 const yearlyTurnover = ddsIncome + realSales;
 
                 // 5. Определяем ставку НДС по обороту на конец квартала просматриваемого периода
@@ -32414,6 +32411,68 @@ def _get_cumulative_prior_sales(period_start_str):
         print(f"  ⚠️ Ошибка чтения кумулятивных продаж: {e}")
 
     return cumulative
+
+
+@app.route('/api/finance/realization/turnover')
+@require_auth()
+def api_finance_realization_turnover():
+    """
+    Быстрый расчёт оборота (sales_after_spp) из кэша реализации.
+    Суммирует данные по закэшированным месяцам за указанный период.
+
+    Параметры:
+        date_from (str): Начало периода YYYY-MM-DD
+        date_to (str): Конец периода YYYY-MM-DD
+
+    Возвращает:
+        JSON: { success, sales_after_spp }
+    """
+    import json as _json
+    from datetime import datetime as _dt
+
+    date_from_str = request.args.get('date_from', '')
+    date_to_str = request.args.get('date_to', '')
+    if not date_from_str or not date_to_str:
+        return jsonify({'success': False, 'error': 'date_from и date_to обязательны'}), 400
+
+    try:
+        start = _dt.strptime(date_from_str, '%Y-%m-%d').date()
+        end = _dt.strptime(date_to_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Неверный формат дат'}), 400
+
+    # Собираем ключи месяцев в диапазоне
+    month_keys = []
+    current = start.replace(day=1)
+    while current <= end:
+        month_keys.append(f"{current.year}-{current.month:02d}")
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+    total_sales = 0
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        placeholders = ','.join('?' * len(month_keys))
+        rows = conn.execute(
+            f'SELECT period_key, response_json FROM realization_cache WHERE period_key IN ({placeholders})',
+            month_keys
+        ).fetchall()
+        conn.close()
+
+        for _key, resp_json in rows:
+            data = _json.loads(resp_json)
+            if data.get('success') and data.get('summary'):
+                total_sales += data['summary'].get('sales_after_spp', 0)
+                # Добавляем СНГ если есть
+                buyout = data.get('buyout')
+                if buyout:
+                    total_sales += buyout.get('seller_price_total', 0)
+    except Exception as e:
+        print(f"  ⚠️ Ошибка чтения кэша оборота: {e}")
+
+    return jsonify({'success': True, 'sales_after_spp': total_sales})
 
 
 @app.route('/api/finance/realization/cogs', methods=['POST'])
