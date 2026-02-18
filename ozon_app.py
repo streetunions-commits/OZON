@@ -6372,8 +6372,9 @@ HTML_TEMPLATE = '''
         .real-card-cogs .real-card-value { color: #e07020; }
         .real-card-opex { border-left-color: #c0392b; }
         .real-card-opex .real-card-value { color: #c0392b; }
-        .real-card-tax { border-left-color: #8e44ad; }
+        .real-card-tax { border-left-color: #8e44ad; cursor: pointer; }
         .real-card-tax .real-card-value { color: #8e44ad; }
+        .real-card-tax .real-detail-value { color: #8e44ad; }
 
         /* --- Заголовок карточки с бейджем (как в Ozon) --- */
         .real-card-header { display: flex; align-items: center; justify-content: space-between; }
@@ -9563,10 +9564,14 @@ HTML_TEMPLATE = '''
                             <div class="real-card-hint" id="real-opex-hint"></div>
                             <div class="real-card-details" id="real-opex-details"></div>
                         </div>
-                        <div class="real-card real-card-tax" id="real-tax-card" style="display:none;">
-                            <div class="real-card-label">Налоги <span onclick="event.stopPropagation();alert('НДС + УСН\n\nНДС = (Продажи после СПП + Компенсации) / (100 + НДС%) × НДС%\nСтавка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\n\nУСН = (Продажи до СПП − Реклама − Логистика − Хранение − Комиссия − Иные удержания − Себестоимость − Расходы к вычету − НДС + Компенсации − Баллы за отзывы) × 15%\nСтавка УСН фиксированная — 15%.')" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                        <div class="real-card real-card-tax" id="real-tax-card" style="display:none;" onclick="toggleCardDetails(this)">
+                            <div class="real-card-header">
+                                <div class="real-card-label">Налоги <span id="real-tax-question" onclick="event.stopPropagation();" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#e0e0e0;color:#666;font-size:11px;cursor:pointer;margin-left:4px;font-weight:700;" title="Подробнее">?</span></div>
+                                <span class="real-card-badge" id="real-tax-badge"></span>
+                            </div>
                             <div class="real-card-value" id="real-tax-total">0 ₽</div>
                             <div class="real-card-hint" id="real-tax-hint"></div>
+                            <div class="real-card-details" id="real-tax-details"></div>
                         </div>
                     </div>
 
@@ -14084,27 +14089,53 @@ HTML_TEMPLATE = '''
                 const card = document.getElementById('real-tax-card');
                 if (!card) return;
                 document.getElementById('real-tax-total').textContent = fmtRealMoney(totalTax);
+
+                // Hint — оборот за год и ставка НДС
                 const hint = document.getElementById('real-tax-hint');
                 if (hint) {
-                    const f = v => Math.round(Math.abs(v)).toLocaleString('ru-RU');
-                    hint.innerHTML =
-                        '<div style="font-size:12px;line-height:1.6;margin-top:4px;">' +
-                        '<b>НДС ' + ndsPercent + '% = ' + fmtRealMoney(nds) + '</b><br>' +
-                        '<span style="color:#888;">(' + f(_realSalesAfterSpp) + ' + ' + f(_realCompensations) + ') / (100 + ' + ndsPercent + ') × ' + ndsPercent + '</span><br>' +
-                        '<span style="color:#aaa;font-size:11px;">(Продажи после СПП + Компенсации)</span>' +
-                        '<br style="margin-bottom:6px;">' +
-                        '<b>УСН ' + usnPercent + '% = ' + fmtRealMoney(usnTax) + '</b>' +
-                        (usn <= 0 ? ' <span style="color:#e74c3c;">(база ≤ 0)</span>' : '') + '<br>' +
-                        '<span style="color:#888;">(' +
-                        f(_realGrossSalesTotal) + ' − ' + f(_realAdvertising) + ' − ' + f(_realLogistics) +
-                        ' − ' + f(_realStorage) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
-                        ' − ' + f(_realCogs) + ' − ' + f(_realOpex) + ' − ' + f(nds) +
-                        ' + ' + f(allCompensations) + ' − ' + f(_realBonuses) +
-                        ') × ' + usnPercent + '% = ' + f(usnTax) + '</span><br>' +
-                        '<span style="color:#aaa;font-size:11px;">(Прод.до СПП − Рекл. − Логист. − Хран. − Комисс. − Удерж. − Себест. − Расх.к выч. − НДС + Компенс. − Баллы) × 15%</span>' +
-                        '<br><span style="color:#999;font-size:11px;">Оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>' +
-                        '</div>';
+                    hint.innerHTML = '<span style="color:#999;font-size:11px;">Оборот за год: ' +
+                        fmtRealMoney(yearlyTurnover) + ' · НДС ' + ndsPercent + '%</span>';
                 }
+
+                // Badge — 2 составляющих
+                const badge = document.getElementById('real-tax-badge');
+                if (badge) { badge.textContent = '2'; badge.classList.add('visible'); }
+
+                // Details — раскрывающийся список НДС и УСН
+                const details = document.getElementById('real-tax-details');
+                if (details) {
+                    details.innerHTML =
+                        '<div class="real-detail-row"><span class="real-detail-label">НДС ' + ndsPercent + '%</span>' +
+                        '<span class="real-detail-value">' + fmtRealMoney(nds) + '</span></div>' +
+                        '<div class="real-detail-row"><span class="real-detail-label">УСН ' + usnPercent + '%' +
+                        (usn <= 0 ? ' <span style="color:#e74c3c;font-size:10px;">(база ≤ 0)</span>' : '') +
+                        '</span><span class="real-detail-value">' + fmtRealMoney(usnTax) + '</span></div>';
+                }
+
+                // ? — полная формула с цифрами
+                const f = v => Math.round(Math.abs(v)).toLocaleString('ru-RU');
+                const qBtn = document.getElementById('real-tax-question');
+                if (qBtn) {
+                    qBtn.onclick = function(e) {
+                        e.stopPropagation();
+                        alert(
+                            'НДС + УСН\n\n' +
+                            '── НДС ' + ndsPercent + '% = ' + fmtRealMoney(nds) + ' ──\n' +
+                            '(' + f(_realSalesAfterSpp) + ' + ' + f(_realCompensations) + ') / (100 + ' + ndsPercent + ') × ' + ndsPercent + '\n' +
+                            '(Продажи после СПП + Компенсации)\n' +
+                            'Ставка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\n\n' +
+                            '── УСН ' + usnPercent + '% = ' + fmtRealMoney(usnTax) + ' ──\n' +
+                            '(' + f(_realGrossSalesTotal) + ' − ' + f(_realAdvertising) + ' − ' + f(_realLogistics) +
+                            ' − ' + f(_realStorage) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
+                            ' − ' + f(_realCogs) + ' − ' + f(_realOpex) + ' − ' + f(nds) +
+                            ' + ' + f(allCompensations) + ' − ' + f(_realBonuses) + ') × ' + usnPercent + '%\n' +
+                            '(Прод.до СПП − Рекл. − Логист. − Хран. − Комисс. − Удерж. − Себест. − Расх.к выч. − НДС + Компенс. − Баллы) × 15%\n' +
+                            'Ставка УСН фиксированная — 15%.\n\n' +
+                            'Оборот за год: ' + fmtRealMoney(yearlyTurnover)
+                        );
+                    };
+                }
+
                 card.style.display = '';
             } catch (e) {
                 console.error('[TAX] fetch error:', e);
