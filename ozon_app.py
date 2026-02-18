@@ -14112,26 +14112,19 @@ HTML_TEMPLATE = '''
                         '</span><span class="real-detail-value">' + fmtRealMoney(usnTax) + '</span></div>';
                 }
 
-                // ? — полная формула с цифрами
-                const f = v => Math.round(Math.abs(v)).toLocaleString('ru-RU');
+                // ? — описание формул (без цифр)
                 const qBtn = document.getElementById('real-tax-question');
                 if (qBtn) {
                     qBtn.onclick = function(e) {
                         e.stopPropagation();
                         alert(
-                            'НДС + УСН\\n\\n' +
-                            '── НДС ' + ndsPercent + '% = ' + fmtRealMoney(nds) + ' ──\\n' +
-                            '(' + f(_realSalesAfterSpp) + ' + ' + f(_realCompensations) + ') / (100 + ' + ndsPercent + ') × ' + ndsPercent + '\\n' +
-                            '(Продажи после СПП + Компенсации)\\n' +
-                            'Ставка НДС определяется из вкладки «Контроль НДС» по годовому обороту.\\n\\n' +
-                            '── УСН ' + usnPercent + '% = ' + fmtRealMoney(usnTax) + ' ──\\n' +
-                            '(' + f(_realGrossSalesTotal) + ' − ' + f(_realAdvertising) + ' − ' + f(_realLogistics) +
-                            ' − ' + f(_realStorage) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
-                            ' − ' + f(_realCogs) + ' − ' + f(_realOpex) + ' − ' + f(nds) +
-                            ' + ' + f(allCompensations) + ' − ' + f(_realBonuses) + ') × ' + usnPercent + '%\\n' +
-                            '(Прод.до СПП − Рекл. − Логист. − Хран. − Комисс. − Удерж. − Себест. − Расх.к выч. − НДС + Компенс. − Баллы) × 15%\\n' +
-                            'Ставка УСН фиксированная — 15%.\\n\\n' +
-                            'Оборот за год: ' + fmtRealMoney(yearlyTurnover)
+                            'Налоги = НДС + УСН\n\n' +
+                            '── НДС ──\n' +
+                            '(Продажи после СПП + Компенсации) / (100 + НДС%) × НДС%\n' +
+                            'Ставка НДС определяется из вкладки «Контроль НДС» по общему обороту за год.\n\n' +
+                            '── УСН 15% ──\n' +
+                            '(Продажи до СПП − Реклама − Логистика − Хранение − Комиссия − Иные удержания − Себестоимость − Расходы к вычету − НДС + Компенсации − Баллы за отзывы) × 15%\n' +
+                            'Ставка УСН фиксированная — 15%.'
                         );
                     };
                 }
