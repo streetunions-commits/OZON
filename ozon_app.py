@@ -14062,6 +14062,7 @@ HTML_TEMPLATE = '''
                 //          − Иные удержания − Себестоимость − Расходы к вычету − НДС
                 //          + Компенсации − Баллы за отзывы
                 const commission = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
+                const allCompensations = _realCompensations + _realBonuses; // все компенсации (включая баллы)
                 const usn = _realGrossSalesTotal
                     - _realAdvertising
                     - _realLogistics
@@ -14071,7 +14072,7 @@ HTML_TEMPLATE = '''
                     - _realCogs
                     - _realOpex
                     - nds
-                    + _realCompensations
+                    + allCompensations
                     - _realBonuses;
 
                 // 6. Итого = НДС + УСН (если УСН > 0). УСН всегда 15%
@@ -14098,7 +14099,7 @@ HTML_TEMPLATE = '''
                         f(_realGrossSalesTotal) + ' − ' + f(_realAdvertising) + ' − ' + f(_realLogistics) +
                         ' − ' + f(_realStorage) + ' − ' + f(commission) + ' − ' + f(_realOtherDeductions) +
                         ' − ' + f(_realCogs) + ' − ' + f(_realOpex) + ' − ' + f(nds) +
-                        ' + ' + f(_realCompensations) + ' − ' + f(_realBonuses) +
+                        ' + ' + f(allCompensations) + ' − ' + f(_realBonuses) +
                         ') × ' + usnPercent + '% = ' + f(usnTax) + '</span><br>' +
                         '<span style="color:#aaa;font-size:11px;">(Прод.до СПП − Рекл. − Логист. − Хран. − Комисс. − Удерж. − Себест. − Расх.к выч. − НДС + Компенс. − Баллы) × 15%</span>' +
                         '<br><span style="color:#999;font-size:11px;">Оборот за год: ' + fmtRealMoney(yearlyTurnover) + '</span>' +
