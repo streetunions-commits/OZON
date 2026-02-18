@@ -109,11 +109,11 @@ if not OZON_CLIENT_ID or not OZON_API_KEY:
     print(f"   📋 OZON_CLIENT_ID: {OZON_CLIENT_ID}")
     print(f"   📋 OZON_API_KEY: {OZON_API_KEY}")
     print("\n🔧 Способ 1 - PowerShell (в одной команде):")
-    print("   $env:OZON_CLIENT_ID='138926'; $env:OZON_API_KEY='***REDACTED***'; python ozon_app.py")
+    print("   $env:OZON_CLIENT_ID='твой_client_id'; $env:OZON_API_KEY='твой_api_key'; python ozon_app.py")
     print("\n🔧 Способ 2 - Создать .env файл в папке (рекомендуется):")
     print("   Содержимое .env:")
-    print("   OZON_CLIENT_ID=138926")
-    print("   OZON_API_KEY=***REDACTED***")
+    print("   OZON_CLIENT_ID=твой_client_id")
+    print("   OZON_API_KEY=твой_api_key")
     sys.exit(1)
 
 OZON_HOST = "https://api-seller.ozon.ru"
