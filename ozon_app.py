@@ -14027,20 +14027,55 @@ HTML_TEMPLATE = '''
                     }
                 }
 
-                // 2. Загружаем годовой оборот с 1 января
-                const year = new Date().getFullYear();
-                const dateFrom = year + '-01-01';
+                // 2. Определяем конец квартала просматриваемого периода
                 const today = new Date();
-                const dateTo = today.getFullYear() + '-' +
+                const todayStr = today.getFullYear() + '-' +
                     String(today.getMonth() + 1).padStart(2, '0') + '-' +
                     String(today.getDate()).padStart(2, '0');
 
+                // Определяем дату конца просматриваемого периода
+                let periodEndDate = todayStr;
+                const periodType = document.getElementById('real-period-type').value;
+                if (periodType === 'days') {
+                    periodEndDate = document.getElementById('real-date-to').value || todayStr;
+                } else if (periodType === 'quarter') {
+                    const qval = document.getElementById('real-quarter-select').value || '';
+                    const qm = qval.match(/^(\\d{4})-Q([1-4])$/);
+                    if (qm) {
+                        const qYear = parseInt(qm[1]), q = parseInt(qm[2]);
+                        const endMonth = q * 3;
+                        const lastDay = new Date(qYear, endMonth, 0).getDate();
+                        periodEndDate = qYear + '-' + String(endMonth).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+                    }
+                } else {
+                    const mval = document.getElementById('real-month-select').value || '';
+                    if (mval) {
+                        const parts = mval.split('-');
+                        const mYear = parseInt(parts[0]), mon = parseInt(parts[1]);
+                        const lastDay = new Date(mYear, mon, 0).getDate();
+                        periodEndDate = mYear + '-' + String(mon).padStart(2, '0') + '-' + String(lastDay).padStart(2, '0');
+                    }
+                }
+
+                // Определяем квартал просматриваемого периода → конец этого квартала
+                const peDate = new Date(periodEndDate + 'T00:00:00');
+                const peYear = peDate.getFullYear();
+                const peQuarter = Math.ceil((peDate.getMonth() + 1) / 3);
+                const qEndMonth = peQuarter * 3;
+                const qEndDay = new Date(peYear, qEndMonth, 0).getDate();
+                const quarterEndDate = peYear + '-' + String(qEndMonth).padStart(2, '0') + '-' + String(qEndDay).padStart(2, '0');
+
+                // dateTo = min(конец квартала, сегодня) — не заглядываем в будущее
+                const turnoverDateTo = quarterEndDate <= todayStr ? quarterEndDate : todayStr;
+                const turnoverDateFrom = peYear + '-01-01';
+
+                // 3. Загружаем оборот с 1 января по turnoverDateTo
                 const [ddsResp, realResp] = await Promise.all([
                     authFetch('/api/finance/records?' + new URLSearchParams({
-                        type: 'income', is_official: '1', date_from: dateFrom, date_to: dateTo
+                        type: 'income', is_official: '1', date_from: turnoverDateFrom, date_to: turnoverDateTo
                     })),
                     authFetch('/api/finance/realization?date_from=' +
-                        encodeURIComponent(dateFrom) + '&date_to=' + encodeURIComponent(dateTo))
+                        encodeURIComponent(turnoverDateFrom) + '&date_to=' + encodeURIComponent(turnoverDateTo))
                 ]);
                 const ddsData = await ddsResp.json();
                 const realData = await realResp.json();
@@ -14053,7 +14088,9 @@ HTML_TEMPLATE = '''
                 }
                 const yearlyTurnover = ddsIncome + realSales;
 
-                // 3. Определяем ставку НДС
+                // 4. Определяем ставку НДС по обороту на конец квартала просматриваемого периода
+                //    Если оборот < порога 1-й строки → ставка 1-й строки, иначе → 2-й строки
+                //    Прошлые кварталы сохраняют свою ставку (оборот фиксируется на конец квартала)
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
 
                 // 4. НДС = (Продажи после СПП + Компенсации без баллов) / (100 + НДС%) × НДС%
@@ -14090,10 +14127,11 @@ HTML_TEMPLATE = '''
                 if (!card) return;
                 document.getElementById('real-tax-total').textContent = fmtRealMoney(totalTax);
 
-                // Hint — оборот за год и ставка НДС
+                // Hint — оборот за период и ставка НДС
                 const hint = document.getElementById('real-tax-hint');
                 if (hint) {
-                    hint.innerHTML = '<span style="color:#999;font-size:11px;">Оборот за год: ' +
+                    hint.innerHTML = '<span style="color:#999;font-size:11px;">Оборот за период (01.01 – ' +
+                        turnoverDateTo.split('-').reverse().join('.') + '): ' +
                         fmtRealMoney(yearlyTurnover) + ' · НДС ' + ndsPercent + '%</span>';
                 }
 
@@ -14124,7 +14162,11 @@ HTML_TEMPLATE = '''
                             'Ставка НДС определяется из вкладки «Контроль НДС» по общему обороту за год.\\n\\n' +
                             '── УСН 15% ──\\n' +
                             '(Продажи до СПП − Реклама − Логистика − Хранение − Комиссия − Иные удержания − Себестоимость − Расходы к вычету − НДС + Компенсации − Баллы за отзывы) × 15%\\n' +
-                            'Ставка УСН фиксированная — 15%.'
+                            'Ставка УСН фиксированная — 15%.\\n\\n' +
+                            '── Оборот за период ──\\n' +
+                            'Считается с 1 января по конец квартала просматриваемого периода (или по сегодня, если квартал ещё не завершён).\\n' +
+                            'Если оборот превышает порог 1-й строки «Контроль НДС», ставка НДС переключается на 2-ю строку начиная с квартала превышения.\\n' +
+                            'Прошлые кварталы сохраняют свою ставку — пересчёт не происходит.'
                         );
                     };
                 }
