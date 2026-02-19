@@ -9605,6 +9605,7 @@ HTML_TEMPLATE = '''
                                     <tr>
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена<br>в ЛК</th>
+                                        <th style="text-align:right">СПП /<br>соинвест</th>
                                         <th style="text-align:right">Реклама</th>
                                         <th style="text-align:right">Налоги</th>
                                         <th style="text-align:right">Логистика</th>
@@ -13993,6 +13994,7 @@ HTML_TEMPLATE = '''
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + (Math.abs(p.gross_sales) > 0 ? Math.round((p.bonus || 0) / Math.abs(p.gross_sales) * 100) : 0) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
@@ -14034,6 +14036,7 @@ HTML_TEMPLATE = '''
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + (sumGross > 0 ? Math.round(sumBonus / sumGross * 100) : 0) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
