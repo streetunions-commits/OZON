@@ -32147,11 +32147,11 @@ def api_finance_realization():
             ).fetchone()
             db_cache.close()
             if row:
-                print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
-                # Добавляем adv_by_sku к кэшированным данным (не было при создании кэша)
                 import json as _json_cache
                 cached_data = _json_cache.loads(row[0])
                 if 'adv_by_sku' not in cached_data:
+                    # Первый запрос после обновления — загружаем рекламу и СОХРАНЯЕМ в кэш
+                    print(f"  ⚡ Реализация {cache_key}: кэш без рекламы — загружаем из Performance API и сохраняем")
                     try:
                         if quarter_str:
                             import re as _re_q
@@ -32170,6 +32170,20 @@ def api_finance_realization():
                     except Exception as _adv_e:
                         print(f"  ⚠️ Ошибка добавления adv_by_sku к кэшу: {_adv_e}")
                         cached_data['adv_by_sku'] = {}
+                    # Сохраняем обновлённый кэш с adv_by_sku обратно в БД
+                    try:
+                        db_upd = sqlite3.connect(DB_PATH, timeout=10)
+                        db_upd.execute(
+                            'UPDATE realization_cache SET response_json = ? WHERE period_key = ?',
+                            (_json_cache.dumps(cached_data, ensure_ascii=False), cache_key)
+                        )
+                        db_upd.commit()
+                        db_upd.close()
+                        print(f"  ✅ Кэш {cache_key} обновлён с adv_by_sku")
+                    except Exception as _save_e:
+                        print(f"  ⚠️ Не удалось сохранить adv_by_sku в кэш: {_save_e}")
+                else:
+                    print(f"  ⚡ Реализация {cache_key}: отдаём из кэша (с рекламой)")
                 return jsonify(cached_data)
             else:
                 print(f"  📭 Реализация {cache_key}: кэш пуст, загружаем из API")
