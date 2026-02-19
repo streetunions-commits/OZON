@@ -6426,8 +6426,8 @@ HTML_TEMPLATE = '''
             overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
         .real-types-table thead th {
-            background: #667eea; color: #fff; padding: 12px 16px; font-size: 13px;
-            font-weight: 500; text-align: left; white-space: nowrap;
+            background: #667eea; color: #fff; padding: 10px 12px; font-size: 11px;
+            font-weight: 500; text-align: left; line-height: 1.3;
         }
         .real-types-table tbody td {
             padding: 12px 16px; border-bottom: 1px solid #e9ecef; font-size: 14px;
@@ -9605,11 +9605,11 @@ HTML_TEMPLATE = '''
                                     <tr>
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена</th>
-                                        <th style="text-align:right">Комиссия %</th>
+                                        <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Доставки</th>
                                         <th style="text-align:right">Возвраты</th>
                                         <th style="text-align:right">Реализация</th>
-                                        <th style="text-align:right">Комиссия</th>
+                                        <th style="text-align:right">Комиссия<br>+ эквайринг</th>
                                         <th style="text-align:right">К получению</th>
                                         <th style="text-align:right" class="cogs-col">Себестоимость</th>
                                     </tr>
