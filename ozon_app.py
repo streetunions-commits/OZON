@@ -13849,7 +13849,6 @@ HTML_TEMPLATE = '''
 
                 // Сохраняем рекламу по SKU из API
                 _realAdvBySku = data.adv_by_sku || {};
-                console.log('[REAL] adv_by_sku:', JSON.stringify(_realAdvBySku));
 
                 // Таблица по товарам — мержим выкупы СНГ в продажи
                 const mergedProducts = [...(data.products || [])];
@@ -31452,7 +31451,13 @@ def api_finance_categories_update():
 
 def _get_adv_spend_by_sku(date_from_str, date_to_str):
     """
-    Получить суммарные расходы на рекламу по offer_id за период из products_history.
+    Получить суммарные расходы на рекламу по offer_id за период.
+
+    Загружает данные напрямую из Ozon Performance API через load_adv_spend_by_sku(),
+    затем маппит числовые SKU на строковые offer_id через таблицу products в БД.
+
+    Это позволяет получать рекламные данные за ЛЮБОЙ период, включая исторические
+    месяцы (например, декабрь 2025), для которых нет записей в products_history.
 
     Аргументы:
         date_from_str (str): Начало периода YYYY-MM-DD
@@ -31462,20 +31467,56 @@ def _get_adv_spend_by_sku(date_from_str, date_to_str):
         dict: {offer_id: total_adv_spend} — рекламные расходы по артикулам
     """
     try:
+        # Шаг 1: Загружаем данные из Performance API
+        # load_adv_spend_by_sku возвращает {date: {numeric_sku: spend}}
+        raw_data = load_adv_spend_by_sku(date_from_str, date_to_str)
+
+        if not raw_data:
+            print(f"  📊 Реклама по SKU за {date_from_str}—{date_to_str}: нет данных из Performance API")
+            return {}
+
+        # Шаг 2: Агрегируем расходы по SKU за все даты
+        # {numeric_sku: total_spend}
+        spend_by_numeric_sku = {}
+        for date_str, sku_spends in raw_data.items():
+            for sku, spend in sku_spends.items():
+                spend_by_numeric_sku[sku] = spend_by_numeric_sku.get(sku, 0) + spend
+
+        if not spend_by_numeric_sku:
+            print(f"  📊 Реклама по SKU за {date_from_str}—{date_to_str}: 0 товаров после агрегации")
+            return {}
+
+        # Шаг 3: Маппим числовые SKU → строковые offer_id через таблицу products
         conn = sqlite3.connect(DB_PATH, timeout=10)
-        rows = conn.execute('''
-            SELECT offer_id, SUM(adv_spend) as total_spend
-            FROM products_history
-            WHERE snapshot_date >= ? AND snapshot_date <= ?
-              AND adv_spend > 0
-            GROUP BY offer_id
-        ''', (date_from_str, date_to_str)).fetchall()
+        cursor = conn.cursor()
+        cursor.execute('SELECT sku, offer_id FROM products WHERE offer_id IS NOT NULL')
+        sku_to_offer = {row[0]: row[1] for row in cursor.fetchall()}
         conn.close()
-        result = {r[0]: round(r[1], 2) for r in rows if r[0]}
-        print(f"  📊 Реклама по SKU за {date_from_str}—{date_to_str}: {len(result)} товаров, итого {sum(result.values()):.2f} ₽")
+
+        # Шаг 4: Конвертируем результат в {offer_id: total_spend}
+        result = {}
+        unmapped_skus = []
+        for sku, spend in spend_by_numeric_sku.items():
+            # SKU может быть int или str — приводим к int для маппинга
+            sku_int = int(sku) if not isinstance(sku, int) else sku
+            offer_id = sku_to_offer.get(sku_int)
+            if offer_id:
+                result[offer_id] = round(result.get(offer_id, 0) + spend, 2)
+            else:
+                unmapped_skus.append(sku_int)
+                # Сохраняем по числовому SKU как fallback — фронтенд проверяет оба ключа
+                result[str(sku_int)] = round(result.get(str(sku_int), 0) + spend, 2)
+
+        total = sum(result.values())
+        print(f"  📊 Реклама по SKU за {date_from_str}—{date_to_str}: {len(result)} товаров, итого {total:.2f} ₽")
+        if unmapped_skus:
+            print(f"  ⚠️ Не удалось замапить SKU → offer_id для: {unmapped_skus}")
+
         return result
     except Exception as e:
         print(f"  ⚠️ Ошибка загрузки рекламы по SKU: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -32105,7 +32146,29 @@ def api_finance_realization():
             db_cache.close()
             if row:
                 print(f"  ⚡ Реализация {cache_key}: отдаём из кэша")
-                return Response(row[0], mimetype='application/json')
+                # Добавляем adv_by_sku к кэшированным данным (не было при создании кэша)
+                import json as _json_cache
+                cached_data = _json_cache.loads(row[0])
+                if 'adv_by_sku' not in cached_data:
+                    try:
+                        if quarter_str:
+                            import re as _re_q
+                            _mq = _re_q.match(r'^(\d{4})-Q([1-4])$', quarter_str)
+                            if _mq:
+                                _qy, _qn = int(_mq.group(1)), int(_mq.group(2))
+                                _qfm = {1:1,2:4,3:7,4:10}[_qn]
+                                _qlm = _qfm + 2
+                                _qld = calendar.monthrange(_qy, _qlm)[1]
+                                cached_data['adv_by_sku'] = _get_adv_spend_by_sku(f"{_qy}-{_qfm:02d}-01", f"{_qy}-{_qlm:02d}-{_qld}")
+                        else:
+                            from datetime import datetime as _dtc
+                            _dtm = _dtc.strptime(month_str, '%Y-%m')
+                            _mld = calendar.monthrange(_dtm.year, _dtm.month)[1]
+                            cached_data['adv_by_sku'] = _get_adv_spend_by_sku(f"{_dtm.year}-{_dtm.month:02d}-01", f"{_dtm.year}-{_dtm.month:02d}-{_mld}")
+                    except Exception as _adv_e:
+                        print(f"  ⚠️ Ошибка добавления adv_by_sku к кэшу: {_adv_e}")
+                        cached_data['adv_by_sku'] = {}
+                return jsonify(cached_data)
             else:
                 print(f"  📭 Реализация {cache_key}: кэш пуст, загружаем из API")
         except Exception as e:
