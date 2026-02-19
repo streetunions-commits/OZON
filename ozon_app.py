@@ -13965,6 +13965,9 @@ HTML_TEMPLATE = '''
             // Если есть SKU без маппинга — масштабируем пропорционально чтобы итого = карточке
             const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
 
+            // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
+            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0};
+
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const pAcq = acq * grossShare;
@@ -13981,9 +13984,7 @@ HTML_TEMPLATE = '''
                 const pNetQty = (p.delivery_qty || 0) - (p.return_qty || 0);
                 const pPrice = pNetQty > 0 ? pNetGross / pNetQty : (p.seller_price || 0);
 
-                const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 // Себестоимость per SKU (FIFO) — из _realProductCogsMap
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const cogsText = pCogs > 0 ? fmtRealMoney(pCogs) : '—';
@@ -13993,6 +13994,27 @@ HTML_TEMPLATE = '''
                 const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
+                const pOtherDed = _realOtherDeductions * qtyShare;
+
+                // Чистая прибыль per product
+                const pStorage = _realStorage * grossShare;
+                const pCompensations = _realCompensations * grossShare;
+                const pProfit = Math.abs(p.gross_sales || 0) - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
+                const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
+
+                // Накапливаем суммы для итоговой строки
+                _s.netGross += pNetGross;
+                _s.adv += pAdv;
+                _s.tax += pTax;
+                _s.log += pLog;
+                _s.cogs += pCogs;
+                _s.opex += pOpex;
+                _s.otherDed += pOtherDed;
+                _s.com += pCom;
+                _s.sales += netQty;
+                _s.ret += (p.return_qty || 0);
+                _s.bonus += (p.bonus || 0);
+                _s.profit += pProfit;
 
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
@@ -14004,75 +14026,41 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
                     '<td class="real-amount-right" data-field="cogs" style="color:' + cogsColor + ';">' + cogsText + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOpex) + '</td>' +
-                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOtherDeductions * qtyShare) + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOtherDed) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
-                    '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
-                    '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
+                    '<td class="real-amount-right" style="color:#38a169;">' + netQty + '</td>' +
+                    '<td class="real-amount-right" style="color:#e53e3e;">' + (p.return_qty || 0) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(p.bonus || 0) + '</td>' +
-                    (function(){
-                        // Чистая прибыль per product (та же формула что карточка):
-                        // gross - adv - tax - logistics - commission - cogs - otherDed - storage + compensations
-                        const pStorage = _realStorage * grossShare;
-                        const pCompensations = _realCompensations * grossShare;
-                        const pOtherDed = _realOtherDeductions * qtyShare;
-                        const pProft = Math.abs(p.gross_sales || 0) - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
-                        const profCls = pProft >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
-                        return '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(pProft) + '</td>';
-                    })() +
+                    '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(pProfit) + '</td>' +
                 '</tr>';
             }).join('');
 
-            // Итоговая строка наверху: суммы и средние
+            // Итоговая строка — суммы ровно тех значений что показаны в строках товаров
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
-                let sumDel = 0, sumRet = 0, sumRetGross = 0;
-                let sumGross = 0, sumCom = 0, sumAdv = 0, sumBonus = 0;
-                products.forEach(p => {
-                    sumDel += p.delivery_qty || 0;
-                    sumRet += p.return_qty || 0;
-                    sumRetGross += Math.abs(p.return_gross || 0);
-                    sumGross += p.gross_sales || 0;
-                    sumCom += p.commission || 0;
-                    sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
-                    sumBonus += p.bonus || 0;
-                });
-                // Средневзвешенная цена = нетто-реализация / нетто-продажи
-                const sumNetQty = sumDel - sumRet;
-                const sumNetGross = Math.abs(sumGross) - sumRetGross;
-                const avgPrice = sumNetQty > 0 ? sumNetGross / sumNetQty : 0;
-                const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
-                const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
-                const sumTax = Math.abs(_realTotalTax);
-                // Итого логистики = значение из карточки (точное совпадение)
-                const sumLog = _realLogistics;
-                // Итого себестоимость = значение из карточки
-                const sumCogs = _realCogs;
-                const cogsFootText = sumCogs > 0 ? fmtRealMoney(sumCogs) : '—';
+                const avgPrice = _s.sales > 0 ? _s.netGross / _s.sales : 0;
+                const totalComPct = _s.netGross > 0 ? (_s.com / _s.netGross * 100) : 0;
+                const cogsFootText = _s.cogs > 0 ? fmtRealMoney(_s.cogs) : '—';
+                const sppPct = _s.netGross > 0 ? Math.round(_s.bonus / _s.netGross * 100) : 0;
+                const profCls = _s.profit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_realGrossSalesTotal) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + (sumGross > 0 ? Math.round(sumBonus / sumGross * 100) : 0) + '%</td>' +
-                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
-                    '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
-                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_s.netGross) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + sppPct + '%</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(_s.adv) + '</td>' +
+                    '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(_s.tax) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(_s.log) + '</td>' +
                     '<td class="real-amount-right" id="real-cogs-tfoot" style="color:#e07020;">' + cogsFootText + '</td>' +
-                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOpex) + '</td>' +
-                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOtherDeductions) + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_s.opex) + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_s.otherDed) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
-                    '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
-                    '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>' +
-                    (function(){
-                        // Итого чистая прибыль — ТОЧНО та же формула что _updateProfitCard()
-                        const comm = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
-                        const allComp = _realCompensations + _realBonuses;
-                        const totalProfit = _realGrossSalesTotal - _realAdvertising - _realTotalTax - _realLogistics - comm - _realCogs - _realOtherDeductions - _realStorage + allComp - _realBonuses;
-                        const cls = totalProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
-                        return '<td class="real-amount-right" style="' + cls + 'font-weight:700;">' + fmtRealMoney(totalProfit) + '</td>';
-                    })();
+                    '<td class="real-amount-right" style="color:#38a169;">' + _s.sales + '</td>' +
+                    '<td class="real-amount-right" style="color:#e53e3e;">' + _s.ret + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_s.com) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(_s.bonus) + '</td>' +
+                    '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(_s.profit) + '</td>';
                 summaryRow.style.display = '';
             }
 
