@@ -9618,6 +9618,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
                                         <th style="text-align:right">Баллы<br>за скидки</th>
+                                        <th style="text-align:right">Чистая<br>прибыль</th>
                                     </tr>
                                     <tr id="real-products-summary" style="display:none;"></tr>
                                 </thead>
@@ -14007,6 +14008,16 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(p.bonus || 0) + '</td>' +
+                    (function(){
+                        // Чистая прибыль per product (та же формула что карточка):
+                        // gross - adv - tax - logistics - commission - cogs - otherDed - storage + compensations
+                        const pStorage = _realStorage * grossShare;
+                        const pCompensations = _realCompensations * grossShare;
+                        const pOtherDed = _realOtherDeductions * qtyShare;
+                        const pProft = Math.abs(p.gross_sales || 0) - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
+                        const profCls = pProft >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
+                        return '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(pProft) + '</td>';
+                    })() +
                 '</tr>';
             }).join('');
 
@@ -14048,7 +14059,14 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>';
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>' +
+                    (function(){
+                        // Итого чистая прибыль — та же формула что карточка
+                        const totalCommission = sumCom + acq + Math.abs(_realBuyoutCommission);
+                        const totalProfit = sumGross - sumAdv - sumTax - sumLog - totalCommission - sumCogs - _realOtherDeductions - _realStorage + _realCompensations;
+                        const cls = totalProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
+                        return '<td class="real-amount-right" style="' + cls + 'font-weight:700;">' + fmtRealMoney(totalProfit) + '</td>';
+                    })();
                 summaryRow.style.display = '';
             }
 
