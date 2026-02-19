@@ -13952,12 +13952,19 @@ HTML_TEMPLATE = '''
             const rawTaxSum = rawTaxes.reduce((s, t) => s + t, 0);
             const taxScale = (rawTaxSum > 0 && _realTotalTax > 0) ? Math.abs(_realTotalTax) / rawTaxSum : 1;
 
+            // ── Шаг 3: per-SKU логистика + нормализация чтобы сумма = _realLogistics (карточка) ──
+            // Сырые значения из транзакций по SKU
+            const rawLogistics = products.map(p => _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0);
+            const rawLogSum = rawLogistics.reduce((s, l) => s + l, 0);
+            // Если есть SKU без маппинга — масштабируем пропорционально чтобы итого = карточке
+            const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
+
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const pAcq = acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
-                // Per-SKU логистика из транзакций (та же логика что карточка «Логистика»)
-                const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
+                // Per-SKU логистика из транзакций, нормализованная к итогу карточки
+                const pLog = rawLogistics[i] * logScale;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
@@ -13989,7 +13996,7 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0, sumLog = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
                 products.forEach(p => {
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
@@ -13997,13 +14004,14 @@ HTML_TEMPLATE = '''
                     sumCom += p.commission || 0;
                     sumRcv += p.seller_receives || 0;
                     sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
-                    sumLog += _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 });
                 // Средневзвешенная цена = гросс-продажи / кол-во доставок
                 const avgPrice = sumDel > 0 ? sumGross / sumDel : 0;
                 const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 const sumTax = Math.abs(_realTotalTax);
+                // Итого логистики = значение из карточки (точное совпадение)
+                const sumLog = _realLogistics;
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
