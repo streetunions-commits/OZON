@@ -32695,6 +32695,9 @@ def _get_cumulative_prior_sales(period_start_str):
     Получить кумулятивные продажи по SKU из кэша реализации
     за все месяцы ДО указанной даты начала периода.
 
+    Автоматически подгружает отсутствующие закрытые месяцы из Ozon API,
+    чтобы при очистке кэша данные не терялись.
+
     Аргументы:
         period_start_str (str): Дата начала периода "YYYY-MM-DD"
 
@@ -32702,11 +32705,82 @@ def _get_cumulative_prior_sales(period_start_str):
         dict: {sku_str: net_sales_qty, ...}
     """
     import json as _json
+    from datetime import datetime as _dt
 
-    period_month = period_start_str[:7]
+    period_month = period_start_str[:7]  # "2025-12"
     cumulative = {}
 
     try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+
+        # ── Проверяем пропущенные месяцы и подгружаем их ──
+        cached_keys = set()
+        for row in conn.execute('SELECT period_key FROM realization_cache').fetchall():
+            cached_keys.add(row[0])
+
+        # Генерируем все месяцы от 2025-01 до period_month (не включая)
+        now = _dt.now()
+        current_ym = f"{now.year}-{now.month:02d}"
+        start_year, start_month = 2025, 1
+        end_year, end_month = int(period_month[:4]), int(period_month[5:7])
+
+        missing_months = []
+        y, m = start_year, start_month
+        while f"{y}-{m:02d}" < period_month:
+            key = f"{y}-{m:02d}"
+            # Пропускаем текущий (незакрытый) месяц — его нет в /v2/finance/realization
+            if key != current_ym and key not in cached_keys:
+                missing_months.append(key)
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        conn.close()
+
+        # Подгружаем отсутствующие закрытые месяцы напрямую из Ozon API
+        if missing_months:
+            print(f"  📥 COGS: подгружаем {len(missing_months)} пропущенных месяцев: {missing_months}")
+            ozon_headers = get_ozon_headers()
+            for mk in missing_months:
+                try:
+                    yr = int(mk[:4])
+                    mo = int(mk[5:7])
+                    resp = requests.post(
+                        f"{OZON_HOST}/v2/finance/realization",
+                        json={"year": yr, "month": mo},
+                        headers=ozon_headers, timeout=60
+                    )
+                    if resp.status_code != 200:
+                        print(f"  ⚠️ Ozon API {mk}: HTTP {resp.status_code}")
+                        continue
+                    api_rows = resp.json().get('result', {}).get('rows', [])
+                    # Парсим products для кумулятивных продаж (без полного кэширования)
+                    month_products = {}
+                    for row in api_rows:
+                        sp = row.get('seller_price_per_instance', 0)
+                        item = row.get('item', {})
+                        sku = str(item.get('sku', ''))
+                        if not sku:
+                            continue
+                        dc = row.get('delivery_commission') or {}
+                        rc = row.get('return_commission') or {}
+                        d_qty = dc.get('quantity', 0)
+                        r_qty = rc.get('quantity', 0)
+                        if sku not in month_products:
+                            month_products[sku] = {'delivery_qty': 0, 'return_qty': 0}
+                        month_products[sku]['delivery_qty'] += d_qty
+                        month_products[sku]['return_qty'] += r_qty
+                    # Добавляем в кумулятивные продажи
+                    for sku, pdata in month_products.items():
+                        net = pdata['delivery_qty'] - pdata['return_qty']
+                        if net > 0:
+                            cumulative[sku] = cumulative.get(sku, 0) + net
+                    print(f"  ✅ COGS: {mk} — {len(api_rows)} строк, {len(month_products)} товаров")
+                except Exception as e:
+                    print(f"  ⚠️ Не удалось загрузить {mk}: {e}")
+
+        # ── Считаем кумулятивные продажи из кэша (теперь полного) ──
         conn = sqlite3.connect(DB_PATH, timeout=10)
         rows = conn.execute('SELECT period_key, response_json FROM realization_cache').fetchall()
         conn.close()
