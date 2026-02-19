@@ -9606,7 +9606,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
-                                        <th style="text-align:right">Доставки</th>
+                                        <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
                                         <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
@@ -13871,7 +13871,7 @@ HTML_TEMPLATE = '''
 
         /**
          * Отрисовать таблицу реализации по товарам (SKU).
-         * Колонки: артикул, цена, комиссия %, доставки, возвраты, продажи, комиссия, к получению.
+         * Колонки: артикул, цена, комиссия %, продажи (доставки−возвраты), возвраты, реализация, комиссия, к получению.
          */
         function renderRealizationProducts(products) {
             const tbody = document.getElementById('real-products-tbody');
@@ -13890,7 +13890,7 @@ HTML_TEMPLATE = '''
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(p.commission_ratio) + '%</td>' +
-                    '<td class="real-amount-right" style="color:#38a169;">' + p.delivery_qty + '</td>' +
+                    '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
@@ -13922,7 +13922,7 @@ HTML_TEMPLATE = '''
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
-                    '<td class="real-amount-right" style="color:#38a169;">' + sumDel + '</td>' +
+                    '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
