@@ -14061,9 +14061,10 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>' +
                     (function(){
-                        // Итого чистая прибыль — та же формула что карточка
-                        const totalCommission = sumCom + acq + Math.abs(_realBuyoutCommission);
-                        const totalProfit = sumGross - sumAdv - sumTax - sumLog - totalCommission - sumCogs - _realOtherDeductions - _realStorage + _realCompensations;
+                        // Итого чистая прибыль — ТОЧНО та же формула что _updateProfitCard()
+                        const comm = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
+                        const allComp = _realCompensations + _realBonuses;
+                        const totalProfit = _realGrossSalesTotal - _realAdvertising - _realTotalTax - _realLogistics - comm - _realCogs - _realOtherDeductions - _realStorage + allComp - _realBonuses;
                         const cls = totalProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
                         return '<td class="real-amount-right" style="' + cls + 'font-weight:700;">' + fmtRealMoney(totalProfit) + '</td>';
                     })();
