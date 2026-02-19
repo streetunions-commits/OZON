@@ -13675,6 +13675,7 @@ HTML_TEMPLATE = '''
         let _realTotalTax = 0;       // Налоги (НДС + УСН)
         let _realSalesCount = 0;     // Количество продаж (шт)
         let _realLoading = false;  // Защита от параллельных загрузок
+        let _realProductsData = [];  // Хранение products для перерендера после загрузки эквайринга
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
@@ -13739,6 +13740,7 @@ HTML_TEMPLATE = '''
             _realOpex = 0;
             _realTotalTax = 0;
             _realSalesCount = 0;
+            _realProductsData = [];
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13877,23 +13879,36 @@ HTML_TEMPLATE = '''
             const tbody = document.getElementById('real-products-tbody');
             if (!tbody) return;
 
+            // Сохраняем products для перерендера после загрузки эквайринга из транзакций
+            if (products && products.length > 0) _realProductsData = products;
+
             if (products.length === 0) {
                 document.getElementById('real-products-wrapper').style.display = 'none';
                 return;
             }
 
+            // Распределяем эквайринг (_realAcquiring из Transactions API) пропорционально по товарам
+            // Realization API возвращает delivery_commission.commission ≈ 0 для большинства товаров,
+            // а реальный эквайринг приходит отдельной операцией MarketplaceRedistributionOfAcquiringOperation
+            const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
+            const acq = Math.abs(_realAcquiring);
+
             tbody.innerHTML = products.map(p => {
+                // Доля эквайринга пропорционально гросс-продажам товара
+                const pAcq = (totalGross > 0 && acq > 0) ? acq * Math.abs(p.gross_sales || 0) / totalGross : 0;
+                const pCom = (p.commission || 0) + pAcq;
+                const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
-                const comCls = p.commission >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(p.commission_ratio) + '%</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
-                    '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(p.commission) + '</td>' +
+                    '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
                     '<td class="real-amount-right cogs-col" data-field="cogs" style="color:#999;">—</td>' +
                 '</tr>';
@@ -13902,11 +13917,10 @@ HTML_TEMPLATE = '''
             // Итоговая строка наверху: суммы и средние
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
-                let sumPrice = 0, sumComPct = 0, sumDel = 0, sumRet = 0;
+                let sumPrice = 0, sumDel = 0, sumRet = 0;
                 let sumGross = 0, sumCom = 0, sumRcv = 0;
                 products.forEach(p => {
                     sumPrice += p.seller_price || 0;
-                    sumComPct += p.commission_ratio || 0;
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
                     sumGross += p.gross_sales || 0;
@@ -13915,8 +13929,8 @@ HTML_TEMPLATE = '''
                 });
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
-                // Итого комиссия включает СНГ (не привязана к SKU, но входит в общую)
-                const totalCom = sumCom + Math.abs(_realBuyoutCommission);
+                // Итого комиссия = сумма per-product + эквайринг (из транзакций) + комиссия СНГ (не привязана к SKU)
+                const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
@@ -14563,6 +14577,11 @@ HTML_TEMPLATE = '''
             // Сохраняем эквайринг и обновляем карточку комиссии
             _realAcquiring = Math.abs(acquiringTotal);
             updateCommissionCard();
+
+            // Перерендерим таблицу товаров — теперь с учётом эквайринга пропорционально
+            if (_realProductsData.length > 0) {
+                renderRealizationProducts(_realProductsData);
+            }
 
             // «Баллы за скидки» — из realization API (bonuses_total), добавляем к компенсациям
             if (_realBonuses > 0) {
