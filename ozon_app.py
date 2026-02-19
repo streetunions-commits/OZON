@@ -9616,7 +9616,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Возвраты</th>
                                         <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
-                                        <th style="text-align:right">К получению</th>
+                                        <th style="text-align:right">Баллы<br>за скидки</th>
                                     </tr>
                                     <tr id="real-products-summary" style="display:none;"></tr>
                                 </thead>
@@ -14004,7 +14004,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
-                    '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(p.bonus || 0) + '</td>' +
                 '</tr>';
             }).join('');
 
@@ -14012,14 +14012,14 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
+                let sumGross = 0, sumCom = 0, sumAdv = 0, sumBonus = 0;
                 products.forEach(p => {
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
                     sumGross += p.gross_sales || 0;
                     sumCom += p.commission || 0;
-                    sumRcv += p.seller_receives || 0;
                     sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                    sumBonus += p.bonus || 0;
                 });
                 // Средневзвешенная цена = гросс-продажи / кол-во доставок
                 const avgPrice = sumDel > 0 ? sumGross / sumDel : 0;
@@ -14045,7 +14045,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>';
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>';
                 summaryRow.style.display = '';
             }
 
