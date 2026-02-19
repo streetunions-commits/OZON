@@ -9610,6 +9610,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Логистика</th>
                                         <th style="text-align:right">Себестоимость</th>
                                         <th style="text-align:right">Расходы<br>к вычету</th>
+                                        <th style="text-align:right">Иные<br>удержания</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
@@ -13997,6 +13998,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
                     '<td class="real-amount-right" data-field="cogs" style="color:' + cogsColor + ';">' + cogsText + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOpex) + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOtherDeductions * qtyShare) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
@@ -14037,6 +14039,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
                     '<td class="real-amount-right" id="real-cogs-tfoot" style="color:#e07020;">' + cogsFootText + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOpex) + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOtherDeductions) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
