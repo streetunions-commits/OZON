@@ -13915,15 +13915,17 @@ HTML_TEMPLATE = '''
                 });
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
-                const avgComPct = sumComPct / cnt;
+                // Итого комиссия включает СНГ (не привязана к SKU, но входит в общую)
+                const totalCom = sumCom + Math.abs(_realBuyoutCommission);
+                const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + Math.round(avgComPct) + '%</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + sumDel + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumCom) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>' +
                     '<td class="real-amount-right cogs-col" id="real-cogs-tfoot" style="color:#555;">—</td>';
                 summaryRow.style.display = '';
