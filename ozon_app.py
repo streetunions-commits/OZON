@@ -31763,41 +31763,40 @@ def _build_realization_from_transactions(year, month):
         delivery_count += d_qty
         return_count += r_qty
 
-        # Агрегация по товарам (SKU)
-        product_key = sku or offer_id or barcode
-        if product_key:
-            if product_key not in products_map:
-                products_map[product_key] = {
-                    'name': name[:80],
-                    'sku': sku,
-                    'offer_id': offer_id,
-                    'seller_price_sum': 0.0,
-                    'standard_fee': 0.0,
-                    'acquiring': 0.0,
-                    'bank_coinvestment': 0.0,
-                    'delivery_qty': 0,
-                    'return_qty': 0,
-                    'gross_sales': 0.0,
-                    'return_gross': 0.0,
-                    'returns': 0.0,
-                    'total_deductions': 0.0,
-                    'seller_receives': 0.0,
-                    'bonus': 0.0
-                }
-            p = products_map[product_key]
-            p['delivery_qty'] += d_qty
-            p['return_qty'] += r_qty
-            p['gross_sales'] += row_gross_sales
-            p['return_gross'] += row_return_gross
-            p['returns'] += row_returns
-            p['total_deductions'] += d_total_comm + r_total_comm
-            p['seller_receives'] += d_amount - r_amount
-            p['bonus'] += d_bonus + r_bonus
-            p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
-            p['acquiring'] += d_acquiring + r_acquiring
-            p['bank_coinvestment'] += d_bank
-            if d_qty > 0:
-                p['seller_price_sum'] += seller_price * d_qty
+        # Агрегация по товарам (SKU) — все строки попадают в products_map
+        product_key = sku or offer_id or barcode or '_unknown'
+        if product_key not in products_map:
+            products_map[product_key] = {
+                'name': name[:80] if name else 'Прочее',
+                'sku': sku,
+                'offer_id': offer_id,
+                'seller_price_sum': 0.0,
+                'standard_fee': 0.0,
+                'acquiring': 0.0,
+                'bank_coinvestment': 0.0,
+                'delivery_qty': 0,
+                'return_qty': 0,
+                'gross_sales': 0.0,
+                'return_gross': 0.0,
+                'returns': 0.0,
+                'total_deductions': 0.0,
+                'seller_receives': 0.0,
+                'bonus': 0.0
+            }
+        p = products_map[product_key]
+        p['delivery_qty'] += d_qty
+        p['return_qty'] += r_qty
+        p['gross_sales'] += row_gross_sales
+        p['return_gross'] += row_return_gross
+        p['returns'] += row_returns
+        p['total_deductions'] += d_total_comm + r_total_comm
+        p['seller_receives'] += d_amount - r_amount
+        p['bonus'] += d_bonus + r_bonus
+        p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
+        p['acquiring'] += d_acquiring + r_acquiring
+        p['bank_coinvestment'] += d_bank
+        if d_qty > 0:
+            p['seller_price_sum'] += seller_price * d_qty
 
     # ── Итоги ──
     net_total = seller_receives
@@ -32003,30 +32002,29 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         delivery_count += d_qty
         return_count += r_qty
 
-        product_key = sku or offer_id or barcode
-        if product_key:
-            if product_key not in products_map:
-                products_map[product_key] = {
-                    'name': name[:80], 'sku': sku, 'offer_id': offer_id,
-                    'seller_price_sum': 0.0, 'standard_fee': 0.0, 'acquiring': 0.0,
-                    'bank_coinvestment': 0.0, 'delivery_qty': 0, 'return_qty': 0,
-                    'gross_sales': 0.0, 'return_gross': 0.0, 'returns': 0.0,
-                    'total_deductions': 0.0, 'seller_receives': 0.0, 'bonus': 0.0
-                }
-            p = products_map[product_key]
-            p['delivery_qty'] += d_qty
-            p['return_qty'] += r_qty
-            p['gross_sales'] += row_gross_sales
-            p['return_gross'] += row_return_gross
-            p['returns'] += row_returns
-            p['total_deductions'] += d_total_comm + r_total_comm
-            p['seller_receives'] += d_amount - r_amount
-            p['bonus'] += d_bonus - r_bonus
-            p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
-            p['acquiring'] += d_acquiring + r_acquiring
-            p['bank_coinvestment'] += d_bank
-            if d_qty > 0:
-                p['seller_price_sum'] += seller_price * d_qty
+        product_key = sku or offer_id or barcode or '_unknown'
+        if product_key not in products_map:
+            products_map[product_key] = {
+                'name': name[:80] if name else 'Прочее', 'sku': sku, 'offer_id': offer_id,
+                'seller_price_sum': 0.0, 'standard_fee': 0.0, 'acquiring': 0.0,
+                'bank_coinvestment': 0.0, 'delivery_qty': 0, 'return_qty': 0,
+                'gross_sales': 0.0, 'return_gross': 0.0, 'returns': 0.0,
+                'total_deductions': 0.0, 'seller_receives': 0.0, 'bonus': 0.0
+            }
+        p = products_map[product_key]
+        p['delivery_qty'] += d_qty
+        p['return_qty'] += r_qty
+        p['gross_sales'] += row_gross_sales
+        p['return_gross'] += row_return_gross
+        p['returns'] += row_returns
+        p['total_deductions'] += d_total_comm + r_total_comm
+        p['seller_receives'] += d_amount - r_amount
+        p['bonus'] += d_bonus - r_bonus
+        p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
+        p['acquiring'] += d_acquiring + r_acquiring
+        p['bank_coinvestment'] += d_bank
+        if d_qty > 0:
+            p['seller_price_sum'] += seller_price * d_qty
 
     net_total = seller_receives
     marketplace_commission = standard_fee_total + acquiring_total
@@ -32421,41 +32419,40 @@ def api_finance_realization():
             delivery_count += d_qty
             return_count += r_qty
 
-            # Агрегация по товарам
-            product_key = sku or offer_id or barcode
-            if product_key:
-                if product_key not in products_map:
-                    products_map[product_key] = {
-                        'name': name[:80],
-                        'sku': sku,
-                        'offer_id': offer_id,
-                        'seller_price_sum': 0.0,       # Сумма (seller_price * d_qty) для средневзвешенной цены
-                        'standard_fee': 0.0,           # Комиссия МП по товару
-                        'acquiring': 0.0,              # Эквайринг по товару
-                        'bank_coinvestment': 0.0,      # Соинвест по товару
-                        'delivery_qty': 0,
-                        'return_qty': 0,
-                        'gross_sales': 0.0,
-                        'return_gross': 0.0,
-                        'returns': 0.0,
-                        'total_deductions': 0.0,       # Все удержания (total)
-                        'seller_receives': 0.0,
-                        'bonus': 0.0
-                    }
-                p = products_map[product_key]
-                p['delivery_qty'] += d_qty
-                p['return_qty'] += r_qty
-                p['gross_sales'] += row_gross_sales
-                p['return_gross'] += row_return_gross
-                p['returns'] += row_returns
-                p['total_deductions'] += d_total_comm + r_total_comm
-                p['seller_receives'] += d_amount - r_amount
-                p['bonus'] += d_bonus + r_bonus
-                p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
-                p['acquiring'] += d_acquiring + r_acquiring
-                p['bank_coinvestment'] += d_bank
-                if d_qty > 0:
-                    p['seller_price_sum'] += seller_price * d_qty
+            # Агрегация по товарам — все строки попадают в products_map
+            product_key = sku or offer_id or barcode or '_unknown'
+            if product_key not in products_map:
+                products_map[product_key] = {
+                    'name': name[:80] if name else 'Прочее',
+                    'sku': sku,
+                    'offer_id': offer_id,
+                    'seller_price_sum': 0.0,       # Сумма (seller_price * d_qty) для средневзвешенной цены
+                    'standard_fee': 0.0,           # Комиссия МП по товару
+                    'acquiring': 0.0,              # Эквайринг по товару
+                    'bank_coinvestment': 0.0,      # Соинвест по товару
+                    'delivery_qty': 0,
+                    'return_qty': 0,
+                    'gross_sales': 0.0,
+                    'return_gross': 0.0,
+                    'returns': 0.0,
+                    'total_deductions': 0.0,       # Все удержания (total)
+                    'seller_receives': 0.0,
+                    'bonus': 0.0
+                }
+            p = products_map[product_key]
+            p['delivery_qty'] += d_qty
+            p['return_qty'] += r_qty
+            p['gross_sales'] += row_gross_sales
+            p['return_gross'] += row_return_gross
+            p['returns'] += row_returns
+            p['total_deductions'] += d_total_comm + r_total_comm
+            p['seller_receives'] += d_amount - r_amount
+            p['bonus'] += d_bonus + r_bonus
+            p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
+            p['acquiring'] += d_acquiring + r_acquiring
+            p['bank_coinvestment'] += d_bank
+            if d_qty > 0:
+                p['seller_price_sum'] += seller_price * d_qty
 
         # ── Итоги ──
         net_total = seller_receives
