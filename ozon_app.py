@@ -9607,6 +9607,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Цена<br>в ЛК</th>
                                         <th style="text-align:right">Реклама</th>
                                         <th style="text-align:right">Налоги</th>
+                                        <th style="text-align:right">Логистика</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
@@ -13681,6 +13682,7 @@ HTML_TEMPLATE = '''
         let _realNdsPercent = 0;     // Ставка НДС (из контроля НДС)
         let _realProductCogsMap = {};  // Себестоимость per SKU {sku: cogs}
         let _realAdvBySku = {};      // Расходы на рекламу по артикулам {offer_id: spend}
+        let _realLogisticsBySku = {}; // Логистика по артикулам {offer_id: cost}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
@@ -13748,6 +13750,7 @@ HTML_TEMPLATE = '''
             _realProductsData = [];
             _realNdsPercent = 0;
             _realProductCogsMap = {};
+            _realLogisticsBySku = {};
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13931,6 +13934,7 @@ HTML_TEMPLATE = '''
                 const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
                 const pAcq = acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
                 const allComp = _realCompensations + _realBonuses;
                 const pComp = allComp * grossShare;
@@ -13938,7 +13942,7 @@ HTML_TEMPLATE = '''
                 let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pUsnBase = Math.abs(p.gross_sales || 0)
-                    - pAdv - _realLogistics * grossShare - _realStorage * grossShare
+                    - pAdv - pLog - _realStorage * grossShare
                     - pCom - _realOtherDeductions * grossShare - pCogs - _realOpex * grossShare
                     - pNds + pComp - _realBonuses * grossShare;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
@@ -13952,6 +13956,8 @@ HTML_TEMPLATE = '''
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const pAcq = acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                // Per-SKU логистика из транзакций (та же логика что карточка «Логистика»)
+                const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
@@ -13968,6 +13974,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
@@ -13982,7 +13989,7 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0, sumLog = 0;
                 products.forEach(p => {
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
@@ -13990,6 +13997,7 @@ HTML_TEMPLATE = '''
                     sumCom += p.commission || 0;
                     sumRcv += p.seller_receives || 0;
                     sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                    sumLog += _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 });
                 // Средневзвешенная цена = гросс-продажи / кол-во доставок
                 const avgPrice = sumDel > 0 ? sumGross / sumDel : 0;
@@ -14001,6 +14009,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
@@ -14717,6 +14726,9 @@ HTML_TEMPLATE = '''
             _realAdvertising = catTotals.advertising;
             _realStorage = catTotals.storage;
             _realCompensations = catTotals.compensations - _realBonuses;
+
+            // Per-SKU логистика из транзакций (та же логика что карточка: доставки + возвраты)
+            _realLogisticsBySku = data.logistics_by_sku || {};
 
             // Загружаем карточку «Налоги» (НДС + УСН)
             _loadRealizationTax();
@@ -33269,6 +33281,7 @@ def api_finance_transactions_breakdown():
     ozon_headers = get_ozon_headers()
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
+    logistics_by_sku = {} # {offer_id: сумма логистики} — per-SKU логистика для таблицы товаров
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -33364,7 +33377,14 @@ def api_finance_transactions_breakdown():
                     svc_totals[sn]['count'] += 1
 
             # Логистика доставки: считаем только из доставок (без возвратных операций)
+            # Также агрегируем per-SKU логистику для таблицы товаров
             if ot == 'OperationAgentDeliveredToCustomer':
+                # SKU товара из items — для per-SKU распределения
+                op_items = op.get('items', [])
+                op_offer_id = op_items[0].get('offer_id', '') if op_items else ''
+                op_sku = str(op_items[0].get('sku', '')) if op_items else ''
+                sku_key = op_offer_id or op_sku  # Ключ для маппинга (offer_id приоритетнее)
+
                 for svc in op.get('services', []):
                     sn = svc.get('name', '')
                     sp = svc.get('price', 0)
@@ -33373,11 +33393,27 @@ def api_finance_transactions_breakdown():
                             svc_totals['_delivery_logistics'] = {'sum': 0.0, 'count': 0}
                         svc_totals['_delivery_logistics']['sum'] += sp
                         svc_totals['_delivery_logistics']['count'] += 1
+                        # Per-SKU логистика
+                        if sku_key:
+                            logistics_by_sku[sku_key] = logistics_by_sku.get(sku_key, 0.0) + abs(sp)
                     elif sn == 'MarketplaceServiceItemRedistributionLastMileCourier':
                         if '_delivery_last_mile' not in svc_totals:
                             svc_totals['_delivery_last_mile'] = {'sum': 0.0, 'count': 0}
                         svc_totals['_delivery_last_mile']['sum'] += sp
                         svc_totals['_delivery_last_mile']['count'] += 1
+                        # Per-SKU последняя миля
+                        if sku_key:
+                            logistics_by_sku[sku_key] = logistics_by_sku.get(sku_key, 0.0) + abs(sp)
+
+            # Логистика возврата — per-SKU (OperationItemReturn)
+            if ot == 'OperationItemReturn':
+                op_items = op.get('items', [])
+                op_offer_id = op_items[0].get('offer_id', '') if op_items else ''
+                op_sku = str(op_items[0].get('sku', '')) if op_items else ''
+                sku_key = op_offer_id or op_sku
+                if sku_key:
+                    # amount отрицательный (расход) — берём abs
+                    logistics_by_sku[sku_key] = logistics_by_sku.get(sku_key, 0.0) + abs(amt)
 
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
@@ -33475,13 +33511,19 @@ def api_finance_transactions_breakdown():
         if new_types or missing_types:
             _notify_transaction_type_changes(period_label, new_types, missing_types)
 
+        # Per-SKU логистика: округляем значения
+        logistics_by_sku_rounded = {k: round(v, 2) for k, v in logistics_by_sku.items()}
+        log_total_by_sku = sum(logistics_by_sku_rounded.values())
+        print(f"  📊 Логистика по SKU: {len(logistics_by_sku_rounded)} товаров, итого {log_total_by_sku:.2f} ₽")
+
         response_data = {
             'success': True,
             'period': period_label,
             'total_operations': total_ops,
             'operations': operations_list,
             'services': services_list,
-            'alerts': alerts
+            'alerts': alerts,
+            'logistics_by_sku': logistics_by_sku_rounded
         }
 
         # ── Сохраняем в кэш ──
