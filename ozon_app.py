@@ -13678,6 +13678,8 @@ HTML_TEMPLATE = '''
         let _realSalesCount = 0;     // Количество продаж (шт)
         let _realLoading = false;  // Защита от параллельных загрузок
         let _realProductsData = [];  // Хранение products для перерендера после загрузки эквайринга
+        let _realNdsPercent = 0;     // Ставка НДС (из контроля НДС)
+        let _realProductCogsMap = {};  // Себестоимость per SKU {sku: cogs}
         let _realAdvBySku = {};      // Расходы на рекламу по артикулам {offer_id: spend}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
@@ -13744,6 +13746,8 @@ HTML_TEMPLATE = '''
             _realTotalTax = 0;
             _realSalesCount = 0;
             _realProductsData = [];
+            _realNdsPercent = 0;
+            _realProductCogsMap = {};
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13916,9 +13920,11 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Распределяем эквайринг пропорционально гросс-продажам, рекламу берём по SKU
+            // Распределяем эквайринг пропорционально, рекламу — по SKU
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             const acq = Math.abs(_realAcquiring);
+            // Пропорционально распределяемые расходы (не привязаны к SKU)
+            const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
             tbody.innerHTML = products.map(p => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
@@ -13927,6 +13933,33 @@ HTML_TEMPLATE = '''
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
+
+                // ── Налоги per product по формуле ──
+                // НДС: (seller_receives_i * доля в salesAfterSpp + компенсации * grossShare) / (100+НДС%) × НДС%
+                const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
+                const pSalesAfterSpp = _realSalesAfterSpp * rcvShare;
+                const allComp = _realCompensations + _realBonuses;
+                const pComp = allComp * grossShare;
+                const pNdsBase = pSalesAfterSpp + pComp;
+                let pNds = 0;
+                if (_realNdsPercent > 0) {
+                    pNds = pNdsBase / (100 + _realNdsPercent) * _realNdsPercent;
+                }
+                // УСН 15%: gross_i - реклама_i - логистика*share - хранение*share - комиссия_i
+                //          - иные*share - себестоимость_i - расходы_к_вычету*share - НДС_i
+                //          + все_компенсации*share - баллы*share
+                const pLogistics = _realLogistics * grossShare;
+                const pStorage = _realStorage * grossShare;
+                const pOther = _realOtherDeductions * grossShare;
+                const pCogs = _realProductCogsMap[p.sku] || 0;
+                const pOpex = _realOpex * grossShare;
+                const pBonuses = _realBonuses * grossShare;
+                const pUsnBase = Math.abs(p.gross_sales || 0)
+                    - pAdv - pLogistics - pStorage - pCom - pOther - pCogs - pOpex - pNds
+                    + pComp - pBonuses;
+                const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
+                const pTax = pNds + pUsn;
+
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
@@ -13949,25 +13982,39 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumPrice = 0, sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0, sumTax = 0;
                 products.forEach(p => {
+                    const gs = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
+                    const rs = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
+                    const _pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                    const _pAcq = acq * gs;
+                    const _pCom = (p.commission || 0) + _pAcq;
+                    const _pComp = (_realCompensations + _realBonuses) * gs;
+                    const _pNdsBase = _realSalesAfterSpp * rs + _pComp;
+                    let _pNds = (_realNdsPercent > 0) ? _pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
+                    const _pCogs = _realProductCogsMap[p.sku] || 0;
+                    const _pUsnBase = Math.abs(p.gross_sales || 0) - _pAdv - _realLogistics * gs - _realStorage * gs
+                        - _pCom - _realOtherDeductions * gs - _pCogs - _realOpex * gs - _pNds
+                        + _pComp - _realBonuses * gs;
+                    const _pUsn = _pUsnBase > 0 ? _pUsnBase * 15 / 100 : 0;
+                    sumTax += _pNds + _pUsn;
                     sumPrice += p.seller_price || 0;
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
                     sumGross += p.gross_sales || 0;
                     sumCom += p.commission || 0;
                     sumRcv += p.seller_receives || 0;
-                    sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                    sumAdv += _pAdv;
                 });
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
-                // Итого комиссия = сумма per-product + эквайринг (из транзакций) + комиссия СНГ (не привязана к SKU)
                 const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
@@ -14193,6 +14240,7 @@ HTML_TEMPLATE = '''
                 //    Если оборот < порога 1-й строки → ставка 1-й строки, иначе → 2-й строки
                 //    Прошлые кварталы сохраняют свою ставку (оборот фиксируется на конец квартала)
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
+                _realNdsPercent = ndsPercent;
 
                 // 4. НДС = (Продажи после СПП + Компенсации без баллов) / (100 + НДС%) × НДС%
                 const ndsBase = _realSalesAfterSpp + _realCompensations;
@@ -14363,6 +14411,14 @@ HTML_TEMPLATE = '''
                 let totalCogs = data.total_cogs || 0;
                 _realCogs = totalCogs;
 
+                // Сохраняем COGS per SKU для расчёта налогов per product
+                _realProductCogsMap = {};
+                for (const sku in cogsMap) {
+                    if (cogsMap[sku] && cogsMap[sku].cogs > 0) {
+                        _realProductCogsMap[sku] = cogsMap[sku].cogs;
+                    }
+                }
+
                 // Обновляем колонки в таблице товаров
                 const tbody = document.getElementById('real-products-tbody');
                 if (tbody) {
@@ -14428,6 +14484,11 @@ HTML_TEMPLATE = '''
                     }
                 }
                 if (cogsCard) cogsCard.style.display = '';
+
+                // Перерендерим таблицу — налоги per product зависят от себестоимости
+                if (_realProductsData.length > 0) {
+                    renderRealizationProducts(_realProductsData);
+                }
 
             } catch (e) {
                 console.error('[COGS] fetch error:', e);
