@@ -9605,6 +9605,7 @@ HTML_TEMPLATE = '''
                                     <tr>
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена<br>в ЛК</th>
+                                        <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">СПП /<br>соинвест</th>
                                         <th style="text-align:right">Реклама</th>
                                         <th style="text-align:right">Налоги</th>
@@ -9615,7 +9616,6 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
-                                        <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
                                         <th style="text-align:right">Баллы<br>за скидки</th>
                                         <th style="text-align:right">Чистая<br>прибыль</th>
@@ -13997,6 +13997,7 @@ HTML_TEMPLATE = '''
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
+                    '<td class="real-amount-right">' + fmtRealMoney(pNetGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + (Math.abs(p.gross_sales) > 0 ? Math.round((p.bonus || 0) / Math.abs(p.gross_sales) * 100) : 0) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
@@ -14007,7 +14008,6 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
-                    '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(p.bonus || 0) + '</td>' +
                     (function(){
@@ -14052,6 +14052,7 @@ HTML_TEMPLATE = '''
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_realGrossSalesTotal) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + (sumGross > 0 ? Math.round(sumBonus / sumGross * 100) : 0) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
@@ -14062,7 +14063,6 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(sumBonus) + '</td>' +
                     (function(){
