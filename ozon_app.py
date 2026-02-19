@@ -9606,6 +9606,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена<br>в ЛК</th>
                                         <th style="text-align:right">Реклама</th>
+                                        <th style="text-align:right">Налоги</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
@@ -13911,17 +13912,17 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Распределяем эквайринг и рекламу пропорционально гросс-продажам товара
+            // Распределяем эквайринг, рекламу и налоги пропорционально гросс-продажам товара
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             const acq = Math.abs(_realAcquiring);
             const advTotal = Math.abs(_realAdvertising);
+            const taxTotal = Math.abs(_realTotalTax);
 
             tbody.innerHTML = products.map(p => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
-                // Доля эквайринга пропорционально гросс-продажам товара
                 const pAcq = acq * grossShare;
-                // Доля рекламы пропорционально гросс-продажам товара
                 const pAdv = advTotal * grossShare;
+                const pTax = taxTotal * grossShare;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
@@ -13931,6 +13932,7 @@ HTML_TEMPLATE = '''
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
@@ -13963,6 +13965,7 @@ HTML_TEMPLATE = '''
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(advTotal) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(taxTotal) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
@@ -14272,6 +14275,11 @@ HTML_TEMPLATE = '''
 
                 // 8. Обновляем карточку «Чистая прибыль»
                 _updateProfitCard();
+
+                // 9. Перерендерим таблицу товаров — теперь с учётом налогов пропорционально
+                if (_realProductsData.length > 0) {
+                    renderRealizationProducts(_realProductsData);
+                }
             } catch (e) {
                 console.error('[TAX] fetch error:', e);
             }
