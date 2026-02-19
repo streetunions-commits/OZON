@@ -9606,6 +9606,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена<br>в ЛК</th>
                                         <th style="text-align:right">Реклама</th>
+                                        <th style="text-align:right">Налоги</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
