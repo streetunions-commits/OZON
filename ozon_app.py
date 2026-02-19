@@ -9608,13 +9608,13 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Реклама</th>
                                         <th style="text-align:right">Налоги</th>
                                         <th style="text-align:right">Логистика</th>
+                                        <th style="text-align:right">Себестоимость</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
                                         <th style="text-align:right">Реализация</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
                                         <th style="text-align:right">К получению</th>
-                                        <th style="text-align:right" class="cogs-col">Себестоимость</th>
                                     </tr>
                                     <tr id="real-products-summary" style="display:none;"></tr>
                                 </thead>
@@ -13976,19 +13976,24 @@ HTML_TEMPLATE = '''
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
+                // Себестоимость per SKU (FIFO) — из _realProductCogsMap
+                const pCogs = _realProductCogsMap[p.sku] || 0;
+                const cogsText = pCogs > 0 ? fmtRealMoney(pCogs) : '—';
+                const cogsColor = pCogs > 0 ? '#e07020' : '#999';
+
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
+                    '<td class="real-amount-right" data-field="cogs" style="color:' + cogsColor + ';">' + cogsText + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
                     '<td class="real-amount-right ' + grossCls + '">' + fmtRealMoney(p.gross_sales) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right ' + rcvCls + '" style="font-weight:700;">' + fmtRealMoney(p.seller_receives) + '</td>' +
-                    '<td class="real-amount-right cogs-col" data-field="cogs" style="color:#999;">—</td>' +
                 '</tr>';
             }).join('');
 
@@ -14012,19 +14017,22 @@ HTML_TEMPLATE = '''
                 const sumTax = Math.abs(_realTotalTax);
                 // Итого логистики = значение из карточки (точное совпадение)
                 const sumLog = _realLogistics;
+                // Итого себестоимость = значение из карточки
+                const sumCogs = _realCogs;
+                const cogsFootText = sumCogs > 0 ? fmtRealMoney(sumCogs) : '—';
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
+                    '<td class="real-amount-right" id="real-cogs-tfoot" style="color:#e07020;">' + cogsFootText + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(totalCom) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>' +
-                    '<td class="real-amount-right cogs-col" id="real-cogs-tfoot" style="color:#555;">—</td>';
+                    '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>';
                 summaryRow.style.display = '';
             }
 
