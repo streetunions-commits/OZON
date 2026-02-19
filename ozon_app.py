@@ -13678,6 +13678,7 @@ HTML_TEMPLATE = '''
         let _realSalesCount = 0;     // Количество продаж (шт)
         let _realLoading = false;  // Защита от параллельных загрузок
         let _realProductsData = [];  // Хранение products для перерендера после загрузки эквайринга
+        let _realAdvBySku = {};      // Расходы на рекламу по артикулам {offer_id: spend}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
@@ -13842,6 +13843,9 @@ HTML_TEMPLATE = '''
                     if (txData) renderTransactionsBreakdown(txData);
                 }).catch(err => console.error('[TX] error:', err));
 
+                // Сохраняем рекламу по SKU из API
+                _realAdvBySku = data.adv_by_sku || {};
+
                 // Таблица по товарам — мержим выкупы СНГ в продажи
                 const mergedProducts = [...(data.products || [])];
                 if (buyout.products && buyout.products.length > 0) {
@@ -13912,17 +13916,15 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Распределяем эквайринг, рекламу и налоги пропорционально гросс-продажам товара
+            // Распределяем эквайринг пропорционально гросс-продажам, рекламу берём по SKU
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             const acq = Math.abs(_realAcquiring);
-            const advTotal = Math.abs(_realAdvertising);
-            const taxTotal = Math.abs(_realTotalTax);
 
             tbody.innerHTML = products.map(p => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const pAcq = acq * grossShare;
-                const pAdv = advTotal * grossShare;
-                const pTax = taxTotal * grossShare;
+                // Реклама — реальный расход по артикулу из Performance API
+                const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
@@ -13947,7 +13949,7 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumPrice = 0, sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
                 products.forEach(p => {
                     sumPrice += p.seller_price || 0;
                     sumDel += p.delivery_qty || 0;
@@ -13955,6 +13957,7 @@ HTML_TEMPLATE = '''
                     sumGross += p.gross_sales || 0;
                     sumCom += p.commission || 0;
                     sumRcv += p.seller_receives || 0;
+                    sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 });
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
@@ -13964,8 +13967,7 @@ HTML_TEMPLATE = '''
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
-                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(advTotal) + '</td>' +
-                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(taxTotal) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
@@ -31405,6 +31407,35 @@ def api_finance_categories_update():
 #   - /v3/finance/transaction/list — основной, все транзакции за период
 # ============================================================================
 
+def _get_adv_spend_by_sku(date_from_str, date_to_str):
+    """
+    Получить суммарные расходы на рекламу по offer_id за период из products_history.
+
+    Аргументы:
+        date_from_str (str): Начало периода YYYY-MM-DD
+        date_to_str (str): Конец периода YYYY-MM-DD
+
+    Возвращает:
+        dict: {offer_id: total_adv_spend} — рекламные расходы по артикулам
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        rows = conn.execute('''
+            SELECT offer_id, SUM(adv_spend) as total_spend
+            FROM products_history
+            WHERE snapshot_date >= ? AND snapshot_date <= ?
+              AND adv_spend > 0
+            GROUP BY offer_id
+        ''', (date_from_str, date_to_str)).fetchall()
+        conn.close()
+        result = {r[0]: round(r[1], 2) for r in rows if r[0]}
+        print(f"  📊 Реклама по SKU за {date_from_str}—{date_to_str}: {len(result)} товаров, итого {sum(result.values()):.2f} ₽")
+        return result
+    except Exception as e:
+        print(f"  ⚠️ Ошибка загрузки рекламы по SKU: {e}")
+        return {}
+
+
 def _fetch_buyout_data(date_from_str, date_to_str):
     """
     Получить данные по выкупам СНГ из Ozon API /v1/finance/products/buyout.
@@ -31932,6 +31963,8 @@ def api_finance_realization():
             # Добавляем данные по выкупам СНГ
             buyout = _fetch_buyout_data(date_from_str, date_to_str)
             result['buyout'] = buyout
+            # Расходы на рекламу по SKU за период
+            result['adv_by_sku'] = _get_adv_spend_by_sku(date_from_str, date_to_str)
             return jsonify(result)
         except Exception as e:
             print(f"  ❌ Ошибка реализации по дням: {e}")
@@ -31991,8 +32024,12 @@ def api_finance_realization():
                 # Добавляем данные по выкупам СНГ
                 import calendar as _cal
                 last_day = _cal.monthrange(yr, mo)[1]
-                buyout = _fetch_buyout_data(f"{yr}-{mo:02d}-01", f"{yr}-{mo:02d}-{last_day}")
+                d_from = f"{yr}-{mo:02d}-01"
+                d_to = f"{yr}-{mo:02d}-{last_day}"
+                buyout = _fetch_buyout_data(d_from, d_to)
                 result['buyout'] = buyout
+                # Расходы на рекламу по SKU за период
+                result['adv_by_sku'] = _get_adv_spend_by_sku(d_from, d_to)
                 return jsonify(result)
             except Exception as e:
                 print(f"  ❌ Ошибка транзакций: {e}")
@@ -32368,6 +32405,8 @@ def api_finance_realization():
                 buyout_to = f"{m_yr}-{m_mo:02d}-{m_last_day}"
             buyout = _fetch_buyout_data(buyout_from, buyout_to)
             response_data['buyout'] = buyout
+            # Расходы на рекламу по SKU за период
+            response_data['adv_by_sku'] = _get_adv_spend_by_sku(buyout_from, buyout_to)
         except Exception as e:
             print(f"  ⚠️ Ошибка загрузки выкупов СНГ: {e}")
             response_data['buyout'] = {'count': 0, 'amount': 0.0, 'products': []}
