@@ -13975,9 +13975,11 @@ HTML_TEMPLATE = '''
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
 
-                // Цена в ЛК = цена из реализации = gross_sales / delivery_qty
-                // Это seller_price_per_instance из Ozon API (средневзвешенная если цена менялась)
-                const pPrice = p.delivery_qty > 0 ? Math.abs(p.gross_sales) / p.delivery_qty : (p.seller_price || 0);
+                // Цена в ЛК = нетто-реализация / нетто-продажи (как карточка «Реализация»)
+                // (gross_sales − return_gross) / (delivery_qty − return_qty)
+                const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
+                const pNetQty = (p.delivery_qty || 0) - (p.return_qty || 0);
+                const pPrice = pNetQty > 0 ? pNetGross / pNetQty : (p.seller_price || 0);
 
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
@@ -14024,18 +14026,21 @@ HTML_TEMPLATE = '''
             // Итоговая строка наверху: суммы и средние
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
-                let sumDel = 0, sumRet = 0;
+                let sumDel = 0, sumRet = 0, sumRetGross = 0;
                 let sumGross = 0, sumCom = 0, sumAdv = 0, sumBonus = 0;
                 products.forEach(p => {
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
+                    sumRetGross += Math.abs(p.return_gross || 0);
                     sumGross += p.gross_sales || 0;
                     sumCom += p.commission || 0;
                     sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                     sumBonus += p.bonus || 0;
                 });
-                // Средневзвешенная цена = гросс-продажи / кол-во доставок
-                const avgPrice = sumDel > 0 ? sumGross / sumDel : 0;
+                // Средневзвешенная цена = нетто-реализация / нетто-продажи
+                const sumNetQty = sumDel - sumRet;
+                const sumNetGross = Math.abs(sumGross) - sumRetGross;
+                const avgPrice = sumNetQty > 0 ? sumNetGross / sumNetQty : 0;
                 const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 const sumTax = Math.abs(_realTotalTax);
@@ -31826,6 +31831,7 @@ def _build_realization_from_transactions(year, month):
             'delivery_qty': pdata['delivery_qty'],
             'return_qty': pdata['return_qty'],
             'gross_sales': round(pdata['gross_sales'], 2),
+            'return_gross': round(pdata['return_gross'], 2),
             'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2),
             'seller_receives': round(pdata['seller_receives'], 2),
@@ -32052,7 +32058,8 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             'seller_price': round(avg_price, 2), 'commission_ratio': round(p_commission_pct, 2),
             'delivery_qty': pdata['delivery_qty'],
             'return_qty': pdata['return_qty'],
-            'gross_sales': round(pdata['gross_sales'], 2), 'returns': round(pdata['returns'], 2),
+            'gross_sales': round(pdata['gross_sales'], 2), 'return_gross': round(pdata['return_gross'], 2),
+            'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2), 'seller_receives': round(pdata['seller_receives'], 2),
             'bonus': round(pdata['bonus'], 2)
         })
@@ -32487,6 +32494,7 @@ def api_finance_realization():
                 'delivery_qty': pdata['delivery_qty'],
                 'return_qty': pdata['return_qty'],
                 'gross_sales': round(pdata['gross_sales'], 2),
+                'return_gross': round(pdata['return_gross'], 2),
                 'returns': round(pdata['returns'], 2),
                 'commission': round(p_commission, 2),
                 'seller_receives': round(pdata['seller_receives'], 2),
