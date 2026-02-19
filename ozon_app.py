@@ -13849,6 +13849,7 @@ HTML_TEMPLATE = '''
 
                 // Сохраняем рекламу по SKU из API
                 _realAdvBySku = data.adv_by_sku || {};
+                console.log('[REAL] adv_by_sku:', JSON.stringify(_realAdvBySku));
 
                 // Таблица по товарам — мержим выкупы СНГ в продажи
                 const mergedProducts = [...(data.products || [])];
