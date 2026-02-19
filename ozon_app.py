@@ -6437,9 +6437,9 @@ HTML_TEMPLATE = '''
         }
         .real-types-table tbody tr:hover { background: #f8f9fa; }
         .real-types-table tbody tr:last-child td { border-bottom: none; }
-        .real-types-table tfoot td {
-            padding: 12px 16px; font-size: 14px; font-weight: 700;
-            background: #f8f9fa; border-top: 2px solid #667eea;
+        .real-types-table #real-products-summary td {
+            padding: 10px 16px; font-size: 13px; font-weight: 700;
+            background: #eef2ff; border-bottom: 2px solid #667eea;
         }
         .real-amount-positive { color: #38a169; font-weight: 600; }
         .real-amount-negative { color: #e53e3e; font-weight: 600; }
@@ -9613,9 +9613,9 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">К получению</th>
                                         <th style="text-align:right" class="cogs-col">Себестоимость</th>
                                     </tr>
+                                    <tr id="real-products-summary" style="display:none;"></tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
-                                <tfoot id="real-products-tfoot" style="display:none;"></tfoot>
                             </table>
                         </div>
                     </div>
@@ -13899,9 +13899,9 @@ HTML_TEMPLATE = '''
                 '</tr>';
             }).join('');
 
-            // Итоговая строка: суммы и средние
-            const tfoot = document.getElementById('real-products-tfoot');
-            if (tfoot && products.length > 0) {
+            // Итоговая строка наверху: суммы и средние
+            const summaryRow = document.getElementById('real-products-summary');
+            if (summaryRow && products.length > 0) {
                 let sumPrice = 0, sumComPct = 0, sumDel = 0, sumRet = 0;
                 let sumGross = 0, sumCom = 0, sumRcv = 0;
                 products.forEach(p => {
@@ -13916,7 +13916,7 @@ HTML_TEMPLATE = '''
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
                 const avgComPct = sumComPct / cnt;
-                tfoot.innerHTML = '<tr>' +
+                summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(avgComPct) + '%</td>' +
@@ -13925,9 +13925,8 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>' +
-                    '<td class="real-amount-right cogs-col" id="real-cogs-tfoot" style="color:#555;">—</td>' +
-                '</tr>';
-                tfoot.style.display = '';
+                    '<td class="real-amount-right cogs-col" id="real-cogs-tfoot" style="color:#555;">—</td>';
+                summaryRow.style.display = '';
             }
 
             document.getElementById('real-products-wrapper').style.display = 'block';
