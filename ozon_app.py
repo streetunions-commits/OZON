@@ -13922,42 +13922,38 @@ HTML_TEMPLATE = '''
             // Распределяем эквайринг пропорционально, рекламу — по SKU
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             const acq = Math.abs(_realAcquiring);
-            // Пропорционально распределяемые расходы (не привязаны к SKU)
             const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
-            tbody.innerHTML = products.map(p => {
+            // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
+            const rawTaxes = products.map(p => {
+                const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
+                const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
+                const pAcq = acq * grossShare;
+                const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                const pCom = (p.commission || 0) + pAcq;
+                const allComp = _realCompensations + _realBonuses;
+                const pComp = allComp * grossShare;
+                const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
+                let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
+                const pCogs = _realProductCogsMap[p.sku] || 0;
+                const pUsnBase = Math.abs(p.gross_sales || 0)
+                    - pAdv - _realLogistics * grossShare - _realStorage * grossShare
+                    - pCom - _realOtherDeductions * grossShare - pCogs - _realOpex * grossShare
+                    - pNds + pComp - _realBonuses * grossShare;
+                const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
+                return pNds + pUsn;
+            });
+            // ── Шаг 2: нормализуем — скалируем чтобы сумма = _realTotalTax (карточка) ──
+            const rawTaxSum = rawTaxes.reduce((s, t) => s + t, 0);
+            const taxScale = (rawTaxSum > 0 && _realTotalTax > 0) ? Math.abs(_realTotalTax) / rawTaxSum : 1;
+
+            tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const pAcq = acq * grossShare;
-                // Реклама — реальный расход по артикулу из Performance API
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
-
-                // ── Налоги per product по формуле ──
-                // НДС: (seller_receives_i * доля в salesAfterSpp + компенсации * grossShare) / (100+НДС%) × НДС%
-                const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
-                const pSalesAfterSpp = _realSalesAfterSpp * rcvShare;
-                const allComp = _realCompensations + _realBonuses;
-                const pComp = allComp * grossShare;
-                const pNdsBase = pSalesAfterSpp + pComp;
-                let pNds = 0;
-                if (_realNdsPercent > 0) {
-                    pNds = pNdsBase / (100 + _realNdsPercent) * _realNdsPercent;
-                }
-                // УСН 15%: gross_i - реклама_i - логистика*share - хранение*share - комиссия_i
-                //          - иные*share - себестоимость_i - расходы_к_вычету*share - НДС_i
-                //          + все_компенсации*share - баллы*share
-                const pLogistics = _realLogistics * grossShare;
-                const pStorage = _realStorage * grossShare;
-                const pOther = _realOtherDeductions * grossShare;
-                const pCogs = _realProductCogsMap[p.sku] || 0;
-                const pOpex = _realOpex * grossShare;
-                const pBonuses = _realBonuses * grossShare;
-                const pUsnBase = Math.abs(p.gross_sales || 0)
-                    - pAdv - pLogistics - pStorage - pCom - pOther - pCogs - pOpex - pNds
-                    + pComp - pBonuses;
-                const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
-                const pTax = pNds + pUsn;
+                const pTax = rawTaxes[i] * taxScale;
 
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
@@ -13980,38 +13976,26 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 let sumPrice = 0, sumDel = 0, sumRet = 0;
-                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0, sumTax = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
                 products.forEach(p => {
-                    const gs = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
-                    const rs = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
-                    const _pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
-                    const _pAcq = acq * gs;
-                    const _pCom = (p.commission || 0) + _pAcq;
-                    const _pComp = (_realCompensations + _realBonuses) * gs;
-                    const _pNdsBase = _realSalesAfterSpp * rs + _pComp;
-                    let _pNds = (_realNdsPercent > 0) ? _pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
-                    const _pCogs = _realProductCogsMap[p.sku] || 0;
-                    const _pUsnBase = Math.abs(p.gross_sales || 0) - _pAdv - _realLogistics * gs - _realStorage * gs
-                        - _pCom - _realOtherDeductions * gs - _pCogs - _realOpex * gs - _pNds
-                        + _pComp - _realBonuses * gs;
-                    const _pUsn = _pUsnBase > 0 ? _pUsnBase * 15 / 100 : 0;
-                    sumTax += _pNds + _pUsn;
                     sumPrice += p.seller_price || 0;
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
                     sumGross += p.gross_sales || 0;
                     sumCom += p.commission || 0;
                     sumRcv += p.seller_receives || 0;
-                    sumAdv += _pAdv;
+                    sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 });
                 const cnt = products.length;
                 const avgPrice = sumPrice / cnt;
                 const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
+                const sumTax = Math.abs(_realTotalTax);
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumAdv) + '</td>' +
+                    '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
