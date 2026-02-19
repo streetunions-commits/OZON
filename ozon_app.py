@@ -6437,6 +6437,10 @@ HTML_TEMPLATE = '''
         }
         .real-types-table tbody tr:hover { background: #f8f9fa; }
         .real-types-table tbody tr:last-child td { border-bottom: none; }
+        .real-types-table tfoot td {
+            padding: 12px 16px; font-size: 14px; font-weight: 700;
+            background: #f8f9fa; border-top: 2px solid #667eea;
+        }
         .real-amount-positive { color: #38a169; font-weight: 600; }
         .real-amount-negative { color: #e53e3e; font-weight: 600; }
         .real-amount-right { text-align: right; font-variant-numeric: tabular-nums; }
@@ -9611,6 +9615,7 @@ HTML_TEMPLATE = '''
                                     </tr>
                                 </thead>
                                 <tbody id="real-products-tbody"></tbody>
+                                <tfoot id="real-products-tfoot" style="display:none;"></tfoot>
                             </table>
                         </div>
                     </div>
@@ -13894,6 +13899,37 @@ HTML_TEMPLATE = '''
                 '</tr>';
             }).join('');
 
+            // Итоговая строка: суммы и средние
+            const tfoot = document.getElementById('real-products-tfoot');
+            if (tfoot && products.length > 0) {
+                let sumPrice = 0, sumComPct = 0, sumDel = 0, sumRet = 0;
+                let sumGross = 0, sumCom = 0, sumRcv = 0;
+                products.forEach(p => {
+                    sumPrice += p.seller_price || 0;
+                    sumComPct += p.commission_ratio || 0;
+                    sumDel += p.delivery_qty || 0;
+                    sumRet += p.return_qty || 0;
+                    sumGross += p.gross_sales || 0;
+                    sumCom += p.commission || 0;
+                    sumRcv += p.seller_receives || 0;
+                });
+                const cnt = products.length;
+                const avgPrice = sumPrice / cnt;
+                const avgComPct = sumComPct / cnt;
+                tfoot.innerHTML = '<tr>' +
+                    '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + Math.round(avgComPct) + '%</td>' +
+                    '<td class="real-amount-right" style="color:#38a169;">' + sumDel + '</td>' +
+                    '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumGross) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(sumCom) + '</td>' +
+                    '<td class="real-amount-right" style="color:#555;font-weight:700;">' + fmtRealMoney(sumRcv) + '</td>' +
+                    '<td class="real-amount-right cogs-col" id="real-cogs-tfoot" style="color:#555;">—</td>' +
+                '</tr>';
+                tfoot.style.display = '';
+            }
+
             document.getElementById('real-products-wrapper').style.display = 'block';
         }
 
@@ -14325,6 +14361,9 @@ HTML_TEMPLATE = '''
 
                 // Карточка «Себестоимость» — показываем всегда
                 document.getElementById('real-cogs-total').textContent = fmtRealMoney(totalCogs);
+                // Итог себестоимости в tfoot таблицы
+                const cogsTfoot = document.getElementById('real-cogs-tfoot');
+                if (cogsTfoot) cogsTfoot.textContent = fmtRealMoney(totalCogs);
                 const cogsHint = document.getElementById('real-cogs-hint');
                 if (cogsHint) {
                     if (uncoveredCount > 0) {
