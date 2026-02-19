@@ -9609,6 +9609,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Налоги</th>
                                         <th style="text-align:right">Логистика</th>
                                         <th style="text-align:right">Себестоимость</th>
+                                        <th style="text-align:right">Расходы<br>к вычету</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
@@ -13926,6 +13927,8 @@ HTML_TEMPLATE = '''
             // Распределяем эквайринг пропорционально, рекламу — по SKU
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             const acq = Math.abs(_realAcquiring);
+            // Общее кол-во нетто-продаж для распределения расходов к вычету
+            const totalNetQty = products.reduce((s, p) => s + Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0)), 0);
             const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
             // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
@@ -13981,6 +13984,11 @@ HTML_TEMPLATE = '''
                 const cogsText = pCogs > 0 ? fmtRealMoney(pCogs) : '—';
                 const cogsColor = pCogs > 0 ? '#e07020' : '#999';
 
+                // Расходы к вычету — _realOpex пропорционально нетто-продажам
+                const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
+                const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
+                const pOpex = _realOpex * qtyShare;
+
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
@@ -13988,6 +13996,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
                     '<td class="real-amount-right" data-field="cogs" style="color:' + cogsColor + ';">' + cogsText + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOpex) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (p.delivery_qty - p.return_qty) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + p.return_qty + '</td>' +
@@ -14027,6 +14036,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(sumTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(sumLog) + '</td>' +
                     '<td class="real-amount-right" id="real-cogs-tfoot" style="color:#e07020;">' + cogsFootText + '</td>' +
+                    '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_realOpex) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + (sumDel - sumRet) + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + sumRet + '</td>' +
