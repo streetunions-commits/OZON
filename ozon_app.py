@@ -6439,7 +6439,7 @@ HTML_TEMPLATE = '''
         .real-types-table tbody tr:last-child td { border-bottom: none; }
         .real-types-table #real-products-summary td {
             padding: 10px 16px; font-size: 13px; font-weight: 700;
-            background: #eef2ff; border-bottom: 2px solid #667eea;
+            background: #f0f4ff; border-bottom: 2px solid #a0b4e8;
         }
         .real-amount-positive { color: #38a169; font-weight: 600; }
         .real-amount-negative { color: #e53e3e; font-weight: 600; }
@@ -9604,7 +9604,7 @@ HTML_TEMPLATE = '''
                                 <thead>
                                     <tr>
                                         <th style="text-align:left">Артикул</th>
-                                        <th style="text-align:right">Цена</th>
+                                        <th style="text-align:right">Цена<br>за ед.</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг %</th>
                                         <th style="text-align:right">Продажи</th>
                                         <th style="text-align:right">Возвраты</th>
@@ -13840,11 +13840,34 @@ HTML_TEMPLATE = '''
                     if (txData) renderTransactionsBreakdown(txData);
                 }).catch(err => console.error('[TX] error:', err));
 
-                // Таблица по товарам
-                renderRealizationProducts(data.products || []);
+                // Таблица по товарам — мержим выкупы СНГ в продажи
+                const mergedProducts = [...(data.products || [])];
+                if (buyout.products && buyout.products.length > 0) {
+                    buyout.products.forEach(bp => {
+                        const existing = mergedProducts.find(p => (p.offer_id || p.sku) === (bp.offer_id || String(bp.sku)));
+                        if (existing) {
+                            // Добавляем кол-во СНГ к доставкам (входит в продажи)
+                            existing.delivery_qty = (existing.delivery_qty || 0) + (bp.quantity || 0);
+                        } else {
+                            // Товар продаётся только через СНГ — добавляем новую строку
+                            mergedProducts.push({
+                                offer_id: bp.offer_id,
+                                sku: String(bp.sku),
+                                seller_price: bp.seller_price_per_instance || 0,
+                                commission_ratio: bp.deduction_by_category_percent || 0,
+                                delivery_qty: bp.quantity || 0,
+                                return_qty: 0,
+                                gross_sales: (bp.seller_price_per_instance || 0) * (bp.quantity || 0),
+                                commission: ((bp.seller_price_per_instance || 0) - (bp.buyout_price || 0)) * (bp.quantity || 0),
+                                seller_receives: bp.amount || 0
+                            });
+                        }
+                    });
+                }
+                renderRealizationProducts(mergedProducts);
 
                 // Загружаем себестоимость (FIFO) после рендера таблицы
-                _loadRealizationCogs(data.products || [], periodType);
+                _loadRealizationCogs(mergedProducts, periodType);
 
                 // Загружаем операционные расходы (ДДС, is_official=1) за тот же период
                 _loadRealizationOpex(periodType);
