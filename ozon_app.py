@@ -13956,12 +13956,16 @@ HTML_TEMPLATE = '''
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
 
+                // Цена в ЛК = цена из реализации = gross_sales / delivery_qty
+                // Это seller_price_per_instance из Ozon API (средневзвешенная если цена менялась)
+                const pPrice = p.delivery_qty > 0 ? Math.abs(p.gross_sales) / p.delivery_qty : (p.seller_price || 0);
+
                 const grossCls = p.gross_sales >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const comCls = pCom >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 const rcvCls = p.seller_receives >= 0 ? 'real-amount-positive' : 'real-amount-negative';
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
-                    '<td class="real-amount-right">' + fmtRealMoney(p.seller_price) + '</td>' +
+                    '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
@@ -13977,10 +13981,9 @@ HTML_TEMPLATE = '''
             // Итоговая строка наверху: суммы и средние
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
-                let sumPrice = 0, sumDel = 0, sumRet = 0;
+                let sumDel = 0, sumRet = 0;
                 let sumGross = 0, sumCom = 0, sumRcv = 0, sumAdv = 0;
                 products.forEach(p => {
-                    sumPrice += p.seller_price || 0;
                     sumDel += p.delivery_qty || 0;
                     sumRet += p.return_qty || 0;
                     sumGross += p.gross_sales || 0;
@@ -13988,8 +13991,8 @@ HTML_TEMPLATE = '''
                     sumRcv += p.seller_receives || 0;
                     sumAdv += _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 });
-                const cnt = products.length;
-                const avgPrice = sumPrice / cnt;
+                // Средневзвешенная цена = гросс-продажи / кол-во доставок
+                const avgPrice = sumDel > 0 ? sumGross / sumDel : 0;
                 const totalCom = sumCom + acq + Math.abs(_realBuyoutCommission);
                 const totalComPct = sumGross > 0 ? (totalCom / sumGross * 100) : 0;
                 const sumTax = Math.abs(_realTotalTax);
@@ -31971,19 +31974,22 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
 
     products_list = []
     for key, pdata in sorted(products_map.items(),
-                              key=lambda x: abs(x[1]['gross_sales'] - x[1]['return_gross']), reverse=True):
+                              key=lambda x: abs(x[1]['gross_sales']), reverse=True):
         dq = pdata['delivery_qty']
         avg_price = pdata['seller_price_sum'] / dq if dq > 0 else 0
-        p_net_gross = pdata['gross_sales'] - pdata['return_gross']
-        p_commission = pdata['standard_fee'] + pdata['acquiring']
-        p_commission_pct = (p_commission / p_net_gross * 100) if p_net_gross > 0 else 0
 
+        # Комиссия МП = standard_fee + эквайринг
+        p_commission = pdata['standard_fee'] + pdata['acquiring']
+        p_commission_pct = (p_commission / pdata['gross_sales'] * 100) if pdata['gross_sales'] > 0 else 0
+
+        # Формат аналогичен _build_realization_from_transactions и closed-month:
+        # delivery_qty = ГРОСС доставки, gross_sales = ГРОСС продажи (seller_price * delivery_qty)
         products_list.append({
             'sku': pdata['sku'], 'offer_id': pdata['offer_id'], 'name': pdata['name'],
             'seller_price': round(avg_price, 2), 'commission_ratio': round(p_commission_pct, 2),
-            'delivery_qty': pdata['delivery_qty'] - pdata['return_qty'],
+            'delivery_qty': pdata['delivery_qty'],
             'return_qty': pdata['return_qty'],
-            'gross_sales': round(p_net_gross, 2), 'returns': round(pdata['returns'], 2),
+            'gross_sales': round(pdata['gross_sales'], 2), 'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2), 'seller_receives': round(pdata['seller_receives'], 2),
             'bonus': round(pdata['bonus'], 2)
         })
