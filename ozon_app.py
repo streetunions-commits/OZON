@@ -14010,13 +14010,14 @@ HTML_TEMPLATE = '''
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
                 // Иные удержания: per-SKU (премиум, размещение, вывоз) + остальное по qtyShare
+                // _realOtherDeductions отрицательный (из catTotals), берём abs
                 const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
-                const pOtherPart = _realOtherDeductions * qtyShare;
+                const pOtherPart = Math.abs(_realOtherDeductions) * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
 
                 // Чистая прибыль per product (без компенсаций и баллов — они учитываются только в карточке):
                 // Реализация − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение
-                const pStorage = _realStorage * grossShare;
+                const pStorage = Math.abs(_realStorage) * grossShare;
                 const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage;
                 const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
 
