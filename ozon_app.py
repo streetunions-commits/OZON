@@ -14050,8 +14050,8 @@ HTML_TEMPLATE = '''
                 _s.sales += netQty;
                 _s.ret += (p.return_qty || 0);
                 _s.bonus += (p.bonus || 0);
-                // СПП% по товару — для подсчёта среднего арифметического в итоговой строке
-                const pSppPct = Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100) : 0;
+                // СПП% по товару = баллы за скидки / реализация (нетто) × 100
+                const pSppPct = pNetGross > 0 ? ((p.bonus || 0) / pNetGross * 100) : 0;
                 _s.sppPctSum += pSppPct;
                 _s.sppPctCount++;
                 // Комиссия+эквайринг % — для среднего в итоговой строке
@@ -14063,7 +14063,7 @@ HTML_TEMPLATE = '''
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pNetGross) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + (Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100).toFixed(1) : '0.0') + '%</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + pSppPct.toFixed(1) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
