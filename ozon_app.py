@@ -14712,21 +14712,21 @@ HTML_TEMPLATE = '''
             const operationCatMap = {
                 // Иные удержания
                 'MarketplaceServiceBrandCommission': 'other_deductions',
-                // Премиум процент — раскидывается по доле выручки (grossShare)
-                'PremiumMembership': 'premium',
-                // Фиксированные подписки — раскидываются по qtyShare (как остальные иные удержания)
+                // Per-SKU удержания — привязаны к конкретному товару через items[0].sku в API
+                'PremiumMembership': 'per_sku_ded',                                     // Подписка Premium Pro (процент)
+                'OperationMarketplaceItemTemporaryStorageRedistribution': 'per_sku_ded', // Временное размещение товара партнерами
+                'SellerReturnsDeliveryToPickupPoint': 'per_sku_ded',                     // Вывоз товара со Склада: Доставка до ПВЗ
+                // Остальные — раскидываются по qtyShare
                 'OperationSubscriptionPremiumPro': 'other_deductions',
                 'OperationSubscriptionPremiumPlus': 'other_deductions',
                 'OperationSubscriptionPremium': 'other_deductions',
                 'OperationMarketPlaceItemPinReview': 'other_deductions',
-                'OperationMarketplaceItemTemporaryStorageRedistribution': 'other_deductions',
                 'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
                 'OperationMarketplaceServiceSupplyInboundCargoShortage': 'other_deductions',
                 'OperationSellerReturnsCargoAssortmentInvalid': 'other_deductions',
                 // Компенсации (Потеря по вине Ozon)
                 'AccrualConsigWriteOff': 'compensations',
                 'AccrualInternalClaim': 'compensations',
-                'SellerReturnsDeliveryToPickupPoint': 'other_deductions',
                 'MarketplaceSellerCorrectionOperation': 'other_deductions',
                 'MarketplaceSellerDecompensationItemByTypeDocOperation': 'other_deductions',
                 'MarketplaceServiceItemCrossdocking': 'other_deductions',
@@ -14737,8 +14737,8 @@ HTML_TEMPLATE = '''
                 'TemporaryStorage': 'storage'
             };
 
-            const catTotals = { other_deductions: 0, premium: 0, compensations: 0, advertising: 0, storage: 0 };
-            const catDetails = { other_deductions: [], premium: [], compensations: [], advertising: [], storage: [] };
+            const catTotals = { other_deductions: 0, per_sku_ded: 0, compensations: 0, advertising: 0, storage: 0 };
+            const catDetails = { other_deductions: [], per_sku_ded: [], compensations: [], advertising: [], storage: [] };
 
             // Эквайринг — добавляем к комиссии МП на карточке
             let acquiringTotal = 0;
@@ -14772,10 +14772,10 @@ HTML_TEMPLATE = '''
                 catDetails.compensations.unshift({ label: 'Баллы за скидки', value: _realBonuses });
             }
 
-            // Объединяем premium в карточку «Иные удержания» для отображения
-            // (в таблице они раскидываются по-разному: premium по grossShare, остальное по qtyShare)
-            catTotals.other_deductions += catTotals.premium;
-            catDetails.other_deductions = catDetails.other_deductions.concat(catDetails.premium);
+            // Объединяем per_sku_ded в карточку «Иные удержания» для отображения
+            // (в таблице per_sku_ded берутся по товару из API, остальное — по qtyShare)
+            catTotals.other_deductions += catTotals.per_sku_ded;
+            catDetails.other_deductions = catDetails.other_deductions.concat(catDetails.per_sku_ded);
 
             // Отображение карточек
             const catConfig = [
@@ -14816,10 +14816,10 @@ HTML_TEMPLATE = '''
 
             // Сохраняем значения из транзакций для расчёта налога
             _realLogistics = logTotal;
-            // other_deductions уже включает premium (объединили выше для карточки),
-            // но для таблицы нужно раздельно: premium по grossShare, остальное по qtyShare
-            _realPremiumDeductions = catTotals.premium;
-            _realOtherDeductions = catTotals.other_deductions - catTotals.premium;
+            // other_deductions уже включает per_sku_ded (объединили выше для карточки),
+            // но для таблицы per_sku_ded берутся per-SKU из API, остальное — по qtyShare
+            _realPremiumDeductions = catTotals.per_sku_ded;
+            _realOtherDeductions = catTotals.other_deductions - catTotals.per_sku_ded;
             _realAdvertising = catTotals.advertising;
             _realStorage = catTotals.storage;
             _realCompensations = catTotals.compensations - _realBonuses;
@@ -14828,8 +14828,8 @@ HTML_TEMPLATE = '''
             _realLogisticsBySku = data.logistics_by_sku || {};
             // Per-SKU эквайринг из транзакций
             _realAcquiringBySku = data.acquiring_by_sku || {};
-            // Per-SKU премиум-процент из транзакций (Подписка Premium Pro процент)
-            _realPremiumBySku = data.premium_by_sku || {};
+            // Per-SKU удержания из транзакций (премиум + размещение + вывоз)
+            _realPremiumBySku = data.ded_by_sku || {};
 
             // Загружаем карточку «Налоги» (НДС + УСН)
             _loadRealizationTax();
@@ -33458,7 +33458,12 @@ def api_finance_transactions_breakdown():
     svc_totals = {}       # {service_name: {sum, count}}
     logistics_by_sku = {} # {offer_id: сумма логистики} — per-SKU логистика для таблицы товаров
     acquiring_by_sku = {} # {offer_id: сумма эквайринга} — per-SKU эквайринг для таблицы товаров
-    premium_by_sku = {}   # {offer_id: сумма премиум-процента} — per-SKU подписка Premium Pro (процент)
+    # Per-SKU удержания — операции привязанные к конкретному товару через items[0].sku
+    # PremiumMembership (Подписка Premium Pro процент),
+    # OperationMarketplaceItemTemporaryStorageRedistribution (Временное размещение товара партнерами),
+    # SellerReturnsDeliveryToPickupPoint (Вывоз товара со Склада: Доставка до ПВЗ)
+    ded_by_sku = {}
+    _PER_SKU_DED_TYPES = {'PremiumMembership', 'OperationMarketplaceItemTemporaryStorageRedistribution', 'SellerReturnsDeliveryToPickupPoint'}
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -33601,15 +33606,14 @@ def api_finance_transactions_breakdown():
                 if sku_key:
                     acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + abs(amt)
 
-            # Премиум-процент per-SKU (PremiumMembership — «Подписка Premium Pro (процент)»)
-            # Каждая транзакция привязана к конкретному товару через items[0].sku
-            if ot == 'PremiumMembership':
+            # Per-SKU удержания: операции привязанные к конкретному товару через items[0].sku
+            if ot in _PER_SKU_DED_TYPES:
                 op_items = op.get('items', [])
                 op_offer_id = (op_items[0].get('offer_id') or '') if op_items else ''
                 op_sku = str(op_items[0].get('sku') or '') if op_items else ''
                 sku_key = op_offer_id or op_sku
                 if sku_key:
-                    premium_by_sku[sku_key] = premium_by_sku.get(sku_key, 0.0) + abs(amt)
+                    ded_by_sku[sku_key] = ded_by_sku.get(sku_key, 0.0) + abs(amt)
 
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
@@ -33717,10 +33721,10 @@ def api_finance_transactions_breakdown():
         acq_total_by_sku = sum(acquiring_by_sku_rounded.values())
         print(f"  📊 Эквайринг по SKU: {len(acquiring_by_sku_rounded)} товаров, итого {acq_total_by_sku:.2f} ₽")
 
-        # Per-SKU премиум-процент: округляем значения
-        premium_by_sku_rounded = {k: round(v, 2) for k, v in premium_by_sku.items()}
-        prem_total_by_sku = sum(premium_by_sku_rounded.values())
-        print(f"  📊 Премиум по SKU: {len(premium_by_sku_rounded)} товаров, итого {prem_total_by_sku:.2f} ₽")
+        # Per-SKU удержания (премиум + размещение + вывоз): округляем
+        ded_by_sku_rounded = {k: round(v, 2) for k, v in ded_by_sku.items()}
+        ded_total_by_sku = sum(ded_by_sku_rounded.values())
+        print(f"  📊 Удержания по SKU: {len(ded_by_sku_rounded)} товаров, итого {ded_total_by_sku:.2f} ₽")
 
         response_data = {
             'success': True,
@@ -33731,7 +33735,7 @@ def api_finance_transactions_breakdown():
             'alerts': alerts,
             'logistics_by_sku': logistics_by_sku_rounded,
             'acquiring_by_sku': acquiring_by_sku_rounded,
-            'premium_by_sku': premium_by_sku_rounded
+            'ded_by_sku': ded_by_sku_rounded
         }
 
         # ── Сохраняем в кэш ──
