@@ -14009,8 +14009,8 @@ HTML_TEMPLATE = '''
                 const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
-                // Иные удержания: премиум-процент per-SKU из API + остальное по qtyShare
-                const pPremiumPart = -(_realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0);
+                // Иные удержания: per-SKU (премиум, размещение, вывоз) + остальное по qtyShare
+                const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
                 const pOtherPart = _realOtherDeductions * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
 
