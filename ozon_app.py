@@ -13974,12 +13974,7 @@ HTML_TEMPLATE = '''
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
             });
-            // ── Шаг 2: нормализуем — скалируем чтобы сумма = _realTotalTax (карточка) ──
-            const rawTaxSum = rawTaxes.reduce((s, t) => s + t, 0);
-            const taxScale = (rawTaxSum > 0 && _realTotalTax > 0) ? Math.abs(_realTotalTax) / rawTaxSum : 1;
-
-            // ── Шаг 3: per-SKU логистика — точные значения из Transaction API ──
-            // ── Шаг 4: per-SKU реклама — точные значения из Performance API ──
+            // Per-SKU данные берутся точно из API (логистика, реклама, эквайринг)
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
             let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
@@ -13994,8 +13989,8 @@ HTML_TEMPLATE = '''
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
-                // Per-product налоги — расчёт по формуле (НДС + УСН)
-                const pTax = rawTaxes[i] * taxScale;
+                // Per-product налоги — точно из расчёта по строке (НДС + УСН)
+                const pTax = rawTaxes[i];
 
                 // Нетто-реализация (gross − returns) — столбец «Реализация»
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
