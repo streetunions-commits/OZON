@@ -14024,7 +14024,7 @@ HTML_TEMPLATE = '''
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pNetGross) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + (Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100).toFixed(10) : '0.0000000000') + '%</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + (Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100).toFixed(1) : '0.0') + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pLog) + '</td>' +
@@ -14046,7 +14046,7 @@ HTML_TEMPLATE = '''
                 const avgPrice = _s.sales > 0 ? _s.netGross / _s.sales : 0;
                 const totalComPct = _s.netGross > 0 ? (_s.com / _s.netGross * 100) : 0;
                 const cogsFootText = _s.cogs > 0 ? fmtRealMoney(_s.cogs) : '—';
-                const sppPct = _s.netGross > 0 ? (_s.bonus / _s.netGross * 100).toFixed(10) : '0.0000000000';
+                const sppPct = _s.netGross > 0 ? (_s.bonus / _s.netGross * 100).toFixed(1) : '0.0';
                 const profCls = _s.profit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
