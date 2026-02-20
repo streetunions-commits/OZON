@@ -6339,6 +6339,7 @@ HTML_TEMPLATE = '''
         .real-card {
             padding: 16px 18px; border-radius: 12px; background: #fff;
             box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid #ddd;
+            user-select: text; -webkit-user-select: text;
         }
         .real-card-label { font-size: 12px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
         .real-card-value { font-size: 20px; font-weight: 700; }
@@ -6424,6 +6425,7 @@ HTML_TEMPLATE = '''
         .real-types-table {
             width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
             overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            user-select: text; -webkit-user-select: text;
         }
         .real-types-table thead th {
             background: #667eea; color: #fff; padding: 10px 12px; font-size: 11px;
