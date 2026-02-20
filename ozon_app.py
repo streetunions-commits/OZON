@@ -13989,11 +13989,14 @@ HTML_TEMPLATE = '''
             const taxScale = (rawTaxSum > 0 && _realTotalTax > 0) ? Math.abs(_realTotalTax) / rawTaxSum : 1;
 
             // ── Шаг 3: per-SKU логистика + нормализация чтобы сумма = _realLogistics (карточка) ──
-            // Сырые значения из транзакций по SKU
             const rawLogistics = products.map(p => _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0);
             const rawLogSum = rawLogistics.reduce((s, l) => s + l, 0);
-            // Если есть SKU без маппинга — масштабируем пропорционально чтобы итого = карточке
             const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
+
+            // ── Шаг 4: per-SKU реклама + нормализация чтобы сумма = _realAdvertising (карточка) ──
+            const rawAdv = products.map(p => _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0);
+            const rawAdvSum = rawAdv.reduce((s, a) => s + a, 0);
+            const advScale = (rawAdvSum > 0 && _realAdvertising > 0) ? _realAdvertising / rawAdvSum : 1;
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
             let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
@@ -14004,7 +14007,8 @@ HTML_TEMPLATE = '''
                 const pAcq = (hasAcqBySku && rawAcqSum > 0)
                     ? rawAcquiring[i] * acqScale
                     : acq * grossShare;
-                const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                // Per-SKU реклама из Performance API, нормализованная к итогу карточки (Transaction API)
+                const pAdv = rawAdv[i] * advScale;
                 // Per-SKU логистика из транзакций, нормализованная к итогу карточки
                 const pLog = rawLogistics[i] * logScale;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
@@ -14033,11 +14037,13 @@ HTML_TEMPLATE = '''
                 const pOtherPart = _realOtherDeductions * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
 
-                // Чистая прибыль per product
-                // Реализация (нетто) − все расходы + компенсации (как в карточке «Чистая прибыль»)
+                // Чистая прибыль per product — формула ТОЧНО как в карточке:
+                // Реализация − Реклама − Налоги − Логистика − Комиссия − Себестоимость
+                // − Иные удержания − Хранение + Компенсации − Баллы
                 const pStorage = _realStorage * grossShare;
-                const pCompensations = _realCompensations * grossShare;
-                const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
+                const pAllComp = (_realCompensations + _realBonuses) * grossShare;
+                const pBonus = Math.abs(p.bonus || 0);
+                const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pAllComp - pBonus;
                 const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
 
                 // Накапливаем суммы для итоговой строки
