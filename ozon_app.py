@@ -31825,7 +31825,7 @@ def _build_realization_from_transactions(year, month):
         p['returns'] += row_returns
         p['total_deductions'] += d_total_comm + r_total_comm
         p['seller_receives'] += d_amount - r_amount
-        p['bonus'] += d_bonus + r_bonus
+        p['bonus'] += d_bonus - r_bonus  # Чистые баллы за скидки (аналогично bonuses_total)
         p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
         p['acquiring'] += d_acquiring + r_acquiring
         p['bank_coinvestment'] += d_bank
@@ -32481,7 +32481,7 @@ def api_finance_realization():
             p['returns'] += row_returns
             p['total_deductions'] += d_total_comm + r_total_comm
             p['seller_receives'] += d_amount - r_amount
-            p['bonus'] += d_bonus + r_bonus
+            p['bonus'] += d_bonus - r_bonus  # Чистые баллы за скидки (аналогично bonuses_total)
             p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
             p['acquiring'] += d_acquiring + r_acquiring
             p['bank_coinvestment'] += d_bank
