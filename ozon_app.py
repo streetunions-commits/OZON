@@ -13690,6 +13690,7 @@ HTML_TEMPLATE = '''
         let _realProductCogsMap = {};  // Себестоимость per SKU {sku: cogs}
         let _realAdvBySku = {};      // Расходы на рекламу по артикулам {offer_id: spend}
         let _realLogisticsBySku = {}; // Логистика по артикулам {offer_id: cost}
+        let _realAcquiringBySku = {}; // Эквайринг по артикулам {offer_id: сумма}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
@@ -13759,6 +13760,7 @@ HTML_TEMPLATE = '''
             _realNdsPercent = 0;
             _realProductCogsMap = {};
             _realLogisticsBySku = {};
+            _realAcquiringBySku = {};
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13943,10 +13945,13 @@ HTML_TEMPLATE = '''
             const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
             // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
+            const hasAcqBySku = Object.keys(_realAcquiringBySku).length > 0;
             const rawTaxes = products.map(p => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
-                const pAcq = acq * grossShare;
+                const pAcq = hasAcqBySku
+                    ? (_realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0)
+                    : acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq;
@@ -13978,7 +13983,10 @@ HTML_TEMPLATE = '''
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
-                const pAcq = acq * grossShare;
+                // Per-SKU эквайринг из транзакций; fallback на пропорциональное распределение
+                const pAcq = hasAcqBySku
+                    ? (_realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0)
+                    : acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 // Per-SKU логистика из транзакций, нормализованная к итогу карточки
                 const pLog = rawLogistics[i] * logScale;
@@ -14801,6 +14809,8 @@ HTML_TEMPLATE = '''
 
             // Per-SKU логистика из транзакций (та же логика что карточка: доставки + возвраты)
             _realLogisticsBySku = data.logistics_by_sku || {};
+            // Per-SKU эквайринг из транзакций
+            _realAcquiringBySku = data.acquiring_by_sku || {};
 
             // Загружаем карточку «Налоги» (НДС + УСН)
             _loadRealizationTax();
@@ -33428,6 +33438,7 @@ def api_finance_transactions_breakdown():
     op_type_totals = {}   # {operation_type: {name, sum, count}}
     svc_totals = {}       # {service_name: {sum, count}}
     logistics_by_sku = {} # {offer_id: сумма логистики} — per-SKU логистика для таблицы товаров
+    acquiring_by_sku = {} # {offer_id: сумма эквайринга} — per-SKU эквайринг для таблицы товаров
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -33561,6 +33572,15 @@ def api_finance_transactions_breakdown():
                     # amount отрицательный (расход) — берём abs
                     logistics_by_sku[sku_key] = logistics_by_sku.get(sku_key, 0.0) + abs(amt)
 
+            # Эквайринг per-SKU (MarketplaceRedistributionOfAcquiringOperation)
+            if ot == 'MarketplaceRedistributionOfAcquiringOperation':
+                op_items = op.get('items', [])
+                op_offer_id = op_items[0].get('offer_id', '') if op_items else ''
+                op_sku = str(op_items[0].get('sku', '')) if op_items else ''
+                sku_key = op_offer_id or op_sku
+                if sku_key:
+                    acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + abs(amt)
+
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
         # ── Сверка с реестром типов в БД ──
@@ -33662,6 +33682,11 @@ def api_finance_transactions_breakdown():
         log_total_by_sku = sum(logistics_by_sku_rounded.values())
         print(f"  📊 Логистика по SKU: {len(logistics_by_sku_rounded)} товаров, итого {log_total_by_sku:.2f} ₽")
 
+        # Per-SKU эквайринг: округляем значения
+        acquiring_by_sku_rounded = {k: round(v, 2) for k, v in acquiring_by_sku.items()}
+        acq_total_by_sku = sum(acquiring_by_sku_rounded.values())
+        print(f"  📊 Эквайринг по SKU: {len(acquiring_by_sku_rounded)} товаров, итого {acq_total_by_sku:.2f} ₽")
+
         response_data = {
             'success': True,
             'period': period_label,
@@ -33669,7 +33694,8 @@ def api_finance_transactions_breakdown():
             'operations': operations_list,
             'services': services_list,
             'alerts': alerts,
-            'logistics_by_sku': logistics_by_sku_rounded
+            'logistics_by_sku': logistics_by_sku_rounded,
+            'acquiring_by_sku': acquiring_by_sku_rounded
         }
 
         # ── Сохраняем в кэш ──
