@@ -13692,6 +13692,7 @@ HTML_TEMPLATE = '''
         let _realLogisticsBySku = {}; // Логистика по артикулам {offer_id: cost}
         let _realPremiumBySku = {};  // Премиум-процент по артикулам {offer_id: cost}
         let _realAcquiringBySku = {}; // Эквайринг по артикулам {offer_id: сумма}
+        let _realBuyoutComBySku = {}; // Комиссия СНГ по артикулам {offer_id: сумма}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
         function updateCommissionCard() {
@@ -13763,6 +13764,7 @@ HTML_TEMPLATE = '''
             _realLogisticsBySku = {};
             _realAcquiringBySku = {};
             _realPremiumBySku = {};
+            _realBuyoutComBySku = {};
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -13867,13 +13869,19 @@ HTML_TEMPLATE = '''
 
                 // Таблица по товарам — мержим выкупы СНГ в продажи
                 const mergedProducts = [...(data.products || [])];
+                _realBuyoutComBySku = {}; // Комиссия СНГ per-SKU
                 if (buyout.products && buyout.products.length > 0) {
                     buyout.products.forEach(bp => {
-                        const existing = mergedProducts.find(p => (p.offer_id || p.sku) === (bp.offer_id || String(bp.sku)));
+                        const bpKey = bp.offer_id || String(bp.sku);
+                        const bpQty = bp.quantity || 0;
+                        const bpGross = (bp.seller_price_per_instance || 0) * bpQty;
+                        // Комиссия СНГ по товару = seller_price * qty - amount
+                        const bpCom = bpGross - (bp.amount || 0);
+                        _realBuyoutComBySku[bpKey] = (_realBuyoutComBySku[bpKey] || 0) + bpCom;
+
+                        const existing = mergedProducts.find(p => (p.offer_id || p.sku) === bpKey);
                         if (existing) {
                             // Добавляем кол-во и выручку СНГ к существующему товару
-                            const bpQty = bp.quantity || 0;
-                            const bpGross = (bp.seller_price_per_instance || 0) * bpQty;
                             existing.delivery_qty = (existing.delivery_qty || 0) + bpQty;
                             existing.gross_sales = (existing.gross_sales || 0) + bpGross;
                         } else {
@@ -13883,11 +13891,11 @@ HTML_TEMPLATE = '''
                                 sku: String(bp.sku),
                                 seller_price: bp.seller_price_per_instance || 0,
                                 commission_ratio: bp.deduction_by_category_percent || 0,
-                                delivery_qty: bp.quantity || 0,
+                                delivery_qty: bpQty,
                                 return_qty: 0,
-                                gross_sales: (bp.seller_price_per_instance || 0) * (bp.quantity || 0),
+                                gross_sales: bpGross,
                                 return_gross: 0,
-                                commission: ((bp.seller_price_per_instance || 0) - (bp.buyout_price || 0)) * (bp.quantity || 0),
+                                commission: 0, // Комиссия СНГ теперь через _realBuyoutComBySku
                                 seller_receives: bp.amount || 0
                             });
                         }
@@ -13961,7 +13969,7 @@ HTML_TEMPLATE = '''
                     : acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
-                const pBuyoutCom = Math.abs(_realBuyoutCommission) * grossShare;
+                const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
                 const allComp = _realCompensations + _realBonuses;
                 const pComp = allComp * grossShare;
@@ -13998,7 +14006,7 @@ HTML_TEMPLATE = '''
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 // Per-SKU логистика из транзакций, нормализованная к итогу карточки
                 const pLog = rawLogistics[i] * logScale;
-                const pBuyoutCom = Math.abs(_realBuyoutCommission) * grossShare;
+                const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
