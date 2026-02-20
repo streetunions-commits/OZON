@@ -14003,7 +14003,10 @@ HTML_TEMPLATE = '''
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
                 // Иные удержания: премиум по grossShare, остальное по qtyShare
-                const pOtherDed = (_realPremiumDeductions * grossShare) + (_realOtherDeductions * qtyShare);
+                const pPremiumPart = _realPremiumDeductions * grossShare;
+                const pOtherPart = _realOtherDeductions * qtyShare;
+                const pOtherDed = pPremiumPart + pOtherPart;
+                console.log(`[OtherDed] ${p.offer_id || p.sku}: premium=${pPremiumPart.toFixed(2)} (grossShare=${(grossShare*100).toFixed(1)}%), other=${pOtherPart.toFixed(2)} (qtyShare=${(qtyShare*100).toFixed(1)}%), total=${pOtherDed.toFixed(2)} | _realPremium=${_realPremiumDeductions}, _realOther=${_realOtherDeductions}`);
 
                 // Чистая прибыль per product
                 const pStorage = _realStorage * grossShare;
