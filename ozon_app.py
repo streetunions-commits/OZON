@@ -13953,32 +13953,24 @@ HTML_TEMPLATE = '''
             const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
             // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
-            // Используем ТОЧНО те же per-SKU значения, что показываются в строке таблицы
             const rawTaxes = products.map((p, idx) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
-                const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
-                const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
-                // Per-SKU данные — точно из API
                 const pAcq = _realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
-                // НДС: база = sales_after_spp * rcvShare (без компенсаций)
-                const pNdsBase = _realSalesAfterSpp * rcvShare;
+                const allComp = _realCompensations + _realBonuses;
+                const pComp = allComp * grossShare;
+                const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
                 let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
-                // Иные удержания — точно как в строке таблицы
-                const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
-                const pOtherPart = _realOtherDeductions * qtyShare;
-                const pOtherDed = pPremiumPart + pOtherPart;
-                // УСН база: без компенсаций и без баллов (они не участвуют в per-row расчёте)
                 const pUsnBase = pNetGross
                     - pAdv - pLog - _realStorage * grossShare
-                    - pCom - pOtherDed - pCogs - _realOpex * grossShare
-                    - pNds;
+                    - pCom - (_realOtherDeductions + _realPremiumDeductions) * grossShare - pCogs - _realOpex * grossShare
+                    - pNds + pComp - _realBonuses * grossShare;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
             });
