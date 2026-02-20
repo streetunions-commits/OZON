@@ -136,7 +136,7 @@ DB_PATH = "ozon_data.db"
 
 # Версия кэша реализации/транзакций. Инкрементируем при изменении логики агрегации,
 # чтобы старый кэш с неправильными числами автоматически сбрасывался при деплое.
-REALIZATION_CACHE_VERSION = 8  # v8: per-SKU эквайринг (acquiring_by_sku) в транзакциях
+REALIZATION_CACHE_VERSION = 9  # v9: per-SKU эквайринг (acquiring_by_sku) — fix None offer_id
 
 # ✅ Директория для загрузки файлов контейнеров ВЭД
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'ved_containers')
@@ -33575,8 +33575,8 @@ def api_finance_transactions_breakdown():
             # Эквайринг per-SKU (MarketplaceRedistributionOfAcquiringOperation)
             if ot == 'MarketplaceRedistributionOfAcquiringOperation':
                 op_items = op.get('items', [])
-                op_offer_id = op_items[0].get('offer_id', '') if op_items else ''
-                op_sku = str(op_items[0].get('sku', '')) if op_items else ''
+                op_offer_id = (op_items[0].get('offer_id') or '') if op_items else ''
+                op_sku = str(op_items[0].get('sku') or '') if op_items else ''
                 sku_key = op_offer_id or op_sku
                 if sku_key:
                     acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + abs(amt)
