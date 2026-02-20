@@ -14823,6 +14823,10 @@ HTML_TEMPLATE = '''
             _realLogisticsBySku = data.logistics_by_sku || {};
             _realAcquiringBySku = data.acquiring_by_sku || {};
             _realPremiumBySku = data.ded_by_sku || {};
+            console.log('[DEBUG] ded_by_sku from API:', JSON.stringify(data.ded_by_sku));
+            console.log('[DEBUG] _realPremiumBySku:', JSON.stringify(_realPremiumBySku));
+            console.log('[DEBUG] _realPremiumDeductions:', _realPremiumDeductions, '_realOtherDeductions:', _realOtherDeductions);
+            console.log('[DEBUG] catTotals.per_sku_ded:', catTotals.per_sku_ded, 'catTotals.other_deductions:', catTotals.other_deductions);
 
             // Перерендерим таблицу товаров — теперь с учётом ВСЕХ данных из транзакций
             // (эквайринг по SKU, логистика по SKU, удержания по SKU, категорийные итоги)
