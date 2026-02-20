@@ -13970,7 +13970,7 @@ HTML_TEMPLATE = '''
             const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
-            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0};
+            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0};
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
@@ -14018,6 +14018,10 @@ HTML_TEMPLATE = '''
                 _s.sales += netQty;
                 _s.ret += (p.return_qty || 0);
                 _s.bonus += (p.bonus || 0);
+                // СПП% по товару — для подсчёта среднего арифметического в итоговой строке
+                const pSppPct = Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100) : 0;
+                _s.sppPctSum += pSppPct;
+                _s.sppPctCount++;
                 _s.profit += pProfit;
 
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
@@ -14046,7 +14050,7 @@ HTML_TEMPLATE = '''
                 const avgPrice = _s.sales > 0 ? _s.netGross / _s.sales : 0;
                 const totalComPct = _s.netGross > 0 ? (_s.com / _s.netGross * 100) : 0;
                 const cogsFootText = _s.cogs > 0 ? fmtRealMoney(_s.cogs) : '—';
-                const sppPct = _s.netGross > 0 ? (_s.bonus / _s.netGross * 100).toFixed(1) : '0.0';
+                const sppPct = _s.sppPctCount > 0 ? (_s.sppPctSum / _s.sppPctCount).toFixed(1) : '0.0';
                 const profCls = _s.profit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
                 summaryRow.innerHTML =
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
