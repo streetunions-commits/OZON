@@ -14701,11 +14701,12 @@ HTML_TEMPLATE = '''
             const operationCatMap = {
                 // Иные удержания
                 'MarketplaceServiceBrandCommission': 'other_deductions',
-                // Премиум подписки — отдельная категория, раскидываются по доле выручки (grossShare)
+                // Премиум процент — раскидывается по доле выручки (grossShare)
                 'PremiumMembership': 'premium',
-                'OperationSubscriptionPremiumPro': 'premium',
-                'OperationSubscriptionPremiumPlus': 'premium',
-                'OperationSubscriptionPremium': 'premium',
+                // Фиксированные подписки — раскидываются по qtyShare (как остальные иные удержания)
+                'OperationSubscriptionPremiumPro': 'other_deductions',
+                'OperationSubscriptionPremiumPlus': 'other_deductions',
+                'OperationSubscriptionPremium': 'other_deductions',
                 'OperationMarketPlaceItemPinReview': 'other_deductions',
                 'OperationMarketplaceItemTemporaryStorageRedistribution': 'other_deductions',
                 'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
