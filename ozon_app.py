@@ -13972,7 +13972,7 @@ HTML_TEMPLATE = '''
             const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
-            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0};
+            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
@@ -14025,6 +14025,9 @@ HTML_TEMPLATE = '''
                 const pSppPct = Math.abs(p.gross_sales) > 0 ? ((p.bonus || 0) / Math.abs(p.gross_sales) * 100) : 0;
                 _s.sppPctSum += pSppPct;
                 _s.sppPctCount++;
+                // Комиссия+эквайринг % — для среднего в итоговой строке
+                _s.comPctSum += pComPct;
+                _s.comPctCount++;
                 _s.profit += pProfit;
 
                 return '<tr data-sku="' + escapeHtml(p.sku || '') + '">' +
@@ -14038,7 +14041,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" data-field="cogs" style="color:' + cogsColor + ';">' + cogsText + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOpex) + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(pOtherDed) + '</td>' +
-                    '<td class="real-amount-right" style="color:#d69e2e;">' + Math.round(pComPct) + '%</td>' +
+                    '<td class="real-amount-right" style="color:#d69e2e;">' + pComPct.toFixed(1) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + netQty + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + (p.return_qty || 0) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
@@ -14051,7 +14054,7 @@ HTML_TEMPLATE = '''
             const summaryRow = document.getElementById('real-products-summary');
             if (summaryRow && products.length > 0) {
                 const avgPrice = _s.sales > 0 ? _s.netGross / _s.sales : 0;
-                const totalComPct = _s.netGross > 0 ? (_s.com / _s.netGross * 100) : 0;
+                const avgComPct = _s.comPctCount > 0 ? (_s.comPctSum / _s.comPctCount) : 0;
                 const cogsFootText = _s.cogs > 0 ? fmtRealMoney(_s.cogs) : '—';
                 const sppPct = _s.sppPctCount > 0 ? (_s.sppPctSum / _s.sppPctCount).toFixed(1) : '0.0';
                 const profCls = _s.profit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
@@ -14066,7 +14069,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" id="real-cogs-tfoot" style="color:#e07020;">' + cogsFootText + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_s.opex) + '</td>' +
                     '<td class="real-amount-right" style="color:#e67e22;">' + fmtRealMoney(_s.otherDed) + '</td>' +
-                    '<td class="real-amount-right" style="color:#555;">' + Math.round(totalComPct) + '%</td>' +
+                    '<td class="real-amount-right" style="color:#555;">' + avgComPct.toFixed(1) + '%</td>' +
                     '<td class="real-amount-right" style="color:#38a169;">' + _s.sales + '</td>' +
                     '<td class="real-amount-right" style="color:#e53e3e;">' + _s.ret + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_s.com) + '</td>' +
