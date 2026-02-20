@@ -14761,11 +14761,6 @@ HTML_TEMPLATE = '''
             _realAcquiring = Math.abs(acquiringTotal);
             updateCommissionCard();
 
-            // Перерендерим таблицу товаров — теперь с учётом эквайринга пропорционально
-            if (_realProductsData.length > 0) {
-                renderRealizationProducts(_realProductsData);
-            }
-
             // «Баллы за скидки» — из realization API (bonuses_total), добавляем к компенсациям
             if (_realBonuses > 0) {
                 catTotals.compensations += _realBonuses;
@@ -14824,12 +14819,16 @@ HTML_TEMPLATE = '''
             _realStorage = catTotals.storage;
             _realCompensations = catTotals.compensations - _realBonuses;
 
-            // Per-SKU логистика из транзакций (та же логика что карточка: доставки + возвраты)
+            // Per-SKU данные из транзакций — ДОЛЖНЫ быть установлены ДО рендера таблицы!
             _realLogisticsBySku = data.logistics_by_sku || {};
-            // Per-SKU эквайринг из транзакций
             _realAcquiringBySku = data.acquiring_by_sku || {};
-            // Per-SKU удержания из транзакций (премиум + размещение + вывоз)
             _realPremiumBySku = data.ded_by_sku || {};
+
+            // Перерендерим таблицу товаров — теперь с учётом ВСЕХ данных из транзакций
+            // (эквайринг по SKU, логистика по SKU, удержания по SKU, категорийные итоги)
+            if (_realProductsData.length > 0) {
+                renderRealizationProducts(_realProductsData);
+            }
 
             // Загружаем карточку «Налоги» (НДС + УСН)
             _loadRealizationTax();
