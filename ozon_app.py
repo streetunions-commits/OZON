@@ -13947,26 +13947,16 @@ HTML_TEMPLATE = '''
                 return;
             }
 
-            // Распределяем эквайринг пропорционально, рекламу — по SKU
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
-            const acq = Math.abs(_realAcquiring);
             // Общее кол-во нетто-продаж для распределения расходов к вычету
             const totalNetQty = products.reduce((s, p) => s + Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0)), 0);
             const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
             // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
-            // ── Per-SKU эквайринг: подготовка массива + нормализация к итогу карточки ──
-            const hasAcqBySku = Object.keys(_realAcquiringBySku).length > 0;
-            const rawAcquiring = products.map(p => _realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0);
-            const rawAcqSum = rawAcquiring.reduce((s, a) => s + a, 0);
-            const acqScale = (rawAcqSum > 0 && acq > 0) ? acq / rawAcqSum : 1;
-
             const rawTaxes = products.map((p, idx) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
                 const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
-                const pAcq = (hasAcqBySku && rawAcqSum > 0)
-                    ? rawAcquiring[idx] * acqScale
-                    : acq * grossShare;
+                const pAcq = _realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
@@ -13988,31 +13978,23 @@ HTML_TEMPLATE = '''
             const rawTaxSum = rawTaxes.reduce((s, t) => s + t, 0);
             const taxScale = (rawTaxSum > 0 && _realTotalTax > 0) ? Math.abs(_realTotalTax) / rawTaxSum : 1;
 
-            // ── Шаг 3: per-SKU логистика + нормализация чтобы сумма = _realLogistics (карточка) ──
-            const rawLogistics = products.map(p => _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0);
-            const rawLogSum = rawLogistics.reduce((s, l) => s + l, 0);
-            const logScale = (rawLogSum > 0 && _realLogistics > 0) ? _realLogistics / rawLogSum : 1;
-
-            // ── Шаг 4: per-SKU реклама + нормализация чтобы сумма = _realAdvertising (карточка) ──
-            const rawAdv = products.map(p => _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0);
-            const rawAdvSum = rawAdv.reduce((s, a) => s + a, 0);
-            const advScale = (rawAdvSum > 0 && _realAdvertising > 0) ? _realAdvertising / rawAdvSum : 1;
+            // ── Шаг 3: per-SKU логистика — точные значения из Transaction API ──
+            // ── Шаг 4: per-SKU реклама — точные значения из Performance API ──
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
             let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
-                // Per-SKU эквайринг, нормализованный к итогу карточки; fallback на пропорциональное распределение
-                const pAcq = (hasAcqBySku && rawAcqSum > 0)
-                    ? rawAcquiring[i] * acqScale
-                    : acq * grossShare;
-                // Per-SKU реклама из Performance API, нормализованная к итогу карточки (Transaction API)
-                const pAdv = rawAdv[i] * advScale;
-                // Per-SKU логистика из транзакций, нормализованная к итогу карточки
-                const pLog = rawLogistics[i] * logScale;
+                // Per-SKU эквайринг — точно по товару из Transaction API
+                const pAcq = _realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0;
+                // Per-SKU реклама — точно по товару из Performance API
+                const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
+                // Per-SKU логистика — точно по товару из Transaction API
+                const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
+                // Per-product налоги — расчёт по формуле (НДС + УСН)
                 const pTax = rawTaxes[i] * taxScale;
 
                 // Нетто-реализация (gross − returns) — столбец «Реализация»
