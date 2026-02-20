@@ -14008,12 +14008,12 @@ HTML_TEMPLATE = '''
                 const pLog = rawLogistics[i] * logScale;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
-                const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
 
-                // Цена в ЛК = нетто-реализация / нетто-продажи (как карточка «Реализация»)
-                // (gross_sales − return_gross) / (delivery_qty − return_qty)
+                // Нетто-реализация (gross − returns) — столбец «Реализация»
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
+                // Комиссия+эквайринг % = (комиссия+эквайринг ₽) / реализация (нетто) × 100
+                const pComPct = pNetGross > 0 ? (pCom / pNetGross * 100) : 0;
                 const pNetQty = (p.delivery_qty || 0) - (p.return_qty || 0);
                 const pPrice = pNetQty > 0 ? pNetGross / pNetQty : (p.seller_price || 0);
 
