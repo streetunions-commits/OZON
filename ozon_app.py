@@ -33597,13 +33597,15 @@ def api_finance_transactions_breakdown():
                     logistics_by_sku[sku_key] = logistics_by_sku.get(sku_key, 0.0) + abs(amt)
 
             # Эквайринг per-SKU (MarketplaceRedistributionOfAcquiringOperation)
+            # Суммируем СЫРЫЕ суммы (не abs!) — отрицательные = расходы, положительные = возвраты.
+            # abs() берём только от итоговой суммы per-SKU после агрегации (ниже, перед отправкой).
             if ot == 'MarketplaceRedistributionOfAcquiringOperation':
                 op_items = op.get('items', [])
                 op_offer_id = (op_items[0].get('offer_id') or '') if op_items else ''
                 op_sku = str(op_items[0].get('sku') or '') if op_items else ''
                 sku_key = op_offer_id or op_sku
                 if sku_key:
-                    acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + abs(amt)
+                    acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + amt
 
             # Per-SKU удержания: операции привязанные к конкретному товару через items[0].sku
             if ot in _PER_SKU_DED_TYPES:
@@ -33715,8 +33717,8 @@ def api_finance_transactions_breakdown():
         log_total_by_sku = sum(logistics_by_sku_rounded.values())
         print(f"  📊 Логистика по SKU: {len(logistics_by_sku_rounded)} товаров, итого {log_total_by_sku:.2f} ₽")
 
-        # Per-SKU эквайринг: округляем значения
-        acquiring_by_sku_rounded = {k: round(v, 2) for k, v in acquiring_by_sku.items()}
+        # Per-SKU эквайринг: берём abs от чистой суммы per-SKU (расходы - возвраты), округляем
+        acquiring_by_sku_rounded = {k: round(abs(v), 2) for k, v in acquiring_by_sku.items()}
         acq_total_by_sku = sum(acquiring_by_sku_rounded.values())
         print(f"  📊 Эквайринг по SKU: {len(acquiring_by_sku_rounded)} товаров, итого {acq_total_by_sku:.2f} ₽")
 
