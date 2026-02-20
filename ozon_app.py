@@ -13690,6 +13690,7 @@ HTML_TEMPLATE = '''
         let _realProductCogsMap = {};  // Себестоимость per SKU {sku: cogs}
         let _realAdvBySku = {};      // Расходы на рекламу по артикулам {offer_id: spend}
         let _realLogisticsBySku = {}; // Логистика по артикулам {offer_id: cost}
+        let _realPremiumBySku = {};  // Премиум-процент по артикулам {offer_id: cost}
         let _realAcquiringBySku = {}; // Эквайринг по артикулам {offer_id: сумма}
 
         /** Обновить карточку «Комиссия МП» = standard_fee + комиссия СНГ + эквайринг */
@@ -13761,6 +13762,7 @@ HTML_TEMPLATE = '''
             _realProductCogsMap = {};
             _realLogisticsBySku = {};
             _realAcquiringBySku = {};
+            _realPremiumBySku = {};
 
             const periodType = document.getElementById('real-period-type').value;
             let url;
@@ -14017,11 +14019,10 @@ HTML_TEMPLATE = '''
                 const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
-                // Иные удержания: премиум по grossShare, остальное по qtyShare
-                const pPremiumPart = _realPremiumDeductions * grossShare;
+                // Иные удержания: премиум-процент per-SKU из API + остальное по qtyShare
+                const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
                 const pOtherPart = _realOtherDeductions * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
-                console.log(`[OtherDed] ${p.offer_id || p.sku}: premium=${pPremiumPart.toFixed(2)} (grossShare=${(grossShare*100).toFixed(1)}%), other=${pOtherPart.toFixed(2)} (qtyShare=${(qtyShare*100).toFixed(1)}%), total=${pOtherDed.toFixed(2)} | _realPremium=${_realPremiumDeductions}, _realOther=${_realOtherDeductions}`);
 
                 // Чистая прибыль per product
                 const pStorage = _realStorage * grossShare;
@@ -14819,6 +14820,8 @@ HTML_TEMPLATE = '''
             _realLogisticsBySku = data.logistics_by_sku || {};
             // Per-SKU эквайринг из транзакций
             _realAcquiringBySku = data.acquiring_by_sku || {};
+            // Per-SKU премиум-процент из транзакций (Подписка Premium Pro процент)
+            _realPremiumBySku = data.premium_by_sku || {};
 
             // Загружаем карточку «Налоги» (НДС + УСН)
             _loadRealizationTax();
@@ -33447,6 +33450,7 @@ def api_finance_transactions_breakdown():
     svc_totals = {}       # {service_name: {sum, count}}
     logistics_by_sku = {} # {offer_id: сумма логистики} — per-SKU логистика для таблицы товаров
     acquiring_by_sku = {} # {offer_id: сумма эквайринга} — per-SKU эквайринг для таблицы товаров
+    premium_by_sku = {}   # {offer_id: сумма премиум-процента} — per-SKU подписка Premium Pro (процент)
     total_ops = 0
 
     def _fetch_all_ops_for_range(d_from, d_to, label):
@@ -33589,6 +33593,16 @@ def api_finance_transactions_breakdown():
                 if sku_key:
                     acquiring_by_sku[sku_key] = acquiring_by_sku.get(sku_key, 0.0) + abs(amt)
 
+            # Премиум-процент per-SKU (PremiumMembership — «Подписка Premium Pro (процент)»)
+            # Каждая транзакция привязана к конкретному товару через items[0].sku
+            if ot == 'PremiumMembership':
+                op_items = op.get('items', [])
+                op_offer_id = (op_items[0].get('offer_id') or '') if op_items else ''
+                op_sku = str(op_items[0].get('sku') or '') if op_items else ''
+                sku_key = op_offer_id or op_sku
+                if sku_key:
+                    premium_by_sku[sku_key] = premium_by_sku.get(sku_key, 0.0) + abs(amt)
+
         print(f"  ✅ Транзакции {period_label}: итого {total_ops} операций")
 
         # ── Сверка с реестром типов в БД ──
@@ -33695,6 +33709,11 @@ def api_finance_transactions_breakdown():
         acq_total_by_sku = sum(acquiring_by_sku_rounded.values())
         print(f"  📊 Эквайринг по SKU: {len(acquiring_by_sku_rounded)} товаров, итого {acq_total_by_sku:.2f} ₽")
 
+        # Per-SKU премиум-процент: округляем значения
+        premium_by_sku_rounded = {k: round(v, 2) for k, v in premium_by_sku.items()}
+        prem_total_by_sku = sum(premium_by_sku_rounded.values())
+        print(f"  📊 Премиум по SKU: {len(premium_by_sku_rounded)} товаров, итого {prem_total_by_sku:.2f} ₽")
+
         response_data = {
             'success': True,
             'period': period_label,
@@ -33703,7 +33722,8 @@ def api_finance_transactions_breakdown():
             'services': services_list,
             'alerts': alerts,
             'logistics_by_sku': logistics_by_sku_rounded,
-            'acquiring_by_sku': acquiring_by_sku_rounded
+            'acquiring_by_sku': acquiring_by_sku_rounded,
+            'premium_by_sku': premium_by_sku_rounded
         }
 
         # ── Сохраняем в кэш ──
