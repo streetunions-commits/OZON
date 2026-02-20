@@ -13673,7 +13673,8 @@ HTML_TEMPLATE = '''
         let _realGrossSalesTotal = 0; // Реализация (продажи до СПП)
         let _realReturns = 0;        // Возвраты
         let _realLogistics = 0;      // Логистика
-        let _realOtherDeductions = 0; // Иные удержания
+        let _realOtherDeductions = 0; // Иные удержания (всё кроме премиума)
+        let _realPremiumDeductions = 0; // Премиум подписки (раскидываются по grossShare)
         let _realAdvertising = 0;    // Реклама
         let _realStorage = 0;        // Хранение
         let _realCompensations = 0;  // Компенсации (без баллов)
@@ -13744,6 +13745,7 @@ HTML_TEMPLATE = '''
             _realReturns = 0;
             _realLogistics = 0;
             _realOtherDeductions = 0;
+            _realPremiumDeductions = 0;
             _realAdvertising = 0;
             _realStorage = 0;
             _realCompensations = 0;
@@ -13998,7 +14000,8 @@ HTML_TEMPLATE = '''
                 const netQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
-                const pOtherDed = _realOtherDeductions * qtyShare;
+                // Иные удержания: премиум по grossShare, остальное по qtyShare
+                const pOtherDed = (_realPremiumDeductions * grossShare) + (_realOtherDeductions * qtyShare);
 
                 // Чистая прибыль per product
                 const pStorage = _realStorage * grossShare;
@@ -14677,10 +14680,11 @@ HTML_TEMPLATE = '''
             const operationCatMap = {
                 // Иные удержания
                 'MarketplaceServiceBrandCommission': 'other_deductions',
-                'PremiumMembership': 'other_deductions',
-                'OperationSubscriptionPremiumPro': 'other_deductions',
-                'OperationSubscriptionPremiumPlus': 'other_deductions',
-                'OperationSubscriptionPremium': 'other_deductions',
+                // Премиум подписки — отдельная категория, раскидываются по доле выручки (grossShare)
+                'PremiumMembership': 'premium',
+                'OperationSubscriptionPremiumPro': 'premium',
+                'OperationSubscriptionPremiumPlus': 'premium',
+                'OperationSubscriptionPremium': 'premium',
                 'OperationMarketPlaceItemPinReview': 'other_deductions',
                 'OperationMarketplaceItemTemporaryStorageRedistribution': 'other_deductions',
                 'OperationMarketplaceServiceProcessingSpoilageSurplus': 'other_deductions',
@@ -14700,8 +14704,8 @@ HTML_TEMPLATE = '''
                 'TemporaryStorage': 'storage'
             };
 
-            const catTotals = { other_deductions: 0, compensations: 0, advertising: 0, storage: 0 };
-            const catDetails = { other_deductions: [], compensations: [], advertising: [], storage: [] };
+            const catTotals = { other_deductions: 0, premium: 0, compensations: 0, advertising: 0, storage: 0 };
+            const catDetails = { other_deductions: [], premium: [], compensations: [], advertising: [], storage: [] };
 
             // Эквайринг — добавляем к комиссии МП на карточке
             let acquiringTotal = 0;
@@ -14734,6 +14738,11 @@ HTML_TEMPLATE = '''
                 catTotals.compensations += _realBonuses;
                 catDetails.compensations.unshift({ label: 'Баллы за скидки', value: _realBonuses });
             }
+
+            // Объединяем premium в карточку «Иные удержания» для отображения
+            // (в таблице они раскидываются по-разному: premium по grossShare, остальное по qtyShare)
+            catTotals.other_deductions += catTotals.premium;
+            catDetails.other_deductions = catDetails.other_deductions.concat(catDetails.premium);
 
             // Отображение карточек
             const catConfig = [
@@ -14774,7 +14783,10 @@ HTML_TEMPLATE = '''
 
             // Сохраняем значения из транзакций для расчёта налога
             _realLogistics = logTotal;
-            _realOtherDeductions = catTotals.other_deductions;
+            // other_deductions уже включает premium (объединили выше для карточки),
+            // но для таблицы нужно раздельно: premium по grossShare, остальное по qtyShare
+            _realPremiumDeductions = catTotals.premium;
+            _realOtherDeductions = catTotals.other_deductions - catTotals.premium;
             _realAdvertising = catTotals.advertising;
             _realStorage = catTotals.storage;
             _realCompensations = catTotals.compensations - _realBonuses;
