@@ -13976,7 +13976,8 @@ HTML_TEMPLATE = '''
                 const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
                 let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
-                const pUsnBase = Math.abs(p.gross_sales || 0)
+                const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
+                const pUsnBase = pNetGross
                     - pAdv - pLog - _realStorage * grossShare
                     - pCom - (_realOtherDeductions + _realPremiumDeductions) * grossShare - pCogs - _realOpex * grossShare
                     - pNds + pComp - _realBonuses * grossShare;
@@ -14033,9 +14034,10 @@ HTML_TEMPLATE = '''
                 const pOtherDed = pPremiumPart + pOtherPart;
 
                 // Чистая прибыль per product
+                // Реализация (нетто) − все расходы + компенсации (как в карточке «Чистая прибыль»)
                 const pStorage = _realStorage * grossShare;
                 const pCompensations = _realCompensations * grossShare;
-                const pProfit = Math.abs(p.gross_sales || 0) - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
+                const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompensations;
                 const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
 
                 // Накапливаем суммы для итоговой строки
