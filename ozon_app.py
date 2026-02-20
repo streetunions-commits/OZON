@@ -13962,7 +13962,7 @@ HTML_TEMPLATE = '''
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pUsnBase = Math.abs(p.gross_sales || 0)
                     - pAdv - pLog - _realStorage * grossShare
-                    - pCom - _realOtherDeductions * grossShare - pCogs - _realOpex * grossShare
+                    - pCom - (_realOtherDeductions + _realPremiumDeductions) * grossShare - pCogs - _realOpex * grossShare
                     - pNds + pComp - _realBonuses * grossShare;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
@@ -14325,7 +14325,7 @@ HTML_TEMPLATE = '''
                     - _realLogistics
                     - _realStorage
                     - commission
-                    - _realOtherDeductions
+                    - (_realOtherDeductions + _realPremiumDeductions)
                     - _realCogs
                     - _realOpex
                     - nds
@@ -14415,7 +14415,7 @@ HTML_TEMPLATE = '''
                 - _realLogistics
                 - commission
                 - _realCogs
-                - _realOtherDeductions
+                - (_realOtherDeductions + _realPremiumDeductions)
                 - _realStorage
                 + allCompensations
                 - _realBonuses;
