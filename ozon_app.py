@@ -14028,7 +14028,7 @@ HTML_TEMPLATE = '''
                 const qtyShare = totalNetQty > 0 ? netQty / totalNetQty : 0;
                 const pOpex = _realOpex * qtyShare;
                 // Иные удержания: премиум-процент per-SKU из API + остальное по qtyShare
-                const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
+                const pPremiumPart = -(_realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0);
                 const pOtherPart = _realOtherDeductions * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
 
