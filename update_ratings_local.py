@@ -134,17 +134,75 @@ def ensure_chrome_running():
 def close_chrome():
     """
     Закрывает Chrome, запущенный на порту отладки.
-    Отправляет команду через CDP.
+
+    Алгоритм:
+    1. Через CDP HTTP API получаем список вкладок (targets)
+    2. Закрываем каждую вкладку — когда все закрыты, Chrome завершается сам
+    3. Ждём 3 секунды и проверяем, закрылся ли Chrome
+    4. Если всё ещё жив — убиваем через taskkill по PID (Windows)
     """
     try:
-        # Получаем список целей (targets) и закрываем браузер
-        resp = requests.get(f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=2)
-        ws_url = resp.json().get('webSocketDebuggerUrl')
-        if ws_url:
-            # Просто закрываем все страницы — Chrome завершится сам
-            requests.put(f'http://127.0.0.1:{CDP_PORT}/json/close/all', timeout=2)
+        # Шаг 1: получаем список открытых вкладок
+        resp = requests.get(f'http://127.0.0.1:{CDP_PORT}/json', timeout=2)
+        targets = resp.json()
+
+        # Шаг 2: закрываем каждую вкладку по её ID
+        for target in targets:
+            tid = target.get('id')
+            if tid:
+                try:
+                    requests.get(
+                        f'http://127.0.0.1:{CDP_PORT}/json/close/{tid}',
+                        timeout=2
+                    )
+                except Exception:
+                    pass
+
+        # Шаг 3: ждём завершения Chrome
+        time.sleep(3)
+
+        # Проверяем, закрылся ли Chrome
+        try:
+            requests.get(f'http://127.0.0.1:{CDP_PORT}/json/version', timeout=2)
+            # Ещё жив — убиваем принудительно
+            _force_kill_chrome()
+        except Exception:
+            # Не ответил — Chrome успешно закрылся
+            print("  ✅ Chrome закрыт")
+
     except Exception:
-        pass
+        # Chrome не отвечал на CDP — возможно уже закрыт
+        print("  ℹ️  Chrome уже не запущен")
+
+
+def _force_kill_chrome():
+    """
+    Принудительно завершает процесс Chrome через taskkill (Windows).
+    Убивает только тот Chrome, который слушает на нашем CDP-порту.
+    """
+    try:
+        # Находим PID Chrome, слушающего наш порт отладки
+        result = subprocess.run(
+            ['netstat', '-ano'],
+            capture_output=True, text=True, timeout=5
+        )
+        target_pid = None
+        for line in result.stdout.splitlines():
+            if f':{CDP_PORT}' in line and 'LISTENING' in line:
+                parts = line.split()
+                target_pid = parts[-1]
+                break
+
+        if target_pid:
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', target_pid],
+                capture_output=True, timeout=5
+            )
+            print(f"  🔌 Chrome (PID {target_pid}) принудительно завершён")
+        else:
+            print("  ℹ️  Chrome процесс не найден (уже закрыт)")
+    except Exception as e:
+        print(f"  ⚠️  Не удалось завершить Chrome: {e}")
 
 
 # ============================================================================
@@ -685,9 +743,9 @@ def main():
     print(f"   Не удалось: {len(skus) - success_count}")
     print("=" * 70)
 
-    # Не закрываем Chrome — он может использоваться для следующего запуска
-    print("\n💡 Chrome остаётся запущенным для последующих запусков.")
-    print("   Закройте его вручную, если не нужен.")
+    # Закрываем Chrome после завершения парсинга
+    print("\n🔌 Закрываю Chrome...")
+    close_chrome()
 
     return success_count, len(skus) - success_count
 
