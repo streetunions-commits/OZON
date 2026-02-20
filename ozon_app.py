@@ -13959,7 +13959,8 @@ HTML_TEMPLATE = '''
                     : acq * grossShare;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
-                const pCom = (p.commission || 0) + pAcq;
+                const pBuyoutCom = Math.abs(_realBuyoutCommission) * grossShare;
+                const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
                 const allComp = _realCompensations + _realBonuses;
                 const pComp = allComp * grossShare;
                 const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
@@ -13995,7 +13996,8 @@ HTML_TEMPLATE = '''
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 // Per-SKU логистика из транзакций, нормализованная к итогу карточки
                 const pLog = rawLogistics[i] * logScale;
-                const pCom = (p.commission || 0) + pAcq;
+                const pBuyoutCom = Math.abs(_realBuyoutCommission) * grossShare;
+                const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
                 const pComPct = (p.gross_sales && p.gross_sales !== 0) ? (pCom / Math.abs(p.gross_sales) * 100) : 0;
                 const pTax = rawTaxes[i] * taxScale;
 
