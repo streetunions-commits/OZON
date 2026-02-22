@@ -14312,8 +14312,8 @@ HTML_TEMPLATE = '''
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
                 _realNdsPercent = ndsPercent;
 
-                // 4. НДС = Реализация по акту с мех. лояльности + СНГ − возвраты = _realGrossSalesTotal
-                const ndsBase = _realGrossSalesTotal;
+                // 4. НДС = (Продажи после СПП + Компенсации без баллов) / (100 + НДС%) × НДС%
+                const ndsBase = _realSalesAfterSpp + _realCompensations;
                 let nds = 0;
                 if (ndsPercent > 0) {
                     nds = ndsBase / (100 + ndsPercent) * ndsPercent;
