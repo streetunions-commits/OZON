@@ -13973,8 +13973,10 @@ HTML_TEMPLATE = '''
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
                 // Продажи после СПП по товару (как в карточке)
                 const pSalesAfterSpp = (p.seller_receives || 0) + (p.bank_coinvestment || 0) + (p.pup_coinvestment || 0) + (p.buyout_seller_price || 0);
-                // НДС база = Продажи после СПП (не реализация!)
-                let pNds = (_realNdsPercent > 0) ? pSalesAfterSpp / (100 + _realNdsPercent) * _realNdsPercent : 0;
+                // Компенсации (без баллов) — пропорционально нетто-реализации товара
+                const pCompNoBonus = totalNetGross > 0 ? _realCompensations * (pNetGross / totalNetGross) : 0;
+                // НДС база = (Продажи после СПП + Компенсации без баллов) / (100 + НДС%) × НДС%
+                let pNds = (_realNdsPercent > 0) ? (pSalesAfterSpp + pCompNoBonus) / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 // УСН база: реализация − все расходы по товару − НДС
                 const pNetQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const pQtyShare = totalNetQty > 0 ? pNetQty / totalNetQty : 0;
