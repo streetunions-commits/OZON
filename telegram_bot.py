@@ -116,6 +116,7 @@ STATE_SHIPMENT_CONFIRM = 402       # Подтверждение создания
 STATE_SUMMARY_PRODUCT = 500        # Выбор товара из списка (с пагинацией)
 STATE_SUMMARY_PERIOD = 501         # Выбор периода/дат
 STATE_SUMMARY_RESULT = 502         # Отображение результата
+STATE_SUMMARY_DATE_TO = 503        # Ввод даты "до" (второй шаг кастомного периода)
 
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
@@ -3610,13 +3611,16 @@ async def summary_period_callback(update: Update, context: ContextTypes.DEFAULT_
         date_from = (today - timedelta(days=29)).isoformat()
         date_to = today.isoformat()
     elif period == 'custom':
+        offer_id = escape_md(context.user_data['summary']['product_offer_id'])
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="sum_back_period_select")]]
         await query.edit_message_text(
-            "📊 *Сводный отчет*\n\n"
-            "📅 Введите период в формате:\n"
-            "`ДД.ММ.ГГГГ - ДД.ММ.ГГГГ`\n\n"
-            "Например: `01.02.2026 - 15.02.2026`\n"
-            "Или одну дату: `10.02.2026`",
-            parse_mode='Markdown'
+            "📊 *Сводный отчет*\n"
+            f"Товар: *{offer_id}*\n\n"
+            "📅 Введите дату *ОТ* в формате:\n"
+            "`ДД.ММ.ГГГГ`\n\n"
+            "Например: `01.02.2026`",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return STATE_SUMMARY_PERIOD
     else:
@@ -3628,40 +3632,74 @@ async def summary_period_callback(update: Update, context: ContextTypes.DEFAULT_
     return await summary_show_result(query, context)
 
 
-async def summary_custom_period_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def summary_custom_date_from_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """
-    Обработка ручного ввода периода для сводного отчета.
-    Форматы: "ДД.ММ.ГГГГ - ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ"
+    Шаг 1 кастомного периода: пользователь вводит дату ОТ.
     """
     text = update.message.text.strip()
 
     # Если пользователь нажал другую кнопку меню
-    if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение']:
+    if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение', '📊 Сводный отчет']:
         return ConversationHandler.END
 
     try:
-        if ' - ' in text:
-            parts = text.split(' - ')
-            date_from = datetime.strptime(parts[0].strip(), '%d.%m.%Y').date()
-            date_to = datetime.strptime(parts[1].strip(), '%d.%m.%Y').date()
-        elif '-' in text and len(text) > 10:
-            parts = text.split('-', 1)
-            date_from = datetime.strptime(parts[0].strip(), '%d.%m.%Y').date()
-            date_to = datetime.strptime(parts[1].strip(), '%d.%m.%Y').date()
-        else:
-            date_from = datetime.strptime(text, '%d.%m.%Y').date()
-            date_to = date_from
-
-        if date_from > date_to:
-            date_from, date_to = date_to, date_from
+        date_from = datetime.strptime(text, '%d.%m.%Y').date()
 
         today = datetime.now().date()
         if date_from > today:
             await update.message.reply_text(
-                "❌ Дата не может быть в будущем. Попробуйте снова:",
-                parse_mode='Markdown'
+                "❌ Дата не может быть в будущем. Попробуйте снова:"
             )
             return STATE_SUMMARY_PERIOD
+
+        context.user_data['summary']['date_from'] = date_from.isoformat()
+
+        offer_id = escape_md(context.user_data['summary']['product_offer_id'])
+        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="sum_back_period_select")]]
+        await update.message.reply_text(
+            "📊 *Сводный отчет*\n"
+            f"Товар: *{offer_id}*\n"
+            f"Дата от: *{date_from.strftime('%d.%m.%Y')}*\n\n"
+            "📅 Введите дату *ДО* в формате:\n"
+            "`ДД.ММ.ГГГГ`\n\n"
+            f"Например: `{today.strftime('%d.%m.%Y')}`",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return STATE_SUMMARY_DATE_TO
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат. Введите дату в формате:\n"
+            "`ДД.ММ.ГГГГ`",
+            parse_mode='Markdown'
+        )
+        return STATE_SUMMARY_PERIOD
+
+
+async def summary_custom_date_to_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Шаг 2 кастомного периода: пользователь вводит дату ДО.
+    """
+    text = update.message.text.strip()
+
+    # Если пользователь нажал другую кнопку меню
+    if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение', '📊 Сводный отчет']:
+        return ConversationHandler.END
+
+    try:
+        date_to = datetime.strptime(text, '%d.%m.%Y').date()
+        date_from = datetime.strptime(context.user_data['summary']['date_from'], '%Y-%m-%d').date()
+
+        today = datetime.now().date()
+        if date_to > today:
+            await update.message.reply_text(
+                "❌ Дата не может быть в будущем. Попробуйте снова:"
+            )
+            return STATE_SUMMARY_DATE_TO
+
+        # Если даты перепутаны — меняем местами
+        if date_from > date_to:
+            date_from, date_to = date_to, date_from
 
         context.user_data['summary']['date_from'] = date_from.isoformat()
         context.user_data['summary']['date_to'] = date_to.isoformat()
@@ -3669,11 +3707,20 @@ async def summary_custom_period_entered(update: Update, context: ContextTypes.DE
         return await summary_show_result(update, context, is_message=True)
     except ValueError:
         await update.message.reply_text(
-            "❌ Неверный формат даты\\. Введите:\n"
-            "`ДД.ММ.ГГГГ - ДД.ММ.ГГГГ` или `ДД.ММ.ГГГГ`",
+            "❌ Неверный формат. Введите дату в формате:\n"
+            "`ДД.ММ.ГГГГ`",
             parse_mode='Markdown'
         )
-        return STATE_SUMMARY_PERIOD
+        return STATE_SUMMARY_DATE_TO
+
+
+async def summary_back_to_period_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Возврат к выбору периода (из экрана ввода кастомных дат).
+    """
+    query = update.callback_query
+    await query.answer()
+    return await summary_show_period(query, context)
 
 
 async def summary_back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -4023,7 +4070,12 @@ def main():
             STATE_SUMMARY_PERIOD: [
                 CallbackQueryHandler(summary_period_callback, pattern=r'^sum_per:'),
                 CallbackQueryHandler(summary_back_to_products, pattern=r'^sum_back_product$'),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, summary_custom_period_entered)
+                CallbackQueryHandler(summary_back_to_period_select, pattern=r'^sum_back_period_select$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, summary_custom_date_from_entered)
+            ],
+            STATE_SUMMARY_DATE_TO: [
+                CallbackQueryHandler(summary_back_to_period_select, pattern=r'^sum_back_period_select$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, summary_custom_date_to_entered)
             ],
             STATE_SUMMARY_RESULT: [
                 CallbackQueryHandler(summary_result_callback, pattern=r'^sum_back_'),
