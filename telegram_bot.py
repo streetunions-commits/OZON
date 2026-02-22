@@ -3238,6 +3238,37 @@ async def shipment_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # СВОДНЫЙ ОТЧЕТ — ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================================================
 
+def parse_date_input(text: str):
+    """
+    Парсит дату из пользовательского ввода.
+    Поддерживаемые форматы:
+      - ДДММГГ   (010226 → 01.02.2026)
+      - ДД.ММ.ГГ (01.02.26 → 01.02.2026)
+      - ДД.ММ.ГГГГ (01.02.2026)
+
+    Возвращает:
+        datetime.date или None если формат не распознан
+    """
+    text = text.strip()
+    # Формат ДДММГГ (6 цифр без разделителей)
+    if len(text) == 6 and text.isdigit():
+        try:
+            return datetime.strptime(text, '%d%m%y').date()
+        except ValueError:
+            return None
+    # Формат ДД.ММ.ГГ
+    if len(text) == 8 and text[2] == '.' and text[5] == '.':
+        try:
+            return datetime.strptime(text, '%d.%m.%y').date()
+        except ValueError:
+            return None
+    # Формат ДД.ММ.ГГГГ
+    try:
+        return datetime.strptime(text, '%d.%m.%Y').date()
+    except ValueError:
+        return None
+
+
 def format_summary_report(product: dict, prev: dict, date_from: str, date_to: str,
                           period_days: int, prev_date_from: str = '', prev_date_to: str = '') -> str:
     """
@@ -3616,9 +3647,9 @@ async def summary_period_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(
             "📊 *Сводный отчет*\n"
             f"Товар: *{offer_id}*\n\n"
-            "📅 Введите дату *ОТ* в формате:\n"
-            "`ДД.ММ.ГГГГ`\n\n"
-            "Например: `01.02.2026`",
+            "📅 Введите дату *ОТ*:\n"
+            "`ДДММГГ` или `ДД.ММ.ГГГГ`\n\n"
+            "Например: `010226` или `01.02.2026`",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -3642,38 +3673,37 @@ async def summary_custom_date_from_entered(update: Update, context: ContextTypes
     if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение', '📊 Сводный отчет']:
         return ConversationHandler.END
 
-    try:
-        date_from = datetime.strptime(text, '%d.%m.%Y').date()
-
-        today = datetime.now().date()
-        if date_from > today:
-            await update.message.reply_text(
-                "❌ Дата не может быть в будущем. Попробуйте снова:"
-            )
-            return STATE_SUMMARY_PERIOD
-
-        context.user_data['summary']['date_from'] = date_from.isoformat()
-
-        offer_id = escape_md(context.user_data['summary']['product_offer_id'])
-        keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="sum_back_period_select")]]
+    date_from = parse_date_input(text)
+    if not date_from:
         await update.message.reply_text(
-            "📊 *Сводный отчет*\n"
-            f"Товар: *{offer_id}*\n"
-            f"Дата от: *{date_from.strftime('%d.%m.%Y')}*\n\n"
-            "📅 Введите дату *ДО* в формате:\n"
-            "`ДД.ММ.ГГГГ`\n\n"
-            f"Например: `{today.strftime('%d.%m.%Y')}`",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return STATE_SUMMARY_DATE_TO
-    except ValueError:
-        await update.message.reply_text(
-            "❌ Неверный формат. Введите дату в формате:\n"
-            "`ДД.ММ.ГГГГ`",
+            "❌ Неверный формат. Введите дату:\n"
+            "`ДДММГГ` или `ДД.ММ.ГГГГ`",
             parse_mode='Markdown'
         )
         return STATE_SUMMARY_PERIOD
+
+    today = datetime.now().date()
+    if date_from > today:
+        await update.message.reply_text(
+            "❌ Дата не может быть в будущем. Попробуйте снова:"
+        )
+        return STATE_SUMMARY_PERIOD
+
+    context.user_data['summary']['date_from'] = date_from.isoformat()
+
+    offer_id = escape_md(context.user_data['summary']['product_offer_id'])
+    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="sum_back_period_select")]]
+    await update.message.reply_text(
+        "📊 *Сводный отчет*\n"
+        f"Товар: *{offer_id}*\n"
+        f"Дата от: *{date_from.strftime('%d.%m.%Y')}*\n\n"
+        "📅 Введите дату *ДО*:\n"
+        "`ДДММГГ` или `ДД.ММ.ГГГГ`\n\n"
+        f"Например: `{today.strftime('%d%m')[0:4]}{str(today.year)[2:]}` или `{today.strftime('%d.%m.%Y')}`",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return STATE_SUMMARY_DATE_TO
 
 
 async def summary_custom_date_to_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -3686,32 +3716,32 @@ async def summary_custom_date_to_entered(update: Update, context: ContextTypes.D
     if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение', '📊 Сводный отчет']:
         return ConversationHandler.END
 
-    try:
-        date_to = datetime.strptime(text, '%d.%m.%Y').date()
-        date_from = datetime.strptime(context.user_data['summary']['date_from'], '%Y-%m-%d').date()
-
-        today = datetime.now().date()
-        if date_to > today:
-            await update.message.reply_text(
-                "❌ Дата не может быть в будущем. Попробуйте снова:"
-            )
-            return STATE_SUMMARY_DATE_TO
-
-        # Если даты перепутаны — меняем местами
-        if date_from > date_to:
-            date_from, date_to = date_to, date_from
-
-        context.user_data['summary']['date_from'] = date_from.isoformat()
-        context.user_data['summary']['date_to'] = date_to.isoformat()
-
-        return await summary_show_result(update, context, is_message=True)
-    except ValueError:
+    date_to = parse_date_input(text)
+    if not date_to:
         await update.message.reply_text(
-            "❌ Неверный формат. Введите дату в формате:\n"
-            "`ДД.ММ.ГГГГ`",
+            "❌ Неверный формат. Введите дату:\n"
+            "`ДДММГГ` или `ДД.ММ.ГГГГ`",
             parse_mode='Markdown'
         )
         return STATE_SUMMARY_DATE_TO
+
+    date_from = datetime.strptime(context.user_data['summary']['date_from'], '%Y-%m-%d').date()
+
+    today = datetime.now().date()
+    if date_to > today:
+        await update.message.reply_text(
+            "❌ Дата не может быть в будущем. Попробуйте снова:"
+        )
+        return STATE_SUMMARY_DATE_TO
+
+    # Если даты перепутаны — меняем местами
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    context.user_data['summary']['date_from'] = date_from.isoformat()
+    context.user_data['summary']['date_to'] = date_to.isoformat()
+
+    return await summary_show_result(update, context, is_message=True)
 
 
 async def summary_back_to_period_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
