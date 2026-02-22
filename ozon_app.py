@@ -2984,9 +2984,12 @@ def load_product_prices(products_data=None):
                 # "Ваша цена" в ЛК (с учетом акций/бустинга) = marketing_seller_price
                 marketing_seller_price = price_obj.get("marketing_seller_price", 0)
 
-                # Цена на сайте (с Ozon картой) = минимальная цена из индекса
+                # Цена на сайте:
+                # 1) Если есть индекс цен — берём min_price из external_index_data (цена с Ozon картой)
+                # 2) Иначе — берём marketing_seller_price (покупатель видит ту же цену, что и в ЛК)
                 external_index = price_indexes.get("external_index_data", {})
-                website_price = external_index.get("min_price", 0)
+                ext_min_price = external_index.get("min_price", 0)
+                website_price = ext_min_price if ext_min_price and float(ext_min_price) > 0 else marketing_seller_price
 
                 # Индекс цены (color_index) — цветовой индекс цены
                 # Возможные значения: "SUPER", "GOOD", "AVG", "BAD", "WITHOUT_INDEX"
@@ -13961,16 +13964,18 @@ HTML_TEMPLATE = '''
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
-                const allComp = _realCompensations + _realBonuses;
-                const pComp = allComp * grossShare;
+                // НДС база: как в карточке — _realCompensations БЕЗ баллов
+                const pComp = _realCompensations * grossShare;
                 const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
                 let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
+                // УСН база: карточка делает + allComp - bonuses = + _realCompensations
+                // pComp = _realCompensations * grossShare (уже без баллов)
                 const pUsnBase = pNetGross
                     - pAdv - pLog - _realStorage * grossShare
                     - pCom - (_realOtherDeductions + _realPremiumDeductions) * grossShare - pCogs - _realOpex * grossShare
-                    - pNds + pComp - _realBonuses * grossShare;
+                    - pNds + pComp;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
             });
