@@ -14340,22 +14340,20 @@ HTML_TEMPLATE = '''
                     nds = ndsBase / (100 + ndsPercent) * ndsPercent;
                 }
 
-                // 5. УСН = Продажи до СПП − Реклама − Логистика − Хранение − Комиссия
+                // 5. УСН = Реализация − Реклама − Логистика − Хранение − Комиссия
                 //          − Иные удержания − Себестоимость − Расходы к вычету − НДС
-                //          + Компенсации − Баллы за отзывы
+                //          + Компенсации без баллов
                 const commission = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
-                const allCompensations = _realCompensations + _realBonuses; // все компенсации (включая баллы)
                 const usn = _realGrossSalesTotal
-                    - _realAdvertising
+                    - Math.abs(_realAdvertising)
                     - _realLogistics
-                    - _realStorage
+                    - Math.abs(_realStorage)
                     - commission
-                    - (_realOtherDeductions + _realPremiumDeductions)
+                    - (Math.abs(_realOtherDeductions) + Math.abs(_realPremiumDeductions))
                     - _realCogs
                     - _realOpex
                     - nds
-                    + allCompensations
-                    - _realBonuses;
+                    + _realCompensations;
 
                 // 6. Итого = НДС + УСН (если УСН > 0). УСН всегда 15%
                 const usnPercent = 15;
