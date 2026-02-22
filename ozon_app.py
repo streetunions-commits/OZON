@@ -14036,6 +14036,8 @@ HTML_TEMPLATE = '''
                 // Чистая прибыль per product (с компенсациями без баллов — как в карточке):
                 // Реализация − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение + Компенсации
                 const pStorage = Math.abs(_realStorage) * grossShare;
+                // Компенсация (без баллов) — пропорционально реализации товара
+                const pCompNoBonus = totalNetGross > 0 ? _realCompensations * (pNetGross / totalNetGross) : 0;
                 const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompNoBonus;
                 const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
 
@@ -14052,8 +14054,6 @@ HTML_TEMPLATE = '''
                 _s.sales += netQty;
                 _s.ret += (p.return_qty || 0);
                 _s.bonus += (p.bonus || 0);
-                // Компенсация (без баллов) — пропорционально реализации товара
-                const pCompNoBonus = totalNetGross > 0 ? _realCompensations * (pNetGross / totalNetGross) : 0;
                 _s.compNoBonus += pCompNoBonus;
                 // СПП% по товару = баллы за скидки / реализация (нетто) × 100
                 const pSppPct = pNetGross > 0 ? ((p.bonus || 0) / pNetGross * 100) : 0;
