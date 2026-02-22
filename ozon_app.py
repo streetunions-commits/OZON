@@ -13985,7 +13985,7 @@ HTML_TEMPLATE = '''
                 const pOtherDed = pPremiumPart + pOtherPart;
                 const pStorage = Math.abs(_realStorage) * ((totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0);
                 const pOpex = _realOpex * pQtyShare;
-                const pUsnBase = pNetGross - pAdv - pLog - pStorage - pCom - pOtherDed - pCogs - pOpex - pNds;
+                const pUsnBase = pNetGross + pCompNoBonus - pAdv - pLog - pStorage - pCom - pOtherDed - pCogs - pOpex - pNds;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
             });
