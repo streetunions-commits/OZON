@@ -14426,22 +14426,20 @@ HTML_TEMPLATE = '''
 
         /**
          * Обновить карточку «Чистая прибыль» (без операционных расходов).
-         * Формула: Продажи до СПП − Реклама − Налоги − Логистика − Комиссия
-         *          − Себестоимость − Иные удержания − Хранение + Компенсации − Баллы
+         * Формула: Реализация − Реклама − Налоги − Логистика − Комиссия
+         *          − Себестоимость − Иные удержания − Хранение + Компенсации без баллов
          */
         function _updateProfitCard() {
             const commission = Math.abs(_realCommissionBase) + Math.abs(_realAcquiring) + Math.abs(_realBuyoutCommission);
-            const allCompensations = _realCompensations + _realBonuses;
             const profit = _realGrossSalesTotal
-                - _realAdvertising
+                - Math.abs(_realAdvertising)
                 - _realTotalTax
                 - _realLogistics
                 - commission
                 - _realCogs
-                - (_realOtherDeductions + _realPremiumDeductions)
-                - _realStorage
-                + allCompensations
-                - _realBonuses;
+                - (Math.abs(_realOtherDeductions) + Math.abs(_realPremiumDeductions))
+                - Math.abs(_realStorage)
+                + _realCompensations;
 
             const card = document.getElementById('real-profit-card');
             if (!card) return;
