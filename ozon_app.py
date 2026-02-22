@@ -9611,6 +9611,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:left">Артикул</th>
                                         <th style="text-align:right">Цена<br>в ЛК</th>
                                         <th style="text-align:right">Реализация</th>
+                                        <th style="text-align:right">Продажи<br>после СПП</th>
                                         <th style="text-align:right">СПП /<br>соинвест</th>
                                         <th style="text-align:right">Реклама</th>
                                         <th style="text-align:right">Налоги</th>
@@ -13982,7 +13983,7 @@ HTML_TEMPLATE = '''
             // Per-SKU данные берутся точно из API (логистика, реклама, эквайринг)
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
-            let _s = {netGross:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
+            let _s = {netGross:0, salesAfterSpp:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
@@ -13999,6 +14000,8 @@ HTML_TEMPLATE = '''
 
                 // Нетто-реализация (gross − returns) — столбец «Реализация»
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
+                // Продажи после СПП = seller_receives + bank_coinvestment + pup_coinvestment (по данным товара)
+                const pSalesAfterSpp = (p.seller_receives || 0) + (p.bank_coinvestment || 0) + (p.pup_coinvestment || 0);
                 // Комиссия+эквайринг % = (комиссия+эквайринг ₽) / реализация (нетто) × 100
                 const pComPct = pNetGross > 0 ? (pCom / pNetGross * 100) : 0;
                 const pNetQty = (p.delivery_qty || 0) - (p.return_qty || 0);
@@ -14028,6 +14031,7 @@ HTML_TEMPLATE = '''
 
                 // Накапливаем суммы для итоговой строки
                 _s.netGross += pNetGross;
+                _s.salesAfterSpp += pSalesAfterSpp;
                 _s.adv += pAdv;
                 _s.tax += pTax;
                 _s.log += pLog;
@@ -14051,6 +14055,7 @@ HTML_TEMPLATE = '''
                     '<td style="white-space:nowrap; font-size:12px; color:#888;">' + escapeHtml(p.offer_id || p.sku) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pPrice) + '</td>' +
                     '<td class="real-amount-right">' + fmtRealMoney(pNetGross) + '</td>' +
+                    '<td class="real-amount-right" style="color:#2b6cb0;">' + fmtRealMoney(pSalesAfterSpp) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + pSppPct.toFixed(1) + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(pAdv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(pTax) + '</td>' +
@@ -14079,6 +14084,7 @@ HTML_TEMPLATE = '''
                     '<td style="font-size:12px;color:#555;">Итого / Среднее</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(avgPrice) + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_s.netGross) + '</td>' +
+                    '<td class="real-amount-right" style="color:#2b6cb0;">' + fmtRealMoney(_s.salesAfterSpp) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + sppPct + '%</td>' +
                     '<td class="real-amount-right" style="color:#c0392b;">' + fmtRealMoney(_s.adv) + '</td>' +
                     '<td class="real-amount-right" style="color:#8b5cf6;">' + fmtRealMoney(_s.tax) + '</td>' +
@@ -31818,6 +31824,7 @@ def _build_realization_from_transactions(year, month):
                 'standard_fee': 0.0,
                 'acquiring': 0.0,
                 'bank_coinvestment': 0.0,
+                'pup_coinvestment': 0.0,
                 'delivery_qty': 0,
                 'return_qty': 0,
                 'gross_sales': 0.0,
@@ -31839,6 +31846,7 @@ def _build_realization_from_transactions(year, month):
         p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
         p['acquiring'] += d_acquiring + r_acquiring
         p['bank_coinvestment'] += d_bank
+        p['pup_coinvestment'] += d_pup - r_pup
         if d_qty > 0:
             p['seller_price_sum'] += seller_price * d_qty
 
@@ -31870,7 +31878,9 @@ def _build_realization_from_transactions(year, month):
             'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2),
             'seller_receives': round(pdata['seller_receives'], 2),
-            'bonus': round(pdata['bonus'], 2)
+            'bonus': round(pdata['bonus'], 2),
+            'bank_coinvestment': round(pdata['bank_coinvestment'], 2),
+            'pup_coinvestment': round(pdata['pup_coinvestment'], 2),
         })
 
     return {
@@ -32051,7 +32061,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             products_map[product_key] = {
                 'name': name[:80] if name else 'Прочее', 'sku': sku, 'offer_id': offer_id,
                 'seller_price_sum': 0.0, 'standard_fee': 0.0, 'acquiring': 0.0,
-                'bank_coinvestment': 0.0, 'delivery_qty': 0, 'return_qty': 0,
+                'bank_coinvestment': 0.0, 'pup_coinvestment': 0.0, 'delivery_qty': 0, 'return_qty': 0,
                 'gross_sales': 0.0, 'return_gross': 0.0, 'returns': 0.0,
                 'total_deductions': 0.0, 'seller_receives': 0.0, 'bonus': 0.0
             }
@@ -32067,6 +32077,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
         p['acquiring'] += d_acquiring + r_acquiring
         p['bank_coinvestment'] += d_bank
+        p['pup_coinvestment'] += d_pup - r_pup
         if d_qty > 0:
             p['seller_price_sum'] += seller_price * d_qty
 
@@ -32095,7 +32106,9 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
             'gross_sales': round(pdata['gross_sales'], 2), 'return_gross': round(pdata['return_gross'], 2),
             'returns': round(pdata['returns'], 2),
             'commission': round(p_commission, 2), 'seller_receives': round(pdata['seller_receives'], 2),
-            'bonus': round(pdata['bonus'], 2)
+            'bonus': round(pdata['bonus'], 2),
+            'bank_coinvestment': round(pdata['bank_coinvestment'], 2),
+            'pup_coinvestment': round(pdata['pup_coinvestment'], 2),
         })
 
     return {
@@ -32474,6 +32487,7 @@ def api_finance_realization():
                     'standard_fee': 0.0,           # Комиссия МП по товару
                     'acquiring': 0.0,              # Эквайринг по товару
                     'bank_coinvestment': 0.0,      # Соинвест по товару
+                    'pup_coinvestment': 0.0,       # Софинансирование ПВЗ по товару
                     'delivery_qty': 0,
                     'return_qty': 0,
                     'gross_sales': 0.0,
@@ -32495,6 +32509,7 @@ def api_finance_realization():
             p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
             p['acquiring'] += d_acquiring + r_acquiring
             p['bank_coinvestment'] += d_bank
+            p['pup_coinvestment'] += d_pup - r_pup
             if d_qty > 0:
                 p['seller_price_sum'] += seller_price * d_qty
 
@@ -32531,7 +32546,9 @@ def api_finance_realization():
                 'returns': round(pdata['returns'], 2),
                 'commission': round(p_commission, 2),
                 'seller_receives': round(pdata['seller_receives'], 2),
-                'bonus': round(pdata['bonus'], 2)
+                'bonus': round(pdata['bonus'], 2),
+                'bank_coinvestment': round(pdata['bank_coinvestment'], 2),
+                'pup_coinvestment': round(pdata['pup_coinvestment'], 2),
             })
 
         # ── Формируем ответ ──
