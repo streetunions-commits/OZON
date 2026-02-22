@@ -5,7 +5,7 @@
 # Что делает: Создаёт задачу в Планировщике Windows, которая:
 #   - Запускает парсер рейтингов каждый день в 09:00
 #   - Если ПК был выключен в 09:00 — запустится при включении
-#   - Работает полностью автоматически
+#   - Работает полностью автоматически (без видимых окон)
 #
 # Как запустить: Открыть PowerShell от имени администратора и выполнить:
 #   powershell -ExecutionPolicy Bypass -File setup_scheduler.ps1
@@ -17,7 +17,7 @@
 $taskName = "OzonRatingsParser"
 $description = "Парсинг рейтингов товаров Ozon (09:00). Если ПК выключен - запустится при включении."
 $workingDir = "C:\Users\stree\Documents\GIT_OZON"
-$batFile = "C:\Users\stree\Documents\GIT_OZON\run_parser.bat"
+$vbsFile = "C:\Users\stree\Documents\GIT_OZON\run_parser_hidden.vbs"
 
 # --- Удаляем старую задачу, если есть ---
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -36,10 +36,10 @@ if ($oldTask) {
 # --- Триггер: каждый день в 09:00 ---
 $trigger = New-ScheduledTaskTrigger -Daily -At "09:00"
 
-# --- Действие: запустить bat-файл ---
+# --- Действие: запустить VBS-обёртку (без видимого окна консоли) ---
 $action = New-ScheduledTaskAction `
-    -Execute "cmd.exe" `
-    -Argument "/c `"$batFile`"" `
+    -Execute "wscript.exe" `
+    -Argument "`"$vbsFile`"" `
     -WorkingDirectory $workingDir
 
 # --- Настройки задачи ---

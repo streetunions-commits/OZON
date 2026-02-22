@@ -109,6 +109,8 @@ def ensure_chrome_running():
             f'--user-data-dir={CHROME_PROFILE_DIR}',
             '--no-first-run',
             '--no-default-browser-check',
+            '--start-minimized',
+            '--window-position=-32000,-32000',
             '--lang=ru-RU',
             'about:blank',
         ],

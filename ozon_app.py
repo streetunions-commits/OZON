@@ -9624,6 +9624,7 @@ HTML_TEMPLATE = '''
                                         <th style="text-align:right">Возвраты</th>
                                         <th style="text-align:right">Комиссия<br>+ эквайринг</th>
                                         <th style="text-align:right">Баллы<br>за скидки</th>
+                                        <th style="text-align:right">Компенсация<br>(без баллов)</th>
                                         <th style="text-align:right">Чистая<br>прибыль</th>
                                     </tr>
                                     <tr id="real-products-summary" style="display:none;"></tr>
@@ -13885,10 +13886,11 @@ HTML_TEMPLATE = '''
 
                         const existing = mergedProducts.find(p => (p.offer_id || p.sku) === bpKey);
                         if (existing) {
-                            // Добавляем кол-во, выручку и seller_receives СНГ к существующему товару
+                            // Добавляем кол-во и выручку СНГ к существующему товару
                             existing.delivery_qty = (existing.delivery_qty || 0) + bpQty;
                             existing.gross_sales = (existing.gross_sales || 0) + bpGross;
-                            existing.seller_receives = (existing.seller_receives || 0) + (bp.amount || 0);
+                            // Полная цена СНГ для расчёта «Продажи после СПП» (как в карточке)
+                            existing.buyout_seller_price = (existing.buyout_seller_price || 0) + bpGross;
                         } else {
                             // Товар продаётся только через СНГ — добавляем новую строку
                             mergedProducts.push({
@@ -13900,8 +13902,9 @@ HTML_TEMPLATE = '''
                                 return_qty: 0,
                                 gross_sales: bpGross,
                                 return_gross: 0,
-                                commission: 0, // Комиссия СНГ теперь через _realBuyoutComBySku
-                                seller_receives: bp.amount || 0
+                                commission: 0,
+                                seller_receives: 0,
+                                buyout_seller_price: bpGross  // Полная цена СНГ для «Продажи после СПП»
                             });
                         }
                     });
@@ -13953,6 +13956,8 @@ HTML_TEMPLATE = '''
             }
 
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
+            // Общая нетто-реализация для пропорционального распределения компенсаций
+            const totalNetGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0), 0);
             // Общее кол-во нетто-продаж для распределения расходов к вычету
             const totalNetQty = products.reduce((s, p) => s + Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0)), 0);
 
@@ -13983,7 +13988,7 @@ HTML_TEMPLATE = '''
             // Per-SKU данные берутся точно из API (логистика, реклама, эквайринг)
 
             // Аккумуляторы для итоговой строки — суммируем ровно то что показано в каждой строке
-            let _s = {netGross:0, salesAfterSpp:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
+            let _s = {netGross:0, salesAfterSpp:0, adv:0, tax:0, log:0, cogs:0, opex:0, otherDed:0, com:0, sales:0, ret:0, bonus:0, compNoBonus:0, profit:0, sppPctSum:0, sppPctCount:0, comPctSum:0, comPctCount:0};
 
             tbody.innerHTML = products.map((p, i) => {
                 const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
@@ -14000,8 +14005,9 @@ HTML_TEMPLATE = '''
 
                 // Нетто-реализация (gross − returns) — столбец «Реализация»
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
-                // Продажи после СПП = seller_receives + bank_coinvestment + pup_coinvestment (по данным товара)
-                const pSalesAfterSpp = (p.seller_receives || 0) + (p.bank_coinvestment || 0) + (p.pup_coinvestment || 0);
+                // Продажи после СПП = seller_receives + bank_coinvestment + pup_coinvestment + buyout по полной цене
+                // Формула как в карточке: sales_after_spp + buyout.seller_price_total
+                const pSalesAfterSpp = (p.seller_receives || 0) + (p.bank_coinvestment || 0) + (p.pup_coinvestment || 0) + (p.buyout_seller_price || 0);
                 // Комиссия+эквайринг % = (комиссия+эквайринг ₽) / реализация (нетто) × 100
                 const pComPct = pNetGross > 0 ? (pCom / pNetGross * 100) : 0;
                 const pNetQty = (p.delivery_qty || 0) - (p.return_qty || 0);
@@ -14042,6 +14048,9 @@ HTML_TEMPLATE = '''
                 _s.sales += netQty;
                 _s.ret += (p.return_qty || 0);
                 _s.bonus += (p.bonus || 0);
+                // Компенсация (без баллов) — пропорционально реализации товара
+                const pCompNoBonus = totalNetGross > 0 ? _realCompensations * (pNetGross / totalNetGross) : 0;
+                _s.compNoBonus += pCompNoBonus;
                 // СПП% по товару = баллы за скидки / реализация (нетто) × 100
                 const pSppPct = pNetGross > 0 ? ((p.bonus || 0) / pNetGross * 100) : 0;
                 _s.sppPctSum += pSppPct;
@@ -14068,6 +14077,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + (p.return_qty || 0) + '</td>' +
                     '<td class="real-amount-right ' + comCls + '">' + fmtRealMoney(pCom) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(p.bonus || 0) + '</td>' +
+                    '<td class="real-amount-right" style="color:#27ae60;">' + fmtRealMoney(pCompNoBonus) + '</td>' +
                     '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(pProfit) + '</td>' +
                 '</tr>';
             }).join('');
@@ -14097,6 +14107,7 @@ HTML_TEMPLATE = '''
                     '<td class="real-amount-right" style="color:#e53e3e;">' + _s.ret + '</td>' +
                     '<td class="real-amount-right" style="color:#555;">' + fmtRealMoney(_s.com) + '</td>' +
                     '<td class="real-amount-right" style="color:#d69e2e;">' + fmtRealMoney(_s.bonus) + '</td>' +
+                    '<td class="real-amount-right" style="color:#27ae60;">' + fmtRealMoney(_s.compNoBonus) + '</td>' +
                     '<td class="real-amount-right" style="' + profCls + 'font-weight:700;">' + fmtRealMoney(_s.profit) + '</td>';
                 summaryRow.style.display = '';
             }
@@ -31845,7 +31856,7 @@ def _build_realization_from_transactions(year, month):
         p['bonus'] += d_bonus - r_bonus  # Чистые баллы за скидки (аналогично bonuses_total)
         p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
         p['acquiring'] += d_acquiring + r_acquiring
-        p['bank_coinvestment'] += d_bank
+        p['bank_coinvestment'] += d_bank - r_bank  # Чистое соинвестирование: доставки минус возвраты
         p['pup_coinvestment'] += d_pup - r_pup
         if d_qty > 0:
             p['seller_price_sum'] += seller_price * d_qty
@@ -32076,7 +32087,7 @@ def _build_realization_from_date_range(date_from_str, date_to_str):
         p['bonus'] += d_bonus - r_bonus
         p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
         p['acquiring'] += d_acquiring + r_acquiring
-        p['bank_coinvestment'] += d_bank
+        p['bank_coinvestment'] += d_bank - r_bank  # Чистое соинвестирование: доставки минус возвраты
         p['pup_coinvestment'] += d_pup - r_pup
         if d_qty > 0:
             p['seller_price_sum'] += seller_price * d_qty
@@ -32508,7 +32519,7 @@ def api_finance_realization():
             p['bonus'] += d_bonus - r_bonus  # Чистые баллы за скидки (аналогично bonuses_total)
             p['standard_fee'] += d_std_fee - r_std_fee  # Чистая комиссия: доставки минус возвраты
             p['acquiring'] += d_acquiring + r_acquiring
-            p['bank_coinvestment'] += d_bank
+            p['bank_coinvestment'] += d_bank - r_bank  # Чистое соинвестирование: доставки минус возвраты
             p['pup_coinvestment'] += d_pup - r_pup
             if d_qty > 0:
                 p['seller_price_sum'] += seller_price * d_qty
