@@ -13884,9 +13884,10 @@ HTML_TEMPLATE = '''
 
                         const existing = mergedProducts.find(p => (p.offer_id || p.sku) === bpKey);
                         if (existing) {
-                            // Добавляем кол-во и выручку СНГ к существующему товару
+                            // Добавляем кол-во, выручку и seller_receives СНГ к существующему товару
                             existing.delivery_qty = (existing.delivery_qty || 0) + bpQty;
                             existing.gross_sales = (existing.gross_sales || 0) + bpGross;
+                            existing.seller_receives = (existing.seller_receives || 0) + (bp.amount || 0);
                         } else {
                             // Товар продаётся только через СНГ — добавляем новую строку
                             mergedProducts.push({
