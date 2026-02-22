@@ -14033,10 +14033,10 @@ HTML_TEMPLATE = '''
                 const pOtherPart = Math.abs(_realOtherDeductions) * qtyShare;
                 const pOtherDed = pPremiumPart + pOtherPart;
 
-                // Чистая прибыль per product (без компенсаций и баллов — они учитываются только в карточке):
-                // Реализация − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение
+                // Чистая прибыль per product (с компенсациями без баллов — как в карточке):
+                // Реализация − Реклама − Налоги − Логистика − Комиссия − Себестоимость − Иные удержания − Хранение + Компенсации
                 const pStorage = Math.abs(_realStorage) * grossShare;
-                const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage;
+                const pProfit = pNetGross - pAdv - pTax - pLog - pCom - pCogs - pOtherDed - pStorage + pCompNoBonus;
                 const profCls = pProfit >= 0 ? 'color:#27ae60;' : 'color:#e53e3e;';
 
                 // Накапливаем суммы для итоговой строки
