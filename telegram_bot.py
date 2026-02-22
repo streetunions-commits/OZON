@@ -112,6 +112,11 @@ STATE_SHIPMENT_COMMENT = 400       # Ввод комментария к отпр
 STATE_SHIPMENT_FILE = 401          # Прикрепление файла (опционально)
 STATE_SHIPMENT_CONFIRM = 402       # Подтверждение создания отправки
 
+# Состояния для сводного отчёта (500-502)
+STATE_SUMMARY_PRODUCT = 500        # Выбор товара из списка (с пагинацией)
+STATE_SUMMARY_PERIOD = 501         # Выбор периода/дат
+STATE_SUMMARY_RESULT = 502         # Отображение результата
+
 # Количество контейнеров на странице в списке выбора
 MSG_PAGE_SIZE = 6
 
@@ -373,6 +378,32 @@ def create_shipment(chat_id: int, comment: str, sender_name: str,
         return {'success': False, 'error': str(e)}
 
 
+def get_summary_data(date_from: str, date_to: str) -> dict:
+    """
+    Получить сводные данные по товарам с сервера.
+
+    Аргументы:
+        date_from: Начало периода (YYYY-MM-DD)
+        date_to: Конец периода (YYYY-MM-DD)
+
+    Возвращает:
+        dict с ключами: success, products, prev_products, period_days, date_from, date_to, ...
+    """
+    try:
+        response = requests.get(
+            f'{API_BASE_URL}/api/summary',
+            params={
+                'date_from': date_from,
+                'date_to': date_to
+            },
+            timeout=15
+        )
+        return response.json()
+    except Exception as e:
+        logger.error(f"Ошибка получения сводки: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 def send_reply_to_server(chat_id: int, message: str, reply_to_message_id: int, sender_name: str) -> dict:
     """
     Отправить ответ пользователя на сервер.
@@ -465,6 +496,7 @@ def get_main_menu():
         ["📦 Новый приход"],
         ["🚚 Отправка товара"],
         ["💰 Финансы"],
+        ["📊 Сводный отчет"],
         ["✉️ Сообщение"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -3202,6 +3234,564 @@ async def shipment_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 # ============================================================================
+# СВОДНЫЙ ОТЧЕТ — ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ============================================================================
+
+def format_summary_report(product: dict, prev: dict, date_from: str, date_to: str,
+                          period_days: int, prev_date_from: str = '', prev_date_to: str = '') -> str:
+    """
+    Форматирует сводный отчёт по одному товару для Telegram (Markdown v1).
+
+    Аргументы:
+        product: Данные товара за выбранный период
+        prev: Данные товара за предыдущий период (может быть None)
+        date_from, date_to: Строки дат выбранного периода (YYYY-MM-DD)
+        period_days: Длина периода в днях
+        prev_date_from, prev_date_to: Строки дат предыдущего периода
+    """
+    offer_id = escape_md(str(product.get('offer_id', product.get('sku', '—'))))
+    name = escape_md(str(product.get('name', '')))
+    # Обрезаем название если слишком длинное
+    if len(name) > 50:
+        name = name[:47] + '...'
+
+    d_from = datetime.strptime(date_from, '%Y-%m-%d')
+    d_to = datetime.strptime(date_to, '%Y-%m-%d')
+
+    if date_from == date_to:
+        period_str = d_from.strftime('%d.%m.%Y')
+    else:
+        period_str = f"{d_from.strftime('%d.%m')} — {d_to.strftime('%d.%m.%Y')} ({period_days} дн.)"
+
+    # Строка предыдущего периода
+    prev_str = ''
+    if prev_date_from and prev_date_to:
+        pf = datetime.strptime(prev_date_from, '%Y-%m-%d')
+        pt = datetime.strptime(prev_date_to, '%Y-%m-%d')
+        if prev_date_from == prev_date_to:
+            prev_str = pf.strftime('%d.%m.%Y')
+        else:
+            prev_str = f"{pf.strftime('%d.%m')} — {pt.strftime('%d.%m.%Y')}"
+
+    # Извлекаем значения
+    fbo = product.get('fbo_stock') or 0
+    orders = product.get('orders_qty') or 0
+    price_idx = product.get('price_index') or '—'
+    price = product.get('price') or 0
+    mkt_price = product.get('marketing_price') or 0
+    avg_pos = product.get('avg_position') or 0
+    shows = product.get('hits_view_search') or 0
+    visits = product.get('hits_view_search_pdp') or 0
+    ctr = product.get('search_ctr') or 0
+    cart = product.get('hits_add_to_cart') or 0
+    cr1_val = product.get('cr1') or 0
+    cr2_val = product.get('cr2') or 0
+    adv = product.get('adv_spend') or 0
+
+    # Вычисляемые метрики
+    coinvest = ((price - mkt_price) / price * 100) if price > 0 else 0
+    cpo = (adv / orders) if orders > 0 else 0
+    drr = (adv / (orders * mkt_price) * 100) if (orders > 0 and mkt_price > 0) else 0
+
+    # Вспомогательная функция для разницы
+    def diff(cur, prv, less_better=False, pct=False):
+        """Возвращает строку с изменением: ↑12 или ↓3.5%"""
+        if prv is None or cur is None:
+            return ''
+        d = cur - prv
+        if abs(d) < 0.01:
+            return '  ='
+        arrow = '↑' if d > 0 else '↓'
+        is_good = (d < 0) if less_better else (d > 0)
+        mark = '' if is_good else '⚠'
+        ad = abs(d)
+        if pct:
+            return f'  {arrow}{ad:.1f}%{mark}'
+        elif ad >= 10000:
+            return f'  {arrow}{ad/1000:.1f}K{mark}'
+        elif ad == int(ad):
+            return f'  {arrow}{format_amount(int(ad))}{mark}'
+        else:
+            return f'  {arrow}{ad:.1f}{mark}'
+
+    lines = [
+        f"📊 *СВОДНЫЙ ОТЧЕТ*",
+        f"────────────────────────",
+        f"📦 *{offer_id}*",
+        f"_{name}_",
+        f"📅 {period_str}",
+    ]
+
+    if prev_str:
+        lines.append(f"🔄 Сравн.: {prev_str}")
+
+    lines.append('')
+    lines.append('*Основные показатели:*')
+    lines.append(f"🏷 Инд. цен: *{escape_md(str(price_idx))}*")
+    lines.append(f"📦 FBO остаток: *{format_amount(round(fbo))}*")
+    lines.append(f"🛒 Заказы: *{format_amount(round(orders))}*")
+
+    lines.append('')
+    lines.append('*Цены:*')
+    lines.append(f"💵 Цена в ЛК: *{format_amount(round(price))} ₽*")
+    lines.append(f"📊 Соинвест: *{coinvest:.1f}%*")
+    lines.append(f"🏪 Цена на сайте: *{format_amount(round(mkt_price))} ₽*")
+
+    lines.append('')
+    lines.append('*Поиск и трафик:*')
+    lines.append(f"📍 Ср. позиция: *{avg_pos:.1f}*")
+    lines.append(f"👁 Показы: *{format_amount(round(shows))}*")
+    lines.append(f"👤 Посещения: *{format_amount(round(visits))}*")
+    lines.append(f"📈 CTR: *{ctr:.1f}%*")
+
+    lines.append('')
+    lines.append('*Конверсии:*')
+    lines.append(f"🛒 Корзина: *{format_amount(round(cart))}*")
+    lines.append(f"📊 CR1: *{cr1_val:.1f}%*")
+    lines.append(f"📊 CR2: *{cr2_val:.1f}%*")
+
+    lines.append('')
+    lines.append('*Реклама:*')
+    lines.append(f"💸 Расходы: *{format_amount(round(adv))} ₽*")
+    lines.append(f"💰 CPO: *{format_amount(round(cpo))} ₽*")
+    lines.append(f"📉 ДРР: *{drr:.1f}%*")
+
+    # Блок изменений
+    if prev:
+        p_fbo = prev.get('fbo_stock') or 0
+        p_orders = prev.get('orders_qty') or 0
+        p_price = prev.get('price') or 0
+        p_mkt = prev.get('marketing_price') or 0
+        p_pos = prev.get('avg_position') or 0
+        p_shows = prev.get('hits_view_search') or 0
+        p_visits = prev.get('hits_view_search_pdp') or 0
+        p_ctr = prev.get('search_ctr') or 0
+        p_cart = prev.get('hits_add_to_cart') or 0
+        p_cr1 = prev.get('cr1') or 0
+        p_cr2 = prev.get('cr2') or 0
+        p_adv = prev.get('adv_spend') or 0
+        p_coinvest = ((p_price - p_mkt) / p_price * 100) if p_price > 0 else 0
+        p_cpo = (p_adv / p_orders) if p_orders > 0 else 0
+        p_drr = (p_adv / (p_orders * p_mkt) * 100) if (p_orders > 0 and p_mkt > 0) else 0
+
+        lines.append('')
+        lines.append('────────────────────────')
+        lines.append('*Изменения vs пред. период:*')
+        lines.append(f"Остаток:{diff(fbo, p_fbo)}  Заказы:{diff(orders, p_orders)}")
+        lines.append(f"Цена ЛК:{diff(price, p_price, less_better=True)}  На сайте:{diff(mkt_price, p_mkt, less_better=True)}")
+        lines.append(f"Соинв:{diff(coinvest, p_coinvest, pct=True)}  Поз:{diff(avg_pos, p_pos, less_better=True)}")
+        lines.append(f"Показы:{diff(shows, p_shows)}  Посещ:{diff(visits, p_visits)}")
+        lines.append(f"CTR:{diff(ctr, p_ctr, pct=True)}  Корз:{diff(cart, p_cart)}")
+        lines.append(f"CR1:{diff(cr1_val, p_cr1, pct=True)}  CR2:{diff(cr2_val, p_cr2, pct=True)}")
+        lines.append(f"Расх:{diff(adv, p_adv, less_better=True)}  CPO:{diff(cpo, p_cpo, less_better=True)}")
+        lines.append(f"ДРР:{diff(drr, p_drr, less_better=True, pct=True)}")
+
+    return '\n'.join(lines)
+
+
+# ============================================================================
+# СВОДНЫЙ ОТЧЕТ — ОБРАБОТЧИКИ ДИАЛОГА
+# ============================================================================
+
+async def summary_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Начало диалога "Сводный отчет".
+    Показывает список товаров для выбора (с пагинацией).
+    """
+    chat_id = update.effective_chat.id
+    if not is_authorized(chat_id):
+        await update.message.reply_text("⛔ У вас нет доступа к этому боту.")
+        return ConversationHandler.END
+
+    # Инициализируем данные сводки
+    context.user_data['summary'] = {
+        'sku': None,
+        'product_name': None,
+        'product_offer_id': None,
+        'date_from': None,
+        'date_to': None,
+    }
+
+    return await summary_show_products(update, context, is_message=True, page=0)
+
+
+async def summary_show_products(update_or_query, context: ContextTypes.DEFAULT_TYPE,
+                                is_message: bool = False, page: int = 0) -> int:
+    """
+    Показать список товаров для выбора в сводном отчете (с пагинацией).
+    """
+    PAGE_SIZE = 8
+
+    products = get_products()
+    if not products:
+        text = "❌ Не удалось загрузить список товаров.\nПопробуйте позже."
+        if is_message:
+            await update_or_query.message.reply_text(text, reply_markup=get_main_menu())
+        else:
+            await update_or_query.edit_message_text(text)
+        return ConversationHandler.END
+
+    context.user_data['summary_products'] = products
+    context.user_data['summary_page'] = page
+
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_products = products[start:end]
+
+    keyboard = []
+    for product in page_products:
+        offer_id = product['offer_id'][:40] + '...' if len(product['offer_id']) > 40 else product['offer_id']
+        keyboard.append([
+            InlineKeyboardButton(offer_id, callback_data=f"sum_prod:{product['sku']}")
+        ])
+
+    # Кнопки навигации
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"sum_page:{page - 1}"))
+    if end < len(products):
+        remaining = len(products) - end
+        nav_buttons.append(InlineKeyboardButton(f"➡️ Ещё {remaining}", callback_data=f"sum_page:{page + 1}"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # Кнопка поиска
+    keyboard.append([
+        InlineKeyboardButton("🔍 Поиск по названию/SKU", callback_data="sum_prod:search")
+    ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    total_pages = (len(products) + PAGE_SIZE - 1) // PAGE_SIZE
+    page_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+
+    text = f"📊 *Сводный отчет*\n\nВыберите товар{page_info}:"
+
+    if is_message:
+        await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+
+    return STATE_SUMMARY_PRODUCT
+
+
+async def summary_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Пагинация списка товаров в сводном отчете.
+    """
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split(':')[1])
+    return await summary_show_products(query, context, is_message=False, page=page)
+
+
+async def summary_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора товара для сводного отчета.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data.split(':')[1]
+
+    if data == 'search':
+        await query.edit_message_text(
+            "📊 *Сводный отчет*\n\n"
+            "🔍 Введите название товара или SKU для поиска:",
+            parse_mode='Markdown'
+        )
+        return STATE_SUMMARY_PRODUCT
+
+    # Сохраняем выбранный SKU
+    sku = int(data)
+    products = context.user_data.get('summary_products', get_products())
+    selected = next((p for p in products if p['sku'] == sku), None)
+
+    if not selected:
+        await query.edit_message_text("❌ Товар не найден. Попробуйте ещё раз.")
+        return await summary_show_products(query, context, is_message=False, page=0)
+
+    context.user_data['summary']['sku'] = sku
+    context.user_data['summary']['product_name'] = selected.get('name', str(sku))
+    context.user_data['summary']['product_offer_id'] = selected.get('offer_id', str(sku))
+
+    return await summary_show_period(query, context)
+
+
+async def summary_product_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Текстовый поиск товара для сводного отчета.
+    """
+    search_text = update.message.text.strip()
+
+    # Если пользователь нажал другую кнопку меню — прерываем
+    if search_text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение']:
+        return ConversationHandler.END
+
+    products = get_products(search=search_text)
+
+    if not products:
+        await update.message.reply_text(
+            f"🔍 По запросу «{escape_md(search_text)}» ничего не найдено.\n"
+            "Попробуйте другой запрос:",
+            parse_mode='Markdown'
+        )
+        return STATE_SUMMARY_PRODUCT
+
+    context.user_data['summary_products'] = products
+    return await summary_show_products(update, context, is_message=True, page=0)
+
+
+async def summary_show_period(update_or_query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Показ выбора периода для сводного отчета.
+    """
+    offer_id = escape_md(context.user_data['summary']['product_offer_id'])
+    today = datetime.now()
+    yesterday = today - timedelta(days=1)
+
+    keyboard = [
+        [
+            InlineKeyboardButton(f"Сегодня ({today.strftime('%d.%m')})", callback_data="sum_per:today"),
+            InlineKeyboardButton(f"Вчера ({yesterday.strftime('%d.%m')})", callback_data="sum_per:yesterday")
+        ],
+        [
+            InlineKeyboardButton("7 дней", callback_data="sum_per:week"),
+            InlineKeyboardButton("14 дней", callback_data="sum_per:14days"),
+            InlineKeyboardButton("30 дней", callback_data="sum_per:month")
+        ],
+        [
+            InlineKeyboardButton("📅 Указать период", callback_data="sum_per:custom")
+        ],
+        [
+            InlineKeyboardButton("⬅️ Назад к товарам", callback_data="sum_back_product")
+        ]
+    ]
+
+    text = (
+        f"📊 *Сводный отчет*\n"
+        f"Товар: *{offer_id}*\n\n"
+        f"📅 Выберите период:"
+    )
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if hasattr(update_or_query, 'edit_message_text'):
+        await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+    else:
+        await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+
+    return STATE_SUMMARY_PERIOD
+
+
+async def summary_period_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка выбора периода для сводного отчета.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    period = query.data.split(':')[1]
+    today = datetime.now().date()
+
+    if period == 'today':
+        date_from = today.isoformat()
+        date_to = today.isoformat()
+    elif period == 'yesterday':
+        yesterday = today - timedelta(days=1)
+        date_from = yesterday.isoformat()
+        date_to = yesterday.isoformat()
+    elif period == 'week':
+        date_from = (today - timedelta(days=6)).isoformat()
+        date_to = today.isoformat()
+    elif period == '14days':
+        date_from = (today - timedelta(days=13)).isoformat()
+        date_to = today.isoformat()
+    elif period == 'month':
+        date_from = (today - timedelta(days=29)).isoformat()
+        date_to = today.isoformat()
+    elif period == 'custom':
+        await query.edit_message_text(
+            "📊 *Сводный отчет*\n\n"
+            "📅 Введите период в формате:\n"
+            "`ДД.ММ.ГГГГ - ДД.ММ.ГГГГ`\n\n"
+            "Например: `01.02.2026 - 15.02.2026`\n"
+            "Или одну дату: `10.02.2026`",
+            parse_mode='Markdown'
+        )
+        return STATE_SUMMARY_PERIOD
+    else:
+        return STATE_SUMMARY_PERIOD
+
+    context.user_data['summary']['date_from'] = date_from
+    context.user_data['summary']['date_to'] = date_to
+
+    return await summary_show_result(query, context)
+
+
+async def summary_custom_period_entered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка ручного ввода периода для сводного отчета.
+    Форматы: "ДД.ММ.ГГГГ - ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ"
+    """
+    text = update.message.text.strip()
+
+    # Если пользователь нажал другую кнопку меню
+    if text in ['📦 Новый приход', '🚚 Отправка товара', '💰 Финансы', '✉️ Сообщение']:
+        return ConversationHandler.END
+
+    try:
+        if ' - ' in text:
+            parts = text.split(' - ')
+            date_from = datetime.strptime(parts[0].strip(), '%d.%m.%Y').date()
+            date_to = datetime.strptime(parts[1].strip(), '%d.%m.%Y').date()
+        elif '-' in text and len(text) > 10:
+            parts = text.split('-', 1)
+            date_from = datetime.strptime(parts[0].strip(), '%d.%m.%Y').date()
+            date_to = datetime.strptime(parts[1].strip(), '%d.%m.%Y').date()
+        else:
+            date_from = datetime.strptime(text, '%d.%m.%Y').date()
+            date_to = date_from
+
+        if date_from > date_to:
+            date_from, date_to = date_to, date_from
+
+        today = datetime.now().date()
+        if date_from > today:
+            await update.message.reply_text(
+                "❌ Дата не может быть в будущем. Попробуйте снова:",
+                parse_mode='Markdown'
+            )
+            return STATE_SUMMARY_PERIOD
+
+        context.user_data['summary']['date_from'] = date_from.isoformat()
+        context.user_data['summary']['date_to'] = date_to.isoformat()
+
+        return await summary_show_result(update, context, is_message=True)
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Неверный формат даты\\. Введите:\n"
+            "`ДД.ММ.ГГГГ - ДД.ММ.ГГГГ` или `ДД.ММ.ГГГГ`",
+            parse_mode='Markdown'
+        )
+        return STATE_SUMMARY_PERIOD
+
+
+async def summary_back_to_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Навигация "назад" к списку товаров из экрана выбора периода или результата.
+    """
+    query = update.callback_query
+    await query.answer()
+    page = context.user_data.get('summary_page', 0)
+    return await summary_show_products(query, context, is_message=False, page=page)
+
+
+async def summary_show_result(update_or_query, context: ContextTypes.DEFAULT_TYPE,
+                              is_message: bool = False) -> int:
+    """
+    Загрузка данных и отображение сводного отчета.
+    """
+    summary = context.user_data['summary']
+    sku = summary['sku']
+    date_from = summary['date_from']
+    date_to = summary['date_to']
+
+    # Показываем индикатор загрузки
+    loading_text = "⏳ Загружаю данные..."
+    if is_message:
+        msg = await update_or_query.message.reply_text(loading_text)
+    else:
+        await update_or_query.edit_message_text(loading_text)
+
+    # Получаем данные с сервера
+    data = get_summary_data(date_from, date_to)
+
+    if not data.get('success'):
+        error_text = "❌ Не удалось загрузить данные. Попробуйте позже."
+        keyboard = [[InlineKeyboardButton("⬅️ Назад к периоду", callback_data="sum_back_period")]]
+        if is_message:
+            await msg.edit_text(error_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update_or_query.edit_message_text(error_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return STATE_SUMMARY_RESULT
+
+    # Ищем наш товар в данных
+    product = next((p for p in data.get('products', []) if p.get('sku') == sku), None)
+
+    if not product:
+        no_data_text = "📊 Нет данных по этому товару за выбранный период."
+        keyboard = [
+            [
+                InlineKeyboardButton("⬅️ Другой период", callback_data="sum_back_period"),
+                InlineKeyboardButton("🔄 Другой товар", callback_data="sum_back_product")
+            ]
+        ]
+        if is_message:
+            await msg.edit_text(no_data_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update_or_query.edit_message_text(no_data_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return STATE_SUMMARY_RESULT
+
+    # Ищем данные предыдущего периода
+    prev_products = data.get('prev_products', {})
+    prev = prev_products.get(str(sku)) or prev_products.get(sku)
+
+    # Форматируем отчёт
+    report = format_summary_report(
+        product, prev, date_from, date_to,
+        data.get('period_days', 1),
+        data.get('prev_date_from', ''),
+        data.get('prev_date_to', '')
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("⬅️ Другой период", callback_data="sum_back_period"),
+            InlineKeyboardButton("🔄 Другой товар", callback_data="sum_back_product")
+        ]
+    ]
+
+    if is_message:
+        await msg.edit_text(report, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update_or_query.edit_message_text(report, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+    return STATE_SUMMARY_RESULT
+
+
+async def summary_result_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Обработка навигации на экране результата сводного отчета.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == 'sum_back_period':
+        return await summary_show_period(query, context)
+    elif data == 'sum_back_product':
+        page = context.user_data.get('summary_page', 0)
+        return await summary_show_products(query, context, is_message=False, page=page)
+
+    return STATE_SUMMARY_RESULT
+
+
+async def summary_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Отмена сводного отчета через /cancel.
+    """
+    context.user_data.pop('summary', None)
+    context.user_data.pop('summary_products', None)
+    context.user_data.pop('summary_page', None)
+    await update.message.reply_text(
+        "❌ Сводный отчет отменен.",
+        reply_markup=get_main_menu()
+    )
+    return ConversationHandler.END
+
+
+# ============================================================================
 # ЗАПУСК БОТА
 # ============================================================================
 
@@ -3419,12 +4009,41 @@ def main():
         ]
     )
 
+    # Обработчик сводного отчета
+    summary_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex(r'^📊 Сводный отчет$'), summary_start)
+        ],
+        states={
+            STATE_SUMMARY_PRODUCT: [
+                CallbackQueryHandler(summary_page_callback, pattern=r'^sum_page:\d+$'),
+                CallbackQueryHandler(summary_product_callback, pattern=r'^sum_prod:'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, summary_product_search)
+            ],
+            STATE_SUMMARY_PERIOD: [
+                CallbackQueryHandler(summary_period_callback, pattern=r'^sum_per:'),
+                CallbackQueryHandler(summary_back_to_products, pattern=r'^sum_back_product$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, summary_custom_period_entered)
+            ],
+            STATE_SUMMARY_RESULT: [
+                CallbackQueryHandler(summary_result_callback, pattern=r'^sum_back_'),
+            ]
+        },
+        fallbacks=[
+            CommandHandler('cancel', summary_cancel),
+            CommandHandler('stop', summary_cancel),
+            # Позволяем перезапустить флоу
+            MessageHandler(filters.Regex(r'^📊 Сводный отчет$'), summary_start),
+        ]
+    )
+
     # Регистрируем обработчики
     application.add_handler(CommandHandler('start', start))
     application.add_handler(reply_conversation_handler)  # Должен быть до receipt_handler
     application.add_handler(container_reply_handler)  # Обработчик ответов на контейнеры
     application.add_handler(send_message_handler)  # Отправка сообщений в контейнер
     application.add_handler(shipment_handler)  # Создание отправки (контейнера)
+    application.add_handler(summary_handler)  # Сводный отчет
     application.add_handler(finance_handler)  # Финансы: доход/расход
     application.add_handler(receipt_handler)
 
