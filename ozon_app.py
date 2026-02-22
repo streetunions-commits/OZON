@@ -13965,9 +13965,8 @@ HTML_TEMPLATE = '''
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
-                const pSellerRcv = Math.abs(p.seller_receives || 0);
-                // НДС база = выручка продавца по товару (seller_receives)
-                let pNds = (_realNdsPercent > 0) ? pSellerRcv / (100 + _realNdsPercent) * _realNdsPercent : 0;
+                // НДС база = реализация по акту с мех. лояльности + продажи СНГ − возвраты = pNetGross
+                let pNds = (_realNdsPercent > 0) ? pNetGross / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 // УСН база: реализация − все расходы по товару − НДС
                 const pNetQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
                 const pQtyShare = totalNetQty > 0 ? pNetQty / totalNetQty : 0;
@@ -14313,8 +14312,8 @@ HTML_TEMPLATE = '''
                 const ndsPercent = yearlyTurnover < row1Amt ? row1Pct : row2Pct;
                 _realNdsPercent = ndsPercent;
 
-                // 4. НДС = (Продажи после СПП + Компенсации без баллов) / (100 + НДС%) × НДС%
-                const ndsBase = _realSalesAfterSpp + _realCompensations;
+                // 4. НДС = Реализация по акту с мех. лояльности + СНГ − возвраты = _realGrossSalesTotal
+                const ndsBase = _realGrossSalesTotal;
                 let nds = 0;
                 if (ndsPercent > 0) {
                     nds = ndsBase / (100 + ndsPercent) * ndsPercent;
