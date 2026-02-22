@@ -3269,10 +3269,30 @@ def parse_date_input(text: str):
         return None
 
 
+def get_price_index_label(price_index: str) -> str:
+    """
+    Переводит код индекса цен в понятное русское название.
+    """
+    labels = {
+        'SUPER': 'Супер',
+        'GREEN': 'Выгодная',
+        'GOOD': 'Хорошая',
+        'PROFIT': 'Выгодная',
+        'AVG_PROFIT': 'Средняя',
+        'YELLOW': 'Умеренная',
+        'AVG': 'Средняя',
+        'RED': 'Невыгодная',
+        'BAD': 'Плохая',
+        'WITHOUT_INDEX': 'Без индекса',
+    }
+    return labels.get(str(price_index), str(price_index))
+
+
 def format_summary_report(product: dict, prev: dict, date_from: str, date_to: str,
                           period_days: int, prev_date_from: str = '', prev_date_to: str = '') -> str:
     """
     Форматирует сводный отчёт по одному товару для Telegram (Markdown v1).
+    Разница с предыдущим периодом отображается под каждым показателем.
 
     Аргументы:
         product: Данные товара за выбранный период
@@ -3283,7 +3303,6 @@ def format_summary_report(product: dict, prev: dict, date_from: str, date_to: st
     """
     offer_id = escape_md(str(product.get('offer_id', product.get('sku', '—'))))
     name = escape_md(str(product.get('name', '')))
-    # Обрезаем название если слишком длинное
     if len(name) > 50:
         name = name[:47] + '...'
 
@@ -3295,7 +3314,6 @@ def format_summary_report(product: dict, prev: dict, date_from: str, date_to: st
     else:
         period_str = f"{d_from.strftime('%d.%m')} — {d_to.strftime('%d.%m.%Y')} ({period_days} дн.)"
 
-    # Строка предыдущего периода
     prev_str = ''
     if prev_date_from and prev_date_to:
         pf = datetime.strptime(prev_date_from, '%Y-%m-%d')
@@ -3325,71 +3343,12 @@ def format_summary_report(product: dict, prev: dict, date_from: str, date_to: st
     cpo = (adv / orders) if orders > 0 else 0
     drr = (adv / (orders * mkt_price) * 100) if (orders > 0 and mkt_price > 0) else 0
 
-    # Вспомогательная функция для разницы
-    def diff(cur, prv, less_better=False, pct=False):
-        """Возвращает строку с изменением: ↑12 или ↓3.5%"""
-        if prv is None or cur is None:
-            return ''
-        d = cur - prv
-        if abs(d) < 0.01:
-            return '  ='
-        arrow = '↑' if d > 0 else '↓'
-        is_good = (d < 0) if less_better else (d > 0)
-        mark = '' if is_good else '⚠'
-        ad = abs(d)
-        if pct:
-            return f'  {arrow}{ad:.1f}%{mark}'
-        elif ad >= 10000:
-            return f'  {arrow}{ad/1000:.1f}K{mark}'
-        elif ad == int(ad):
-            return f'  {arrow}{format_amount(int(ad))}{mark}'
-        else:
-            return f'  {arrow}{ad:.1f}{mark}'
-
-    lines = [
-        f"📊 *СВОДНЫЙ ОТЧЕТ*",
-        f"────────────────────────",
-        f"📦 *{offer_id}*",
-        f"_{name}_",
-        f"📅 {period_str}",
-    ]
-
-    if prev_str:
-        lines.append(f"🔄 Сравн.: {prev_str}")
-
-    lines.append('')
-    lines.append('*Основные показатели:*')
-    lines.append(f"🏷 Инд. цен: *{escape_md(str(price_idx))}*")
-    lines.append(f"📦 FBO остаток: *{format_amount(round(fbo))}*")
-    lines.append(f"🛒 Заказы: *{format_amount(round(orders))}*")
-
-    lines.append('')
-    lines.append('*Цены:*')
-    lines.append(f"💵 Цена в ЛК: *{format_amount(round(price))} ₽*")
-    lines.append(f"📊 Соинвест: *{coinvest:.1f}%*")
-    lines.append(f"🏪 Цена на сайте: *{format_amount(round(mkt_price))} ₽*")
-
-    lines.append('')
-    lines.append('*Поиск и трафик:*')
-    lines.append(f"📍 Ср. позиция: *{avg_pos:.1f}*")
-    lines.append(f"👁 Показы: *{format_amount(round(shows))}*")
-    lines.append(f"👤 Посещения: *{format_amount(round(visits))}*")
-    lines.append(f"📈 CTR: *{ctr:.1f}%*")
-
-    lines.append('')
-    lines.append('*Конверсии:*')
-    lines.append(f"🛒 Корзина: *{format_amount(round(cart))}*")
-    lines.append(f"📊 CR1: *{cr1_val:.1f}%*")
-    lines.append(f"📊 CR2: *{cr2_val:.1f}%*")
-
-    lines.append('')
-    lines.append('*Реклама:*')
-    lines.append(f"💸 Расходы: *{format_amount(round(adv))} ₽*")
-    lines.append(f"💰 CPO: *{format_amount(round(cpo))} ₽*")
-    lines.append(f"📉 ДРР: *{drr:.1f}%*")
-
-    # Блок изменений
-    if prev:
+    # Данные предыдущего периода
+    p_fbo = p_orders = p_price = p_mkt = p_pos = 0
+    p_shows = p_visits = p_ctr = p_cart = p_cr1 = p_cr2 = p_adv = 0
+    p_coinvest = p_cpo = p_drr = 0
+    has_prev = prev is not None
+    if has_prev:
         p_fbo = prev.get('fbo_stock') or 0
         p_orders = prev.get('orders_qty') or 0
         p_price = prev.get('price') or 0
@@ -3406,17 +3365,92 @@ def format_summary_report(product: dict, prev: dict, date_from: str, date_to: st
         p_cpo = (p_adv / p_orders) if p_orders > 0 else 0
         p_drr = (p_adv / (p_orders * p_mkt) * 100) if (p_orders > 0 and p_mkt > 0) else 0
 
-        lines.append('')
-        lines.append('────────────────────────')
-        lines.append('*Изменения vs пред. период:*')
-        lines.append(f"Остаток:{diff(fbo, p_fbo)}  Заказы:{diff(orders, p_orders)}")
-        lines.append(f"Цена ЛК:{diff(price, p_price, less_better=True)}  На сайте:{diff(mkt_price, p_mkt, less_better=True)}")
-        lines.append(f"Соинв:{diff(coinvest, p_coinvest, pct=True)}  Поз:{diff(avg_pos, p_pos, less_better=True)}")
-        lines.append(f"Показы:{diff(shows, p_shows)}  Посещ:{diff(visits, p_visits)}")
-        lines.append(f"CTR:{diff(ctr, p_ctr, pct=True)}  Корз:{diff(cart, p_cart)}")
-        lines.append(f"CR1:{diff(cr1_val, p_cr1, pct=True)}  CR2:{diff(cr2_val, p_cr2, pct=True)}")
-        lines.append(f"Расх:{diff(adv, p_adv, less_better=True)}  CPO:{diff(cpo, p_cpo, less_better=True)}")
-        lines.append(f"ДРР:{diff(drr, p_drr, less_better=True, pct=True)}")
+    def diff_line(cur, prv, less_better=False, pct=False, suffix=''):
+        """
+        Строка разницы под показателем.
+        Зелёная стрелка = положительное изменение, красная = отрицательное, жёлтый круг = без изменений.
+        """
+        if not has_prev:
+            return ''
+        d = cur - prv
+        ad = abs(d)
+        # Форматируем значение
+        if pct:
+            val_str = f'{ad:.1f}%'
+        elif ad >= 10000:
+            val_str = f'{ad/1000:.1f}K{suffix}'
+        elif ad == int(ad):
+            val_str = f'{format_amount(int(ad))}{suffix}'
+        else:
+            val_str = f'{ad:.1f}{suffix}'
+        if abs(d) < 0.01:
+            return f'     🟡 {val_str}'
+        is_good = (d < 0) if less_better else (d > 0)
+        if is_good:
+            arrow = '🟢↑' if d > 0 else '🟢↓'
+        else:
+            arrow = '🔴↑' if d > 0 else '🔴↓'
+        return f'     {arrow} {val_str}'
+
+    lines = [
+        f"📊 *СВОДНЫЙ ОТЧЕТ*",
+        f"────────────────────────",
+        f"📦 *{offer_id}*",
+        f"_{name}_",
+        f"📅 {period_str}",
+    ]
+
+    if prev_str:
+        lines.append(f"🔄 Сравн.: {prev_str}")
+
+    lines.append('')
+    lines.append('*Основные показатели:*')
+    lines.append(f"🏷 Инд. цен: *{escape_md(get_price_index_label(price_idx))}*")
+    lines.append(f"📦 FBO остаток: *{format_amount(round(fbo))}*")
+    lines.append(diff_line(fbo, p_fbo))
+    lines.append(f"🛒 Заказы: *{format_amount(round(orders))}*")
+    lines.append(diff_line(orders, p_orders))
+
+    lines.append('')
+    lines.append('*Цены:*')
+    lines.append(f"💵 Цена в ЛК: *{format_amount(round(price))} ₽*")
+    lines.append(diff_line(price, p_price, less_better=True, suffix=' ₽'))
+    lines.append(f"📊 Соинвест: *{coinvest:.1f}%*")
+    lines.append(diff_line(coinvest, p_coinvest, pct=True))
+    lines.append(f"🏪 Цена на сайте: *{format_amount(round(mkt_price))} ₽*")
+    lines.append(diff_line(mkt_price, p_mkt, less_better=True, suffix=' ₽'))
+
+    lines.append('')
+    lines.append('*Поиск и трафик:*')
+    lines.append(f"📍 Ср. позиция: *{avg_pos:.1f}*")
+    lines.append(diff_line(avg_pos, p_pos, less_better=True))
+    lines.append(f"👁 Показы: *{format_amount(round(shows))}*")
+    lines.append(diff_line(shows, p_shows))
+    lines.append(f"👤 Посещения: *{format_amount(round(visits))}*")
+    lines.append(diff_line(visits, p_visits))
+    lines.append(f"📈 CTR: *{ctr:.1f}%*")
+    lines.append(diff_line(ctr, p_ctr, pct=True))
+
+    lines.append('')
+    lines.append('*Конверсии:*')
+    lines.append(f"🛒 Корзина: *{format_amount(round(cart))}*")
+    lines.append(diff_line(cart, p_cart))
+    lines.append(f"📊 CR1: *{cr1_val:.1f}%*")
+    lines.append(diff_line(cr1_val, p_cr1, pct=True))
+    lines.append(f"📊 CR2: *{cr2_val:.1f}%*")
+    lines.append(diff_line(cr2_val, p_cr2, pct=True))
+
+    lines.append('')
+    lines.append('*Реклама:*')
+    lines.append(f"💸 Расходы: *{format_amount(round(adv))} ₽*")
+    lines.append(diff_line(adv, p_adv, less_better=True, suffix=' ₽'))
+    lines.append(f"💰 CPO: *{format_amount(round(cpo))} ₽*")
+    lines.append(diff_line(cpo, p_cpo, less_better=True, suffix=' ₽'))
+    lines.append(f"📉 ДРР: *{drr:.1f}%*")
+    lines.append(diff_line(drr, p_drr, less_better=True, pct=True))
+
+    # Убираем пустые строки от diff_line когда нет prev
+    lines = [l for l in lines if l != '']
 
     return '\n'.join(lines)
 
@@ -3608,7 +3642,15 @@ async def summary_show_period(update_or_query, context: ContextTypes.DEFAULT_TYP
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if hasattr(update_or_query, 'edit_message_text'):
-        await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        try:
+            await update_or_query.edit_message_text(text, parse_mode='Markdown', reply_markup=reply_markup)
+        except Exception as e:
+            logger.warning(f"Не удалось отредактировать сообщение для выбора периода: {e}")
+            # Отправляем новое сообщение вместо редактирования
+            chat_id = update_or_query.message.chat_id if hasattr(update_or_query, 'message') else None
+            if chat_id:
+                from telegram import Bot
+                await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
     else:
         await update_or_query.message.reply_text(text, parse_mode='Markdown', reply_markup=reply_markup)
 
@@ -3845,11 +3887,26 @@ async def summary_result_callback(update: Update, context: ContextTypes.DEFAULT_
 
     data = query.data
 
-    if data == 'sum_back_period':
-        return await summary_show_period(query, context)
-    elif data == 'sum_back_product':
-        page = context.user_data.get('summary_page', 0)
-        return await summary_show_products(query, context, is_message=False, page=page)
+    try:
+        if data == 'sum_back_period':
+            return await summary_show_period(query, context)
+        elif data == 'sum_back_product':
+            page = context.user_data.get('summary_page', 0)
+            return await summary_show_products(query, context, is_message=False, page=page)
+    except Exception as e:
+        logger.error(f"Ошибка навигации сводного отчета: {e}")
+        # Фоллбэк: отправляем новое сообщение
+        chat_id = update.effective_chat.id
+        if data == 'sum_back_period':
+            return await summary_show_period(update, context)
+        elif data == 'sum_back_product':
+            page = context.user_data.get('summary_page', 0)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="📊 Выберите товар:",
+                reply_markup=get_main_menu()
+            )
+            return await summary_show_products(update, context, is_message=False, page=page)
 
     return STATE_SUMMARY_RESULT
 
