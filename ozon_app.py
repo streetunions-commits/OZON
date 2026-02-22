@@ -13953,29 +13953,29 @@ HTML_TEMPLATE = '''
             const totalGross = products.reduce((s, p) => s + Math.abs(p.gross_sales || 0), 0);
             // Общее кол-во нетто-продаж для распределения расходов к вычету
             const totalNetQty = products.reduce((s, p) => s + Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0)), 0);
-            const totalSellerRcv = products.reduce((s, p) => s + Math.abs(p.seller_receives || 0), 0);
 
-            // ── Шаг 1: рассчитать «сырые» налоги per product по формуле НДС+УСН ──
+            // ── Шаг 1: рассчитать налоги per product (НДС + УСН) из данных самого товара ──
+            // Без пропорций от общих сумм — каждый товар считается независимо
             const rawTaxes = products.map((p, idx) => {
-                const grossShare = (totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0;
-                const rcvShare = (totalSellerRcv > 0) ? Math.abs(p.seller_receives || 0) / totalSellerRcv : 0;
                 const pAcq = _realAcquiringBySku[p.offer_id] || _realAcquiringBySku[p.sku] || 0;
                 const pAdv = _realAdvBySku[p.offer_id] || _realAdvBySku[p.sku] || 0;
                 const pLog = _realLogisticsBySku[p.offer_id] || _realLogisticsBySku[p.sku] || 0;
                 const pBuyoutCom = _realBuyoutComBySku[p.offer_id] || _realBuyoutComBySku[p.sku] || 0;
                 const pCom = (p.commission || 0) + pAcq + pBuyoutCom;
-                // НДС база: как в карточке — _realCompensations БЕЗ баллов
-                const pComp = _realCompensations * grossShare;
-                const pNdsBase = _realSalesAfterSpp * rcvShare + pComp;
-                let pNds = (_realNdsPercent > 0) ? pNdsBase / (100 + _realNdsPercent) * _realNdsPercent : 0;
                 const pCogs = _realProductCogsMap[p.sku] || 0;
                 const pNetGross = Math.abs(p.gross_sales || 0) - Math.abs(p.return_gross || 0);
-                // УСН база: карточка делает + allComp - bonuses = + _realCompensations
-                // pComp = _realCompensations * grossShare (уже без баллов)
-                const pUsnBase = pNetGross
-                    - pAdv - pLog - _realStorage * grossShare
-                    - pCom - (_realOtherDeductions + _realPremiumDeductions) * grossShare - pCogs - _realOpex * grossShare
-                    - pNds + pComp;
+                const pSellerRcv = Math.abs(p.seller_receives || 0);
+                // НДС база = выручка продавца по товару (seller_receives)
+                let pNds = (_realNdsPercent > 0) ? pSellerRcv / (100 + _realNdsPercent) * _realNdsPercent : 0;
+                // УСН база: реализация − все расходы по товару − НДС
+                const pNetQty = Math.max(0, (p.delivery_qty || 0) - (p.return_qty || 0));
+                const pQtyShare = totalNetQty > 0 ? pNetQty / totalNetQty : 0;
+                const pPremiumPart = _realPremiumBySku[p.offer_id] || _realPremiumBySku[p.sku] || 0;
+                const pOtherPart = Math.abs(_realOtherDeductions) * pQtyShare;
+                const pOtherDed = pPremiumPart + pOtherPart;
+                const pStorage = Math.abs(_realStorage) * ((totalGross > 0) ? Math.abs(p.gross_sales || 0) / totalGross : 0);
+                const pOpex = _realOpex * pQtyShare;
+                const pUsnBase = pNetGross - pAdv - pLog - pStorage - pCom - pOtherDed - pCogs - pOpex - pNds;
                 const pUsn = pUsnBase > 0 ? pUsnBase * 15 / 100 : 0;
                 return pNds + pUsn;
             });
